@@ -1,0 +1,12 @@
+node_modules/
+dist/
+__pycache__/
+*.pyc
+*.tsbuildinfo
+*.session
+telegram_archive/
+telegram_archive.zip
+.telegram_export_lastrun.json
+.venv/
+.gstack/
+.claude/

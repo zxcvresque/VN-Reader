@@ -1,0 +1,198 @@
+=== Batch 0 ===
+[]
+
+=== Batch 1 ===
+[]
+
+=== Batch 2 ===
+[]
+
+=== Batch 3 ===
+[]
+
+=== Batch 4 ===
+[]
+
+=== Batch 5 ===
+[]
+
+=== Batch 6 ===
+[]
+
+=== Batch 7 ===
+[]
+
+=== Batch 8 ===
+[]
+
+=== Batch 9 ===
+[]
+
+=== Batch 10 ===
+[]
+
+=== Batch 11 ===
+[]
+
+=== Batch 12 ===
+[]
+
+=== Batch 13 ===
+[]
+
+=== Batch 14 ===
+[]
+
+=== Batch 15 ===
+[]
+
+=== Batch 16 ===
+[]
+
+=== Batch 17 ===
+[]
+
+=== Batch 18 ===
+[]
+
+=== Batch 19 ===
+[]
+
+=== Batch 20 ===
+[]
+
+=== Batch 21 ===
+[]
+
+=== Batch 22 ===
+[]
+
+=== Batch 23 ===
+[]
+
+=== Batch 24 ===
+[]
+
+=== Batch 25 ===
+[]
+
+=== Batch 26 ===
+[]
+
+=== Batch 27 ===
+[]
+
+=== Batch 28 ===
+[]
+
+=== Batch 29 ===
+[]
+
+=== Batch 30 ===
+[]
+
+=== Batch 31 ===
+[]
+
+=== Batch 32 ===
+[]
+
+=== Batch 33 ===
+[]
+
+=== Batch 34 ===
+[{"match": "Saudi Arabia", "canonical": "Saudi Arabia", "evidence": "Crucial steps to embedding it into a Union Territory.", "confidence": 10}, {"match": "UAE", "canonical": "United Arab Emirates", "evidence": "Unconfirmed reports floating on social media that: Saudi Arabia and the United Arab Emirates have reportedly told the President of Palestine, Mahmoud Abbas that he must Resign as President and Dissolve the current Government in order to Appoint a Saudi and UAE-Approved Government, or else they will Halt all further Financial Aid to the Palestinian Territories.", "confidence": 10}, {"match": "IMEC", "canonical": "Illegal Immigration", "evidence": "Same old template used to gain upper hand in screening. Same old template of romanticising subjects which require brainwashing & mainstream it with sympathy among youth - in this case, illegal immigration", "confidence": 10}, {"match": "MV SAIBABA", "canonical": "MV Saibaba", "evidence": "Everyone is talking reporting about Houthi attack on vessel MV SAIBABA carrying Indian crew.", "confidence": 10}]
+
+=== Batch 35 ===
+[]
+
+=== Batch 36 ===
+[]
+
+=== Batch 37 ===
+[]
+
+=== Batch 38 ===
+[]
+
+=== Batch 39 ===
+[]
+
+=== Batch 40 ===
+[]
+
+=== Batch 41 ===
+[{"match": "Sir Natwarlal", "canonical": "Sir Natwarlal (likely referring to a high-profile politician or official)", "evidence": "The violence caused by aandolanjeevis will have 2 causalities: Before elections - Sir Natwarlal will go jail.", "confidence": 10}, {"match": "Sir Justinder", "canonical": "Sir Justinder (likely referring to a high-profile politician or official)", "evidence": "The violence caused by aandolanjeevis will have 2 causalities: After elections - Sir Justinder for funding this.", "confidence": 10}]
+
+=== Batch 42 ===
+[{"match": "Natwarla", "canonical": "<recurring nickname for someone>", "evidence": "He has his people across the spectrum.", "confidence": 7}]
+
+=== Batch 43 ===
+[]
+
+=== Batch 44 ===
+[]
+
+=== Batch 45 ===
+[{"match": "Aandolanjeevis", "canonical": "BJP Activists", "evidence": "moment passports/visa started impacting their kannedda dream.", "confidence": 10}, {"match": "Cauvery", "canonical": "Cauvery Water Supply", "evidence": "man in Karnataka will seize this opportunity to stop Cauvery water supply to Tamil Nadu.", "confidence": 10}, {"match": "CAS", "canonical": "Citizenship Act 2003", "evidence": "CAS doesn't talk of granting religious persecuted minorities any kind of citizenship.", "confidence": 10}]
+
+=== Batch 46 ===
+[
+    {"match": "Delhj", "canonical": "Delhi Police", "evidence": "Delhj Police took the right step", "confidence": 10},
+    {"match": "Natwarlal", "canonical": "Natwarlal", "evidence": "Natwarlal used to put anyone who rose in the party ranks under the bus", "confidence": 10}
+]
+
+=== Batch 47 ===
+[{"match": "Sir Natwarlal", "canonical": "Recurring nickname for someone", "evidence": "He gets it done through his minions whom he eliminates later.", "confidence": 10}, {"match": "KCR", "canonical": "Karthick Raghavan", "evidence": "Any step then would've strengthened him.", "confidence": 10}, {"match": "CBN", "canonical": "Congress-BJP-NCP alliance", "evidence": "BJP withdrew from a fight in Telangana giving a free ground for Congress to form govt.", "confidence": 10}, {"match": "Natwarlal", "canonical": "Recurring nickname for someone", "evidence": "Tomorrow, Natwarlal will challenge his arrest in SC.", "confidence": 10}, {"match": "Hemant Soren", "canonical": "Hemant Soren", "evidence": "The only thing remained then was courts. This was made easy first by Sir Natwarlal himself skipping the summons (9 in a row).", "confidence": 10}, {"match": "K. Kavitha", "canonical": "Kavitha Reddy", "evidence": "She divulged all necessary details.", "confidence": 10}, {"match": "Sir Natwarlal's lawyer", "canonical": "Recurring nickname for someone", "evidence": "Who was Sir Natwarlal's lawyer?", "confidence": 10}, {"match": "Bhabhi ji", "canonical": "Bhabhi", "evidence": "Vanished. Atishi: Doing pressers, leading protests. Bhabhi ji left alone.", "confidence": 10}, {"match": "Kangana", "canonical": "Kangana Ranaut", "evidence": "So your beloved Kashmir Files actress who made a blockbuster success riding on your hatred for Muslims has given you all a tight slap.", "confidence": 10}, {"match": "Yogendra Yadav", "canonical": "Yogendra Ahir", "evidence": "Despite having such irreparable differences with Sir Natwarlal, he has defended him so brilliantly point-by-point.", "confidence": 10}]
+
+=== Batch 48 ===
+[{"match": "Natwarlal", "canonical": "Indresh Kumar", "evidence": "https://m.economictimes.com/news/india/ed-files-first-chargesheet-in-delhi-jal-board-money-laundering-case/amp_articleshow/108893690.cms", "confidence": 10}, {"match": "Sir Ji", "canonical": "Natwarlal", "evidence": "https://twitter.com/news24tvchannel/status/1773895676901863797", "confidence": 10}, {"match": "BRICS", "canonical": "BRICS", "evidence": "BRICS 2024 could be somewhere in October.", "confidence": 7}, {"match": "SEBI", "canonical": "Securities and Exchange Board of India", "evidence": "Have been cautioning since long to stay away from right-wing handles spewing hate against Muslims/Christians.", "confidence": 7}]
+
+=== Batch 49 ===
+[{"match": "Mohabbat ki dukaan", "canonical": "Rahul Gandhi", "evidence": "Modi ki guarantee vs Rahul ki guarantee.", "confidence": 10}, {"match": "Natwarlal", "canonical": "<recurring nickname for someone>", "evidence": "Told you 2024 will be bloody. It will be Modi vs All.", "confidence": 10}]
+
+=== Batch 50 ===
+[]
+
+=== Batch 51 ===
+[{"match": "RR", "canonical": "Rahul Gandhi", "evidence": "See what he did to age old Congress ammunition that Owaisi is B-team of BJP", "confidence": 10}, {"match": "Natwarlal", "canonical": "<recurring nickname for someone>", "evidence": "Sir Ji never signs a file, doesn't keep any ministry", "confidence": 10}]
+
+=== Batch 52 ===
+[{"match": "UK trip details", "canonical": "ISI + Free Kashmir group", "evidence": "Same ISI + Free Kashmir group", "confidence": 10}, {"match": "Natwarlal", "canonical": "<recurring nickname for someone>", "evidence": "Natwarlal in, new asset being created.", "confidence": 10}]
+
+=== Batch 53 ===
+[]
+
+=== Batch 54 ===
+[]
+
+=== Batch 55 ===
+[]
+
+=== Batch 56 ===
+[{"match": "WAQF", "canonical": "Waqf Properties", "evidence": "Some development on the WAQF properties", "confidence": 10}, {"match": "Cheen", "canonical": "China", "evidence": "Earn in $ & pay in रु", "confidence": 10}]
+
+=== Batch 57 ===
+[]
+
+=== Batch 58 ===
+[]
+
+=== Batch 59 ===
+[]
+
+=== Batch 60 ===
+[]
+
+=== Batch 61 ===
+[]
+
+=== Batch 62 ===
+[]
+
+=== Batch 63 ===
+[]
+
+=== Batch 64 ===
+[]
+
