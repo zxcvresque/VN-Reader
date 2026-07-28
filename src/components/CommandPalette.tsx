@@ -89,6 +89,7 @@ export interface CommandPaletteHandlers {
   onReattachMedia: () => void;
   onResetArchive: () => void;
   onImportAliasProposals: () => void;
+  onImportEntityResolutions: () => void;
 }
 
 interface CommandPaletteProps extends CommandPaletteHandlers {
@@ -149,7 +150,8 @@ export default function CommandPalette({
   onImport,
   onReattachMedia,
   onResetArchive,
-  onImportAliasProposals
+  onImportAliasProposals,
+  onImportEntityResolutions
 }: CommandPaletteProps) {
   const [search, setSearch] = useState("");
   const [inlineMode, setInlineMode] = useState<InlineMode>(null);
@@ -578,6 +580,28 @@ export default function CommandPalette({
                   <span className="cmd-item-body">
                     <span>Import alias proposals (JSON)</span>
                     <span className="cmd-item-detail">From Colab or Claude.ai output</span>
+                  </span>
+                </Command.Item>
+                <Command.Item
+                  value="archive-import-entity-resolutions"
+                  keywords={[
+                    "entity",
+                    "entities",
+                    "resolver",
+                    "resolution",
+                    "coreference",
+                    "pronoun",
+                    "json",
+                    "graph"
+                  ]}
+                  onSelect={onImportEntityResolutions}
+                >
+                  <span className="cmd-item-icon">◎</span>
+                  <span className="cmd-item-body">
+                    <span>Import entity resolutions (JSON)</span>
+                    <span className="cmd-item-detail">
+                      Aliases and contextual references from Entity Resolver
+                    </span>
                   </span>
                 </Command.Item>
                 <Command.Item

@@ -11,6 +11,10 @@ import VirtualizedMessageList, {
 } from "./components/VirtualizedMessageList";
 import { extractEntities } from "./lib/entities";
 import {
+  globalSingleAlias,
+  parseEntityResolutionJson
+} from "./lib/entity-resolutions";
+import {
   getDirectoryPermission,
   importArchiveDirectory,
   parseTagInput,
@@ -21,12 +25,14 @@ import {
   deleteBookmark,
   deleteReadOverride,
   deleteUserAlias,
+  getEntityResolutions,
   getUserAliases,
   loadAppSnapshot,
   putBookmark,
   putReadCursor,
   putReadOverride,
   putUserAlias,
+  replaceEntityResolutionsForDataset,
   resetArchiveData,
   type UserAliasRecord
 } from "./lib/idb";
@@ -35,6 +41,7 @@ import { revokeAllMediaObjectUrls } from "./lib/media";
 import type {
   AppSnapshot,
   BookmarkRecord,
+  EntityResolutionRecord,
   MessageReadOverride,
   MessageRecord,
   ReadCursor,
@@ -102,6 +109,7 @@ export default function App() {
   const [navStack, setNavStack] = useState<NavEntry[]>([]);
   const [lightboxMedia, setLightboxMedia] = useState<LightboxMedia | null>(null);
   const [userAliases, setUserAliasesState] = useState<UserAliasRecord[]>([]);
+  const [entityResolutions, setEntityResolutions] = useState<EntityResolutionRecord[]>([]);
   const [aliasProposals, setAliasProposals] = useState<AliasProposal[] | null>(null);
   const [quoteHighlight, setQuoteHighlight] = useState<{
     messageKey: string;
@@ -133,8 +141,12 @@ export default function App() {
 
   useEffect(() => {
     void (async () => {
-      const aliases = await getUserAliases();
+      const [aliases, resolutions] = await Promise.all([
+        getUserAliases(),
+        getEntityResolutions()
+      ]);
       setUserAliasesState(aliases);
+      setEntityResolutions(resolutions);
       setRuntimeUserAliases(aliases.map((a) => ({ match: a.match, canonical: a.canonical })));
     })();
   }, []);
@@ -203,6 +215,79 @@ export default function App() {
     } catch (e) {
       if ((e as { name?: string })?.name === "AbortError") return;
       setError(e instanceof Error ? e.message : "Could not load proposals.");
+    }
+  }, []);
+
+  const handleLoadEntityResolutions = useCallback(async () => {
+    try {
+      const win = window as unknown as {
+        showOpenFilePicker?: (opts: unknown) => Promise<FileSystemFileHandle[]>;
+      };
+      let text: string;
+      if (win.showOpenFilePicker) {
+        const [handle] = await win.showOpenFilePicker({
+          multiple: false,
+          types: [
+            {
+              description: "VN Reader entity resolutions",
+              accept: { "application/json": [".json"] }
+            }
+          ]
+        });
+        text = await (await handle.getFile()).text();
+      } else {
+        text = await new Promise<string>((resolve, reject) => {
+          const input = document.createElement("input");
+          input.type = "file";
+          input.accept = "application/json,.json";
+          input.onchange = async () => {
+            const file = input.files?.[0];
+            if (!file) return reject(new Error("No file chosen"));
+            resolve(await file.text());
+          };
+          input.click();
+        });
+      }
+
+      const parsed = parseEntityResolutionJson(text);
+      await replaceEntityResolutionsForDataset(
+        parsed.dataset.dataset_id,
+        parsed.resolutions
+      );
+
+      const aliasesToApply = parsed.resolutions
+        .map(globalSingleAlias)
+        .filter((value): value is { match: string; canonical: string } => Boolean(value));
+      const appliedAt = nowIso();
+      for (const alias of aliasesToApply) {
+        await putUserAlias({
+          match: alias.match,
+          canonical: alias.canonical,
+          created_at_utc: appliedAt
+        });
+      }
+
+      const [nextAliases, nextResolutions] = await Promise.all([
+        getUserAliases(),
+        getEntityResolutions()
+      ]);
+      setUserAliasesState(nextAliases);
+      setEntityResolutions(nextResolutions);
+      setRuntimeUserAliases(
+        nextAliases.map((alias) => ({
+          match: alias.match,
+          canonical: alias.canonical
+        }))
+      );
+      setPaletteOpen(false);
+      setNotice(
+        `Imported ${parsed.resolutions.length.toLocaleString()} entity resolutions`
+        + ` · ${aliasesToApply.length.toLocaleString()} reusable aliases`
+        + " · contextual references will appear in the graph."
+      );
+    } catch (e) {
+      if ((e as { name?: string })?.name === "AbortError") return;
+      setError(e instanceof Error ? e.message : "Could not load entity resolutions.");
     }
   }, []);
 
@@ -456,17 +541,58 @@ export default function App() {
     [readOverrideMap, snapshot.readCursor]
   );
 
+  const contextualEntitiesByMessage = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    for (const resolution of entityResolutions) {
+      if (
+        (resolution.status !== "resolved" && resolution.status !== "same_as_written")
+        || resolution.resolution_scope === "global_alias"
+      ) {
+        continue;
+      }
+      for (const evidence of resolution.evidence) {
+        if (!evidence.message_key) continue;
+        const entities = map.get(evidence.message_key) ?? new Set<string>();
+        resolution.canonical_names.forEach((name) => entities.add(name));
+        map.set(evidence.message_key, entities);
+      }
+    }
+    return map;
+  }, [entityResolutions]);
+
   // Entity filter set: which message_keys mention the active entity. Built
   // lazily so the cost is paid only when a filter is active.
   const entityMatchKeys = useMemo(() => {
     if (!entityFilter) return null;
     const set = new Set<string>();
+    const globalSurfaces = entityResolutions
+      .filter(
+        (resolution) =>
+          (resolution.status === "resolved" || resolution.status === "same_as_written")
+          && resolution.resolution_scope === "global_alias"
+          && resolution.canonical_names.includes(entityFilter)
+      )
+      .map((resolution) => resolution.surface_form.toLocaleLowerCase())
+      .filter(Boolean);
     for (const m of snapshot.messages) {
-      const ents = extractEntities(`${m.text ?? ""} ${m.quote_text ?? ""}`);
+      const combined = `${m.text ?? ""} ${m.quote_text ?? ""}`;
+      const ents = extractEntities(combined);
+      contextualEntitiesByMessage
+        .get(m.message_key)
+        ?.forEach((name) => ents.add(name));
+      const lower = combined.toLocaleLowerCase();
+      if (globalSurfaces.some((surface) => lower.includes(surface))) {
+        ents.add(entityFilter);
+      }
       if (ents.has(entityFilter)) set.add(m.message_key);
     }
     return set;
-  }, [snapshot.messages, entityFilter]);
+  }, [
+    snapshot.messages,
+    entityFilter,
+    entityResolutions,
+    contextualEntitiesByMessage
+  ]);
 
   const filteredMessages = useMemo(() => {
     let list = snapshot.messages;
@@ -1098,6 +1224,7 @@ export default function App() {
         <GraphView
           messages={snapshot.messages}
           userAliases={userAliases.map((a) => ({ match: a.match, canonical: a.canonical }))}
+          entityResolutions={entityResolutions}
           onFilterByEntity={(entity) => {
             setEntityFilter(entity);
             setView("read");
@@ -1192,6 +1319,7 @@ export default function App() {
         onReattachMedia={() => void handleReattachFolder()}
         onResetArchive={() => void handleResetArchive()}
         onImportAliasProposals={() => void handleLoadAliasProposals()}
+        onImportEntityResolutions={() => void handleLoadEntityResolutions()}
       />
 
       <MediaLightbox media={lightboxMedia} onClose={() => setLightboxMedia(null)} />

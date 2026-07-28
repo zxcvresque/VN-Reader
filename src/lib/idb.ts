@@ -2,6 +2,7 @@ import type {
   AppSnapshot,
   ArchiveManifest,
   BookmarkRecord,
+  EntityResolutionRecord,
   ImportSessionRecord,
   MessageReadOverride,
   MessageRecord,
@@ -10,7 +11,7 @@ import type {
 } from "../types";
 
 const DB_NAME = "vn-reader";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 type AppMetaRecord = {
   key: string;
@@ -26,6 +27,7 @@ export interface UserAliasRecord {
 type StoreMap = {
   app_meta: AppMetaRecord;
   bookmarks: BookmarkRecord;
+  entity_resolutions: EntityResolutionRecord;
   import_sessions: ImportSessionRecord;
   messages: MessageRecord;
   read_cursors: ReadCursor;
@@ -109,6 +111,12 @@ async function openDatabase(): Promise<IDBDatabase> {
 
       if (!database.objectStoreNames.contains("user_aliases")) {
         database.createObjectStore("user_aliases", { keyPath: "match" });
+      }
+
+      if (!database.objectStoreNames.contains("entity_resolutions")) {
+        const store = database.createObjectStore("entity_resolutions", { keyPath: "key" });
+        store.createIndex("by_dataset_id", "dataset_id", { unique: false });
+        store.createIndex("by_status", "status", { unique: false });
       }
     };
 
@@ -323,4 +331,23 @@ export async function putUserAlias(alias: UserAliasRecord): Promise<void> {
 
 export async function deleteUserAlias(match: string): Promise<void> {
   await deleteOne("user_aliases", match);
+}
+
+export async function getEntityResolutions(): Promise<EntityResolutionRecord[]> {
+  return getAllFromStore<EntityResolutionRecord>("entity_resolutions");
+}
+
+export async function replaceEntityResolutionsForDataset(
+  datasetId: string,
+  records: EntityResolutionRecord[]
+): Promise<void> {
+  const existing = (await getEntityResolutions()).filter(
+    (record) => record.dataset_id === datasetId
+  );
+  const database = await openDatabase();
+  const transaction = database.transaction("entity_resolutions", "readwrite");
+  const store = transaction.objectStore("entity_resolutions");
+  existing.forEach((record) => store.delete(record.key));
+  records.forEach((record) => store.put(record));
+  await transactionDone(transaction);
 }

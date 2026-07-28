@@ -188,4 +188,94 @@ Reply chains, quote-replies, media metadata, and external URLs are preserved in 
 
 ---
 
+## Entity Knowledge Graph
+
+The graph follows an Obsidian-style global-atlas model adapted to the archive:
+
+- Nodes are canonical entities rather than raw pronouns or duplicate aliases.
+- Links represent normalized shared context; resolved quote/reply references
+  retain distinct evidence and motion.
+- Node color can represent detected communities or entity types.
+- Collapsible **Groups**, **Filters**, **Display**, and **Forces** controls tune
+  density, label reveal, node/link scale, repulsion, and link behavior.
+- Labels progressively appear while zooming so the global view can remain dense
+  without turning into a wall of text.
+- Isolated/low-connectivity entities can remain visible around the main
+  clusters or be hidden.
+- Selecting a node focuses its neighbourhood and opens relationship,
+  quote/reply, and reader-thread evidence.
+
+The graph is exploratory rather than a claim that co-occurrence proves a real
+world relationship. Stronger connections are surfaced using normalized
+association scores and per-node link limits.
+
+---
+
+## Standalone Entity Resolver
+
+`entity-resolver.html` is a reusable, framework-free Q&A page for resolving
+names, aliases, noun phrases, pronouns, and implicit references into canonical
+entities. It works independently of VN Reader and keeps datasets, answers, and
+reusable canonical-entity options in its own local IndexedDB database.
+
+The generated latest-data edition is stored inside the ignored archive:
+
+`telegram_archive/entity_resolver/entity-resolver-latest.html`
+
+It embeds the current question dataset directly in the HTML, so opening that
+file loads the latest generated questions automatically. The generic
+`entity-resolver.html` can load any future compatible JSON using a file picker,
+drag/drop, or paste.
+
+- One contextual question is shown at a time with quote/reply evidence.
+- Evidence includes an **Open in Telegram** link when the source message has a
+  public channel permalink.
+- A question may resolve to more than one canonical entity.
+- Every saved canonical entity immediately becomes a later selectable option.
+- Pronouns remain occurrence/context scoped and never become global aliases.
+- Pronoun detection is deliberately conservative: ambiguous `it`/`its`
+  references are not auto-flagged, each retained pronoun is a distinct
+  occurrence, and candidates come from nearby or connected reply/quote context.
+- **Skip for now** and **Wrong flag** are separate outcomes.
+- Answers download as versioned `vn-reader-entity-resolutions` JSON.
+- Full backup/restore preserves datasets, answers, and progress.
+
+### Sharing the resolver
+
+Send `telegram_archive/entity_resolver/entity-resolver-latest.html` to another
+person. It is a single portable file containing the latest generated question
+dataset. They can open it in a modern browser, answer over multiple sessions,
+and send back the JSON produced by **Download answers**.
+
+Progress is stored in that browser's IndexedDB, not written back into the HTML
+file. The recipient should periodically use **Download full backup**. To move
+to another browser or device, open the resolver there and restore that backup.
+
+Resume Telegram and refresh the question dataset plus embedded HTML in one step:
+
+```powershell
+python update_entity_resolver.py
+```
+
+The updater resumes from the last archived message ID/date, retrieves only
+newer Telegram data, preserves the stable dataset/question history, and
+regenerates the ready-to-share embedded HTML. The latest source archive and
+generated private-data edition remain Git-ignored.
+
+To refresh questions without contacting Telegram:
+
+```powershell
+python generate_entity_questions.py
+```
+
+Import completed answers into VN Reader from **Command Palette → Import entity
+resolutions (JSON)**. Global aliases update entity matching. Pronoun and
+implicit-reference answers are attached only to their evidence messages and
+quote/reply connections.
+
+VN Reader now uses IndexedDB schema v3 with an `entity_resolutions` store. The
+standalone page uses a separate `vn-entity-resolver` database.
+
+---
+
 Built incrementally with [Claude Code](https://claude.ai/code). Local-first, archive-first, reader-first.

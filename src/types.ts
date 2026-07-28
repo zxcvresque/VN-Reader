@@ -164,3 +164,62 @@ export interface ReaderStats {
   percentRead: number;
   bookmarksByTag: Array<{ tag: string; count: number }>;
 }
+
+export type EntityMentionKind =
+  | "alias"
+  | "implicit_reference"
+  | "noun_phrase"
+  | "pronoun";
+
+export type EntityResolutionScope =
+  | "context_cluster"
+  | "global_alias"
+  | "occurrence";
+
+export type EntityResolutionStatus =
+  | "not_entity"
+  | "resolved"
+  | "same_as_written"
+  | "skipped"
+  | "unknown"
+  | "wrong_flag";
+
+export interface EntityResolutionEvidence {
+  occurrence_id: string;
+  message_key: string;
+  telegram_url: string;
+  excerpt: string;
+  relation_type: string;
+  related_message_key: string;
+  related_telegram_url: string;
+  related_excerpt: string;
+}
+
+export interface EntityResolutionRecord {
+  key: string;
+  dataset_id: string;
+  question_id: string;
+  surface_form: string;
+  mention_kind: EntityMentionKind;
+  resolution_scope: EntityResolutionScope;
+  occurrence_cluster_id: string;
+  canonical_name: string;
+  canonical_names: string[];
+  entity_type: string;
+  status: EntityResolutionStatus;
+  evidence: EntityResolutionEvidence[];
+  notes: string;
+  created_at_utc: string;
+  updated_at_utc: string;
+}
+
+export interface EntityResolutionImport {
+  schema: "vn-reader-entity-resolutions";
+  schema_version: 1;
+  exported_at_utc?: string;
+  dataset: {
+    dataset_id: string;
+    title?: string;
+  };
+  resolutions: EntityResolutionRecord[];
+}

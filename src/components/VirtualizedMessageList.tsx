@@ -81,6 +81,7 @@ const VirtualizedMessageList = forwardRef<VirtualizedMessageListHandle, Virtuali
     const [scrollTop, setScrollTop] = useState(0);
     const [viewportHeight, setViewportHeight] = useState(640);
     const [measurementVersion, setMeasurementVersion] = useState(0);
+    const lastScrollTopRef = useRef(0);
     const heightCacheRef = useRef<Map<string, number>>(new Map());
     const metricsRef = useRef<{ offsets: number[]; totalHeight: number }>({
       offsets: [],
@@ -159,7 +160,20 @@ const VirtualizedMessageList = forwardRef<VirtualizedMessageListHandle, Virtuali
       <div
         className="virtual-list-container"
         ref={containerRef}
-        onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+        onScroll={(event) => {
+          const top = event.currentTarget.scrollTop;
+          const previous = lastScrollTopRef.current;
+          lastScrollTopRef.current = top;
+          setScrollTop(top);
+          window.dispatchEvent(
+            new CustomEvent("vn-reader-scroll", {
+              detail: {
+                top,
+                direction: top > previous ? "down" : "up"
+              }
+            })
+          );
+        }}
       >
         <div className="virtual-list-spacer" style={{ height: `${metrics.totalHeight}px` }}>
           {messages.slice(startIndex, endIndex + 1).map((message, visibleIndex) => {

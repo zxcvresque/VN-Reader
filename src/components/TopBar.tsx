@@ -131,13 +131,60 @@ export default function TopBar({
   onSetView,
   onOpenPalette
 }: TopBarProps) {
+  const [compact, setCompact] = useState(view === "graph");
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  useEffect(() => {
+    if (view === "graph") {
+      setCompact(true);
+      return undefined;
+    }
+    const onReaderScroll = (event: Event) => {
+      const detail = (event as CustomEvent<{ top?: number }>).detail;
+      setCompact((detail?.top ?? 0) > 36);
+    };
+    const onWindowScroll = () => setCompact(window.scrollY > 36);
+    window.addEventListener("vn-reader-scroll", onReaderScroll);
+    window.addEventListener("scroll", onWindowScroll, { passive: true });
+    onWindowScroll();
+    return () => {
+      window.removeEventListener("vn-reader-scroll", onReaderScroll);
+      window.removeEventListener("scroll", onWindowScroll);
+    };
+  }, [view]);
+
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [view]);
+
   return (
-    <>
-      <header className="top-bar">
+      <header
+        className={[
+          "top-bar",
+          compact ? "is-compact" : "is-expanded",
+          mobileNavOpen ? "is-mobile-open" : ""
+        ].join(" ")}
+      >
         <div className="top-bar-channel" title={channelTitle}>
+          <span className="top-bar-mark" aria-hidden="true">V</span>
+          <span className="top-bar-channel-copy">
           <span className="top-bar-channel-name">{channelTitle}</span>
           <span className="top-bar-channel-meta">{channelMeta}</span>
+          </span>
         </div>
+
+        <nav className="view-switch" aria-label="Views">
+          {VIEWS.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              className={view === item.key ? "active" : ""}
+              onClick={() => onSetView(item.key)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </nav>
 
         <div className="top-bar-progress" aria-hidden>
           <div
@@ -152,23 +199,18 @@ export default function TopBar({
           <WidthSlider />
           <button type="button" className="kbd-hint" onClick={onOpenPalette}>
             <span className="kbd">⌘</span>
-            <span className="kbd">K</span>
+              <span className="kbd">K</span>
+          </button>
+          <button
+            type="button"
+            className="btn-ghost top-bar-menu"
+            aria-label="Toggle navigation"
+            aria-expanded={mobileNavOpen}
+            onClick={() => setMobileNavOpen((open) => !open)}
+          >
+            {mobileNavOpen ? "×" : "≡"}
           </button>
         </div>
       </header>
-
-      <nav className="view-switch" aria-label="Views">
-        {VIEWS.map((item) => (
-          <button
-            key={item.key}
-            type="button"
-            className={view === item.key ? "active" : ""}
-            onClick={() => onSetView(item.key)}
-          >
-            {item.label}
-          </button>
-        ))}
-      </nav>
-    </>
   );
 }
