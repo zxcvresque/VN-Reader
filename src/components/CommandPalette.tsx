@@ -1,6 +1,5 @@
 import { Command } from "cmdk";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { extractEntities } from "../lib/entities";
 import type { BookmarkRecord, MessageRecord, ThreadRecord } from "../types";
 
 interface ParsedQuery {
@@ -9,14 +8,13 @@ interface ParsedQuery {
   mediaAny: boolean;                // media:any → any media
   fromDate: string | null;          // YYYY-MM-DD
   toDate: string | null;            // YYYY-MM-DD
-  entity: string | null;            // entity:Name (case-insensitive contains match against extracted entities)
   readState: "read" | "unread" | null;
   bookmarkedOnly: boolean;
   threadOnly: boolean;              // only quote-thread messages (is_quote_reply or part of a quote chain)
   hasFilters: boolean;
 }
 
-const FILTER_RE = /\b(media|from|to|entity|unread|read|bookmarked|thread):(\S+)?/gi;
+const FILTER_RE = /\b(media|from|to|unread|read|bookmarked|thread):(\S+)?/gi;
 
 function parseQuery(input: string): ParsedQuery {
   const out: ParsedQuery = {
@@ -25,7 +23,6 @@ function parseQuery(input: string): ParsedQuery {
     mediaAny: false,
     fromDate: null,
     toDate: null,
-    entity: null,
     readState: null,
     bookmarkedOnly: false,
     threadOnly: false,
@@ -48,9 +45,6 @@ function parseQuery(input: string): ParsedQuery {
       case "to":
         if (v) out.toDate = v;
         break;
-      case "entity":
-        if (v) out.entity = v.replace(/^"|"$/g, "");
-        break;
       case "unread":
         out.readState = "unread";
         break;
@@ -70,7 +64,7 @@ function parseQuery(input: string): ParsedQuery {
   return out;
 }
 
-export type ViewName = "aliases" | "bookmarks" | "graph" | "progress" | "read" | "threads";
+export type ViewName = "bookmarks" | "progress" | "read" | "threads";
 
 export interface CommandPaletteHandlers {
   onClose: () => void;
@@ -88,8 +82,6 @@ export interface CommandPaletteHandlers {
   onImport: () => void;
   onReattachMedia: () => void;
   onResetArchive: () => void;
-  onImportAliasProposals: () => void;
-  onImportEntityResolutions: () => void;
 }
 
 interface CommandPaletteProps extends CommandPaletteHandlers {
@@ -150,8 +142,6 @@ export default function CommandPalette({
   onImport,
   onReattachMedia,
   onResetArchive,
-  onImportAliasProposals,
-  onImportEntityResolutions
 }: CommandPaletteProps) {
   const [search, setSearch] = useState("");
   const [inlineMode, setInlineMode] = useState<InlineMode>(null);
@@ -189,7 +179,6 @@ export default function CommandPalette({
     // Show hits when there's any free text (>=2 chars) OR any filter set
     if (!parsed.hasFilters && lowerSearch.length < 2) return [];
     const hits: MessageRecord[] = [];
-    const entityLower = parsed.entity?.toLowerCase() ?? null;
 
     for (const message of messages) {
       if (lowerSearch && !message.search_text.includes(lowerSearch)) continue;
@@ -206,18 +195,6 @@ export default function CommandPalette({
       if (parsed.bookmarkedOnly && !isMessageBookmarked(message)) continue;
 
       if (parsed.threadOnly && !isInQuoteThread(message)) continue;
-
-      if (entityLower) {
-        const ents = extractEntities(`${message.text ?? ""} ${message.quote_text ?? ""}`);
-        let matched = false;
-        for (const e of ents) {
-          if (e.toLowerCase().includes(entityLower)) {
-            matched = true;
-            break;
-          }
-        }
-        if (!matched) continue;
-      }
 
       hits.push(message);
       if (hits.length >= 30) break;
@@ -288,7 +265,7 @@ export default function CommandPalette({
             placeholder={
               inlineMode === "messageId"
                 ? "Loading…"
-                : "Search · try: media:photo  from:2024-01-01  entity:Modi  unread:"
+                : "Search · try: media:photo  from:2024-01-01  unread:"
             }
             disabled={inlineMode !== null}
           />
@@ -298,7 +275,6 @@ export default function CommandPalette({
               {parsed.mediaAny ? <span className="cmd-filter-chip">any media</span> : null}
               {parsed.fromDate ? <span className="cmd-filter-chip">from: {parsed.fromDate}</span> : null}
               {parsed.toDate ? <span className="cmd-filter-chip">to: {parsed.toDate}</span> : null}
-              {parsed.entity ? <span className="cmd-filter-chip">entity: {parsed.entity}</span> : null}
               {parsed.readState ? <span className="cmd-filter-chip">{parsed.readState}</span> : null}
               {parsed.bookmarkedOnly ? <span className="cmd-filter-chip">bookmarked</span> : null}
               {parsed.threadOnly ? <span className="cmd-filter-chip">in quote-thread</span> : null}
@@ -306,7 +282,7 @@ export default function CommandPalette({
           ) : null}
           {!inlineMode ? (
             <Command.List>
-              <Command.Empty>No matches. Try a message id, date, or topic.</Command.Empty>
+              <Command.Empty>No matches. Try a message id, date, or text.</Command.Empty>
 
               <Command.Group heading="Reading paths">
                 <Command.Item
@@ -433,17 +409,6 @@ export default function CommandPalette({
                   </span>
                 </Command.Item>
                 <Command.Item
-                  value="view-graph"
-                  keywords={["network", "map", "clusters", "topics", "cloud"]}
-                  onSelect={() => onSetView("graph")}
-                >
-                  <span className="cmd-item-icon">⊛</span>
-                  <span className="cmd-item-body">
-                    <span>Graph view</span>
-                    <span className="cmd-item-detail">Network of replies and topical clusters</span>
-                  </span>
-                </Command.Item>
-                <Command.Item
                   value="view-bookmarks"
                   keywords={["saved", "favorites", "starred", "tags"]}
                   onSelect={() => onSetView("bookmarks")}
@@ -463,21 +428,11 @@ export default function CommandPalette({
                     <span>Reading progress</span>
                   </span>
                 </Command.Item>
-                <Command.Item
-                  value="view-aliases"
-                  keywords={["alias", "aliases", "nickname", "code", "dictionary", "natwarlal"]}
-                  onSelect={() => onSetView("aliases")}
-                >
-                  <span className="cmd-item-icon">⇌</span>
-                  <span className="cmd-item-body">
-                    <span>Manage aliases</span>
-                    <span className="cmd-item-detail">Code names → real entities</span>
-                  </span>
-                </Command.Item>
               </Command.Group>
 
               {messageHits.length > 0 ? (
                 <Command.Group
+                  forceMount
                   heading={
                     parsed.hasFilters && !parsed.text
                       ? `Filtered messages (${messageHits.length}${messageHits.length >= 30 ? "+" : ""})`
@@ -486,6 +441,7 @@ export default function CommandPalette({
                 >
                   {messageHits.map((message) => (
                     <Command.Item
+                      forceMount
                       key={`msg-${message.message_key}`}
                       value={`msg-${message.message_key}-${message.text}`}
                       onSelect={() => onJumpToMessage(message.message_key)}
@@ -572,39 +528,6 @@ export default function CommandPalette({
                   </span>
                 </Command.Item>
                 <Command.Item
-                  value="archive-import-aliases"
-                  keywords={["alias", "ai", "proposals", "json", "dictionary", "claude", "colab"]}
-                  onSelect={onImportAliasProposals}
-                >
-                  <span className="cmd-item-icon">⇌</span>
-                  <span className="cmd-item-body">
-                    <span>Import alias proposals (JSON)</span>
-                    <span className="cmd-item-detail">From Colab or Claude.ai output</span>
-                  </span>
-                </Command.Item>
-                <Command.Item
-                  value="archive-import-entity-resolutions"
-                  keywords={[
-                    "entity",
-                    "entities",
-                    "resolver",
-                    "resolution",
-                    "coreference",
-                    "pronoun",
-                    "json",
-                    "graph"
-                  ]}
-                  onSelect={onImportEntityResolutions}
-                >
-                  <span className="cmd-item-icon">◎</span>
-                  <span className="cmd-item-body">
-                    <span>Import entity resolutions (JSON)</span>
-                    <span className="cmd-item-detail">
-                      Aliases and contextual references from Entity Resolver
-                    </span>
-                  </span>
-                </Command.Item>
-                <Command.Item
                   value="archive-reattach"
                   keywords={["media", "files", "permission", "folder"]}
                   onSelect={onReattachMedia}
@@ -654,7 +577,7 @@ export default function CommandPalette({
           <span>
             <span className="kbd">↑↓</span> nav · <span className="kbd">↵</span> select ·{" "}
             <span className="kbd">esc</span> close · filters:{" "}
-            <code>media: from: to: entity: read: unread: bookmarked: thread:</code>
+            <code>media: from: to: read: unread: bookmarked: thread:</code>
           </span>
           <span>{messages.length.toLocaleString()} indexed</span>
         </div>

@@ -1,7 +1,5 @@
 import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import AliasReview, { type AliasProposal, type AliasProposalsFile } from "./components/AliasReview";
 import CommandPalette, { type ViewName } from "./components/CommandPalette";
-import GraphView from "./components/GraphView";
 import MediaLightbox, { type LightboxMedia } from "./components/MediaLightbox";
 import MessageCard from "./components/MessageCard";
 import ThreadRail from "./components/ThreadRail";
@@ -9,11 +7,6 @@ import TopBar from "./components/TopBar";
 import VirtualizedMessageList, {
   type VirtualizedMessageListHandle
 } from "./components/VirtualizedMessageList";
-import { extractEntities } from "./lib/entities";
-import {
-  globalSingleAlias,
-  parseEntityResolutionJson
-} from "./lib/entity-resolutions";
 import {
   getDirectoryPermission,
   importArchiveDirectory,
@@ -24,24 +17,16 @@ import {
 import {
   deleteBookmark,
   deleteReadOverride,
-  deleteUserAlias,
-  getEntityResolutions,
-  getUserAliases,
   loadAppSnapshot,
   putBookmark,
   putReadCursor,
   putReadOverride,
-  putUserAlias,
-  replaceEntityResolutionsForDataset,
   resetArchiveData,
-  type UserAliasRecord
 } from "./lib/idb";
-import { setUserAliases as setRuntimeUserAliases } from "./lib/entities";
 import { revokeAllMediaObjectUrls } from "./lib/media";
 import type {
   AppSnapshot,
   BookmarkRecord,
-  EntityResolutionRecord,
   MessageReadOverride,
   MessageRecord,
   ReadCursor,
@@ -52,7 +37,6 @@ interface NavEntry {
   view: ViewName;
   threadKey: string | null;
   messageKey: string | null;
-  entityFilter: string | null;
   label: string; // human-readable origin, e.g. "msg #4551"
 }
 
@@ -105,12 +89,8 @@ export default function App() {
   const [highlightedMessageKey, setHighlightedMessageKey] = useState<string | null>(null);
   const [threadRailOpen, setThreadRailOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [entityFilter, setEntityFilter] = useState<string | null>(null);
   const [navStack, setNavStack] = useState<NavEntry[]>([]);
   const [lightboxMedia, setLightboxMedia] = useState<LightboxMedia | null>(null);
-  const [userAliases, setUserAliasesState] = useState<UserAliasRecord[]>([]);
-  const [entityResolutions, setEntityResolutions] = useState<EntityResolutionRecord[]>([]);
-  const [aliasProposals, setAliasProposals] = useState<AliasProposal[] | null>(null);
   const [quoteHighlight, setQuoteHighlight] = useState<{
     messageKey: string;
     offset: number;
@@ -138,217 +118,6 @@ export default function App() {
   useEffect(() => {
     void refreshSnapshot();
   }, [refreshSnapshot]);
-
-  useEffect(() => {
-    void (async () => {
-      const [aliases, resolutions] = await Promise.all([
-        getUserAliases(),
-        getEntityResolutions()
-      ]);
-      setUserAliasesState(aliases);
-      setEntityResolutions(resolutions);
-      setRuntimeUserAliases(aliases.map((a) => ({ match: a.match, canonical: a.canonical })));
-    })();
-  }, []);
-
-  const handleMergeEntities = useCallback(
-    async (fromMatch: string, toCanonical: string) => {
-      if (fromMatch === toCanonical) return;
-      const next: UserAliasRecord = {
-        match: fromMatch,
-        canonical: toCanonical,
-        created_at_utc: nowIso()
-      };
-      await putUserAlias(next);
-      setUserAliasesState((current) => {
-        const filtered = current.filter((a) => a.match !== fromMatch);
-        const updated = [...filtered, next];
-        setRuntimeUserAliases(
-          updated.map((a) => ({ match: a.match, canonical: a.canonical }))
-        );
-        return updated;
-      });
-      setNotice(`Merged "${fromMatch}" into "${toCanonical}". Graph rebuilding…`);
-    },
-    []
-  );
-
-  const handleLoadAliasProposals = useCallback(async () => {
-    try {
-      const win = window as unknown as {
-        showOpenFilePicker?: (opts: unknown) => Promise<FileSystemFileHandle[]>;
-      };
-      let text: string;
-      if (win.showOpenFilePicker) {
-        const [handle] = await win.showOpenFilePicker({
-          multiple: false,
-          types: [
-            {
-              description: "VN Reader alias proposals",
-              accept: { "application/json": [".json"] }
-            }
-          ]
-        });
-        const file = await handle.getFile();
-        text = await file.text();
-      } else {
-        // Fallback: legacy <input type=file>
-        text = await new Promise<string>((resolve, reject) => {
-          const input = document.createElement("input");
-          input.type = "file";
-          input.accept = "application/json,.json";
-          input.onchange = async () => {
-            const f = input.files?.[0];
-            if (!f) return reject(new Error("No file chosen"));
-            resolve(await f.text());
-          };
-          input.click();
-        });
-      }
-      const parsed = JSON.parse(text) as AliasProposalsFile;
-      if (parsed.schema !== "vn-reader-aliases" || !Array.isArray(parsed.proposals)) {
-        throw new Error("Not a vn-reader-aliases file");
-      }
-      setAliasProposals(parsed.proposals);
-      setView("aliases");
-      setNotice(`Loaded ${parsed.proposals.length} alias proposals.`);
-    } catch (e) {
-      if ((e as { name?: string })?.name === "AbortError") return;
-      setError(e instanceof Error ? e.message : "Could not load proposals.");
-    }
-  }, []);
-
-  const handleLoadEntityResolutions = useCallback(async () => {
-    try {
-      const win = window as unknown as {
-        showOpenFilePicker?: (opts: unknown) => Promise<FileSystemFileHandle[]>;
-      };
-      let text: string;
-      if (win.showOpenFilePicker) {
-        const [handle] = await win.showOpenFilePicker({
-          multiple: false,
-          types: [
-            {
-              description: "VN Reader entity resolutions",
-              accept: { "application/json": [".json"] }
-            }
-          ]
-        });
-        text = await (await handle.getFile()).text();
-      } else {
-        text = await new Promise<string>((resolve, reject) => {
-          const input = document.createElement("input");
-          input.type = "file";
-          input.accept = "application/json,.json";
-          input.onchange = async () => {
-            const file = input.files?.[0];
-            if (!file) return reject(new Error("No file chosen"));
-            resolve(await file.text());
-          };
-          input.click();
-        });
-      }
-
-      const parsed = parseEntityResolutionJson(text);
-      await replaceEntityResolutionsForDataset(
-        parsed.dataset.dataset_id,
-        parsed.resolutions
-      );
-
-      const aliasesToApply = parsed.resolutions
-        .map(globalSingleAlias)
-        .filter((value): value is { match: string; canonical: string } => Boolean(value));
-      const appliedAt = nowIso();
-      for (const alias of aliasesToApply) {
-        await putUserAlias({
-          match: alias.match,
-          canonical: alias.canonical,
-          created_at_utc: appliedAt
-        });
-      }
-
-      const [nextAliases, nextResolutions] = await Promise.all([
-        getUserAliases(),
-        getEntityResolutions()
-      ]);
-      setUserAliasesState(nextAliases);
-      setEntityResolutions(nextResolutions);
-      setRuntimeUserAliases(
-        nextAliases.map((alias) => ({
-          match: alias.match,
-          canonical: alias.canonical
-        }))
-      );
-      setPaletteOpen(false);
-      setNotice(
-        `Imported ${parsed.resolutions.length.toLocaleString()} entity resolutions`
-        + ` · ${aliasesToApply.length.toLocaleString()} reusable aliases`
-        + " · contextual references will appear in the graph."
-      );
-    } catch (e) {
-      if ((e as { name?: string })?.name === "AbortError") return;
-      setError(e instanceof Error ? e.message : "Could not load entity resolutions.");
-    }
-  }, []);
-
-  const handleApplyAliases = useCallback(
-    async (accepted: Array<{ match: string; canonical: string }>) => {
-      if (accepted.length === 0) return;
-      const now = nowIso();
-      const records: UserAliasRecord[] = accepted.map((a) => ({
-        match: a.match,
-        canonical: a.canonical,
-        created_at_utc: now
-      }));
-      for (const rec of records) {
-        await putUserAlias(rec);
-      }
-      setUserAliasesState((current) => {
-        const map = new Map(current.map((a) => [a.match, a]));
-        for (const r of records) map.set(r.match, r);
-        const updated = Array.from(map.values());
-        setRuntimeUserAliases(
-          updated.map((a) => ({ match: a.match, canonical: a.canonical }))
-        );
-        return updated;
-      });
-      setAliasProposals(null);
-      setNotice(`Applied ${records.length} alias${records.length === 1 ? "" : "es"}. Graph rebuilds on next visit.`);
-    },
-    []
-  );
-
-  const handleDeleteUserAlias = useCallback(async (match: string) => {
-    await deleteUserAlias(match);
-    setUserAliasesState((current) => {
-      const updated = current.filter((a) => a.match !== match);
-      setRuntimeUserAliases(
-        updated.map((a) => ({ match: a.match, canonical: a.canonical }))
-      );
-      return updated;
-    });
-    setNotice(`Removed alias "${match}".`);
-  }, []);
-
-  const handleUpdateUserAlias = useCallback(
-    async (match: string, canonical: string) => {
-      const next: UserAliasRecord = {
-        match,
-        canonical,
-        created_at_utc: nowIso()
-      };
-      await putUserAlias(next);
-      setUserAliasesState((current) => {
-        const updated = current.map((a) => (a.match === match ? next : a));
-        setRuntimeUserAliases(
-          updated.map((a) => ({ match: a.match, canonical: a.canonical }))
-        );
-        return updated;
-      });
-      setNotice(`Updated "${match}" → "${canonical}".`);
-    },
-    []
-  );
 
   useEffect(() => {
     let cancelled = false;
@@ -541,69 +310,13 @@ export default function App() {
     [readOverrideMap, snapshot.readCursor]
   );
 
-  const contextualEntitiesByMessage = useMemo(() => {
-    const map = new Map<string, Set<string>>();
-    for (const resolution of entityResolutions) {
-      if (
-        (resolution.status !== "resolved" && resolution.status !== "same_as_written")
-        || resolution.resolution_scope === "global_alias"
-      ) {
-        continue;
-      }
-      for (const evidence of resolution.evidence) {
-        if (!evidence.message_key) continue;
-        const entities = map.get(evidence.message_key) ?? new Set<string>();
-        resolution.canonical_names.forEach((name) => entities.add(name));
-        map.set(evidence.message_key, entities);
-      }
-    }
-    return map;
-  }, [entityResolutions]);
-
-  // Entity filter set: which message_keys mention the active entity. Built
-  // lazily so the cost is paid only when a filter is active.
-  const entityMatchKeys = useMemo(() => {
-    if (!entityFilter) return null;
-    const set = new Set<string>();
-    const globalSurfaces = entityResolutions
-      .filter(
-        (resolution) =>
-          (resolution.status === "resolved" || resolution.status === "same_as_written")
-          && resolution.resolution_scope === "global_alias"
-          && resolution.canonical_names.includes(entityFilter)
-      )
-      .map((resolution) => resolution.surface_form.toLocaleLowerCase())
-      .filter(Boolean);
-    for (const m of snapshot.messages) {
-      const combined = `${m.text ?? ""} ${m.quote_text ?? ""}`;
-      const ents = extractEntities(combined);
-      contextualEntitiesByMessage
-        .get(m.message_key)
-        ?.forEach((name) => ents.add(name));
-      const lower = combined.toLocaleLowerCase();
-      if (globalSurfaces.some((surface) => lower.includes(surface))) {
-        ents.add(entityFilter);
-      }
-      if (ents.has(entityFilter)) set.add(m.message_key);
-    }
-    return set;
-  }, [
-    snapshot.messages,
-    entityFilter,
-    entityResolutions,
-    contextualEntitiesByMessage
-  ]);
-
   const filteredMessages = useMemo(() => {
     let list = snapshot.messages;
-    if (entityMatchKeys) {
-      list = list.filter((m) => entityMatchKeys.has(m.message_key));
-    }
     if (deferredSearch) {
       list = list.filter((m) => m.search_text.includes(deferredSearch));
     }
     return list;
-  }, [snapshot.messages, deferredSearch, entityMatchKeys]);
+  }, [snapshot.messages, deferredSearch]);
 
   const filteredThreads = useMemo(() => {
     if (!deferredSearch) return derivedThreads;
@@ -981,7 +694,6 @@ export default function App() {
           view,
           threadKey: selectedThreadKey,
           messageKey: currentMessage.message_key,
-          entityFilter,
           label: `msg #${currentMessage.message_id}`
         }
       ]);
@@ -996,7 +708,7 @@ export default function App() {
       });
       focusMessage(target.message_key, { openRail: true });
     },
-    [snapshot.messages, view, selectedThreadKey, entityFilter, focusMessage]
+    [snapshot.messages, view, selectedThreadKey, focusMessage]
   );
 
   const handleNavigateBack = useCallback(() => {
@@ -1007,7 +719,6 @@ export default function App() {
       setView(target.view);
       setSelectedThreadKey(target.threadKey);
       setHighlightedMessageKey(target.messageKey);
-      setEntityFilter(target.entityFilter);
       setQuoteHighlight(null);
       return next;
     });
@@ -1090,7 +801,7 @@ export default function App() {
           </div>
           <div className="landing-notes">
             <p>Drop an archive folder produced by the exporter</p>
-            <p>Bookmarks, read state, and graph clusters live in this browser only</p>
+            <p>Bookmarks and read state live in this browser only</p>
           </div>
         </div>
         {error ? <div className="status-banner status-error">{error}</div> : null}
@@ -1146,8 +857,6 @@ export default function App() {
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
           deferredSearch={deferredSearch}
-          entityFilter={entityFilter}
-          onClearEntityFilter={() => setEntityFilter(null)}
           quoteHighlight={quoteHighlight}
           hasReadCursor={Boolean(snapshot.readCursor)}
           firstUnreadMessage={firstUnreadMessage}
@@ -1220,21 +929,6 @@ export default function App() {
         />
       ) : null}
 
-      {view === "graph" ? (
-        <GraphView
-          messages={snapshot.messages}
-          userAliases={userAliases.map((a) => ({ match: a.match, canonical: a.canonical }))}
-          entityResolutions={entityResolutions}
-          onFilterByEntity={(entity) => {
-            setEntityFilter(entity);
-            setView("read");
-            setHighlightedMessageKey(null);
-          }}
-          onJumpToThread={handleJumpToThreadId}
-          onMergeEntities={handleMergeEntities}
-        />
-      ) : null}
-
       {view === "bookmarks" ? (
         <BookmarksView
           bookmarks={snapshot.bookmarks}
@@ -1250,18 +944,6 @@ export default function App() {
           stats={stats}
           firstUnread={firstUnreadMessage}
           importSessions={snapshot.importSessions}
-        />
-      ) : null}
-
-      {view === "aliases" ? (
-        <AliasReview
-          proposals={aliasProposals}
-          existingAliases={userAliases}
-          onLoadFile={() => void handleLoadAliasProposals()}
-          onApply={(accepted) => void handleApplyAliases(accepted)}
-          onClear={() => setAliasProposals(null)}
-          onDeleteExisting={(match) => void handleDeleteUserAlias(match)}
-          onUpdateExisting={(match, canonical) => void handleUpdateUserAlias(match, canonical)}
         />
       ) : null}
 
@@ -1318,8 +1000,6 @@ export default function App() {
         onImport={() => void handleImportArchive()}
         onReattachMedia={() => void handleReattachFolder()}
         onResetArchive={() => void handleResetArchive()}
-        onImportAliasProposals={() => void handleLoadAliasProposals()}
-        onImportEntityResolutions={() => void handleLoadEntityResolutions()}
       />
 
       <MediaLightbox media={lightboxMedia} onClose={() => setLightboxMedia(null)} />
@@ -1364,8 +1044,6 @@ interface ReadingViewProps {
   searchQuery: string;
   onSearchChange: (next: string) => void;
   deferredSearch: string;
-  entityFilter: string | null;
-  onClearEntityFilter: () => void;
   quoteHighlight: QuoteHighlight | null;
   hasReadCursor: boolean;
   firstUnreadMessage: MessageRecord | null;
@@ -1401,8 +1079,6 @@ function ReadingView(props: ReadingViewProps) {
     searchQuery,
     onSearchChange,
     deferredSearch,
-    entityFilter,
-    onClearEntityFilter,
     quoteHighlight,
     hasReadCursor,
     firstUnreadMessage,
@@ -1433,48 +1109,25 @@ function ReadingView(props: ReadingViewProps) {
   } = props;
 
   const showLaunchpad =
-    !hasReadCursor && !highlightedMessageKey && !deferredSearch && !entityFilter;
+    !hasReadCursor && !highlightedMessageKey && !deferredSearch;
 
   return (
     <div className="reading-stage">
       <div className="reading-header">
         <p className="eyebrow">
-          {entityFilter
-            ? "Topic"
-            : showLaunchpad
-              ? "Begin"
-              : deferredSearch
-                ? "Search"
-                : "Reading stream"}
+          {showLaunchpad ? "Begin" : deferredSearch ? "Search" : "Reading stream"}
         </p>
         <h2>
-          {entityFilter
-            ? `${messages.length.toLocaleString()} messages mention ${entityFilter}`
-            : deferredSearch
-              ? `${messages.length.toLocaleString()} matches for "${searchQuery.trim()}"`
-              : showLaunchpad
-                ? "Pick a way to start"
-                : `${messages.length.toLocaleString()} messages in stream`}
+          {deferredSearch
+            ? `${messages.length.toLocaleString()} matches for "${searchQuery.trim()}"`
+            : showLaunchpad
+              ? "Pick a way to start"
+              : `${messages.length.toLocaleString()} messages in stream`}
         </h2>
-        {entityFilter ? (
-          <div className="filter-chip">
-            <span>Filtered by</span>
-            <strong>{entityFilter}</strong>
-            <button
-              type="button"
-              className="filter-chip-clear"
-              onClick={onClearEntityFilter}
-              aria-label="Clear topic filter"
-            >
-              ×
-            </button>
-          </div>
-        ) : (
-          <p>
-            Press <span className="kbd">⌘</span><span className="kbd">K</span> or{" "}
-            <span className="kbd">/</span> to jump, search, or switch views.
-          </p>
-        )}
+        <p>
+          Press <span className="kbd">⌘</span><span className="kbd">K</span> or{" "}
+          <span className="kbd">/</span> to jump, search, or switch views.
+        </p>
         <input
           type="search"
           value={searchQuery}

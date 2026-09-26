@@ -2,7 +2,6 @@ import type {
   AppSnapshot,
   ArchiveManifest,
   BookmarkRecord,
-  EntityResolutionRecord,
   ImportSessionRecord,
   MessageReadOverride,
   MessageRecord,
@@ -11,29 +10,21 @@ import type {
 } from "../types";
 
 const DB_NAME = "vn-reader";
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 type AppMetaRecord = {
   key: string;
   value: unknown;
 };
 
-export interface UserAliasRecord {
-  match: string;          // entity surface form to merge from (e.g. "PM Modi")
-  canonical: string;      // canonical name to merge into (e.g. "Modi")
-  created_at_utc: string;
-}
-
 type StoreMap = {
   app_meta: AppMetaRecord;
   bookmarks: BookmarkRecord;
-  entity_resolutions: EntityResolutionRecord;
   import_sessions: ImportSessionRecord;
   messages: MessageRecord;
   read_cursors: ReadCursor;
   read_overrides: MessageReadOverride;
   threads: ThreadRecord;
-  user_aliases: UserAliasRecord;
 };
 
 type StoreName = keyof StoreMap;
@@ -109,14 +100,11 @@ async function openDatabase(): Promise<IDBDatabase> {
         store.createIndex("by_imported_at_utc", "imported_at_utc", { unique: false });
       }
 
-      if (!database.objectStoreNames.contains("user_aliases")) {
-        database.createObjectStore("user_aliases", { keyPath: "match" });
-      }
-
-      if (!database.objectStoreNames.contains("entity_resolutions")) {
-        const store = database.createObjectStore("entity_resolutions", { keyPath: "key" });
-        store.createIndex("by_dataset_id", "dataset_id", { unique: false });
-        store.createIndex("by_status", "status", { unique: false });
+      // Remove only retired feature stores; preserve the archive and reading state.
+      for (const retiredStore of ["user_aliases", "entity_resolutions"]) {
+        if (database.objectStoreNames.contains(retiredStore)) {
+          database.deleteObjectStore(retiredStore);
+        }
       }
     };
 
@@ -319,35 +307,4 @@ export async function resetArchiveData(): Promise<void> {
 
 export async function putImportSessions(sessions: ImportSessionRecord[]): Promise<void> {
   await putMany<ImportSessionRecord>("import_sessions", sessions);
-}
-
-export async function getUserAliases(): Promise<UserAliasRecord[]> {
-  return getAllFromStore<UserAliasRecord>("user_aliases");
-}
-
-export async function putUserAlias(alias: UserAliasRecord): Promise<void> {
-  await putOne<UserAliasRecord>("user_aliases", alias);
-}
-
-export async function deleteUserAlias(match: string): Promise<void> {
-  await deleteOne("user_aliases", match);
-}
-
-export async function getEntityResolutions(): Promise<EntityResolutionRecord[]> {
-  return getAllFromStore<EntityResolutionRecord>("entity_resolutions");
-}
-
-export async function replaceEntityResolutionsForDataset(
-  datasetId: string,
-  records: EntityResolutionRecord[]
-): Promise<void> {
-  const existing = (await getEntityResolutions()).filter(
-    (record) => record.dataset_id === datasetId
-  );
-  const database = await openDatabase();
-  const transaction = database.transaction("entity_resolutions", "readwrite");
-  const store = transaction.objectStore("entity_resolutions");
-  existing.forEach((record) => store.delete(record.key));
-  records.forEach((record) => store.put(record));
-  await transactionDone(transaction);
 }

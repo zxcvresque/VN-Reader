@@ -14,7 +14,6 @@ interface TopBarProps {
 const VIEWS: Array<{ key: ViewName; label: string }> = [
   { key: "read", label: "Read" },
   { key: "threads", label: "Threads" },
-  { key: "graph", label: "Graph" },
   { key: "bookmarks", label: "Bookmarks" },
   { key: "progress", label: "Progress" }
 ];
@@ -131,14 +130,10 @@ export default function TopBar({
   onSetView,
   onOpenPalette
 }: TopBarProps) {
-  const [compact, setCompact] = useState(view === "graph");
+  const [compact, setCompact] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   useEffect(() => {
-    if (view === "graph") {
-      setCompact(true);
-      return undefined;
-    }
     const onReaderScroll = (event: Event) => {
       const detail = (event as CustomEvent<{ top?: number }>).detail;
       setCompact((detail?.top ?? 0) > 36);
