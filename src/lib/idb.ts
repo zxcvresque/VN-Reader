@@ -285,8 +285,8 @@ export async function loadAppSnapshot(): Promise<AppSnapshot> {
     manifest,
     messages,
     threads,
-    bookmarks,
-    readOverrides,
+    bookmarks: bookmarks.filter(b=>chatId===null||b.chat_id===chatId),
+    readOverrides: readOverrides.filter(r=>chatId===null||r.message_key.startsWith(`${chatId}:`)),
     readCursor,
     importSessions,
     directoryHandle
@@ -307,4 +307,17 @@ export async function resetArchiveData(): Promise<void> {
 
 export async function putImportSessions(sessions: ImportSessionRecord[]): Promise<void> {
   await putMany<ImportSessionRecord>("import_sessions", sessions);
+}
+
+/** Restore all legacy reading records in one transaction, without touching archive/media. */
+export async function restoreLegacyReadingState(bookmarks: BookmarkRecord[], overrides: MessageReadOverride[], cursor: ReadCursor | null): Promise<void> {
+  const database = await openDatabase();
+  const transaction = database.transaction(["bookmarks", "read_overrides", "read_cursors"], "readwrite");
+  transaction.objectStore("bookmarks").clear();
+  transaction.objectStore("read_overrides").clear();
+  transaction.objectStore("read_cursors").clear();
+  bookmarks.forEach((item) => transaction.objectStore("bookmarks").put(item));
+  overrides.forEach((item) => transaction.objectStore("read_overrides").put(item));
+  if (cursor) transaction.objectStore("read_cursors").put(cursor);
+  await transactionDone(transaction);
 }

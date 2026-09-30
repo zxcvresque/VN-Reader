@@ -1,9 +1,23 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type SyntheticEvent } from "react";
 import { getMediaObjectUrl } from "../lib/media";
 import type { BookmarkRecord, MessageRecord } from "../types";
 import TelegramRichText, { extractMessageEntities } from "./TelegramRichText";
 
 interface MessageCardProps {
+  readingStatus?: "in-progress" | "finished" | "revisit" | null;
+  onSetReadingStatus?: (message: MessageRecord, status: "in-progress" | "finished" | "revisit" | null) => void;
+  queued?: boolean;
+  onToggleQueue?: (message: MessageRecord) => void;
+  note?: string;
+  onSaveNote?: (message: MessageRecord, note: string) => void;
+  savedPassages?: Array<{ id: string; text: string; note: string }>;
+  onSavePassage?: (message: MessageRecord, text: string) => void;
+  onRemovePassage?: (id: string) => void;
+  mediaMode?: "compact" | "full" | "collapsed";
+  mediaPlayback?: { time: number; rate: number } | null;
+  onSaveMediaPlayback?: (message: MessageRecord, playback: { time: number; rate: number }) => void;
+  searchHighlight?: string;
+  onReadAround?: (message: MessageRecord) => void;
   bookmark: BookmarkRecord | null;
   directoryHandle: FileSystemDirectoryHandle | null;
   hasManualReadOverride: boolean;
@@ -70,25 +84,75 @@ function MediaPreview({
   directoryHandle,
   message,
   onReattachMedia,
-  onOpenMedia
+  onOpenMedia,
+  mediaMode = "compact",
+  mediaPlayback,
+  onSaveMediaPlayback
 }: {
   directoryHandle: FileSystemDirectoryHandle | null;
   message: MessageRecord;
+  mediaMode?: "compact" | "full" | "collapsed";
+  mediaPlayback?: { time: number; rate: number } | null;
+  onSaveMediaPlayback?: (message: MessageRecord, playback: { time: number; rate: number }) => void;
   onReattachMedia?: () => void;
   onOpenMedia?: (url: string, kind: string | null, caption?: string) => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const mediaRef = useRef<HTMLMediaElement | null>(null);
+  const lastSavedTime = useRef(-1);
+  const [playbackRate, setPlaybackRate] = useState(mediaPlayback?.rate ?? 1);
+  const collapsed = mediaMode === "collapsed" && !expanded;
+  const mediaClass = `reader-media reader-media-${collapsed ? "collapsed" : mediaMode === "collapsed" ? "compact" : mediaMode}`;
+  useEffect(() => { setExpanded(false); }, [mediaMode, message.message_key]);
+  const savePlayback = (event: SyntheticEvent<HTMLMediaElement>, force = false) => {
+    const element = event.currentTarget;
+    if (force || Math.abs(element.currentTime - lastSavedTime.current) >= 4) {
+      lastSavedTime.current = element.currentTime;
+      onSaveMediaPlayback?.(message, { time: element.currentTime, rate: element.playbackRate });
+    }
+  };
+  const restorePlayback = (event: SyntheticEvent<HTMLMediaElement>) => {
+    const element = event.currentTarget;
+    const rate = mediaPlayback?.rate ?? 1;
+    element.playbackRate = Number.isFinite(rate) && rate >= 0.25 && rate <= 4 ? rate : 1;
+    setPlaybackRate(element.playbackRate);
+    const time = mediaPlayback?.time ?? 0;
+    if (Number.isFinite(time) && time > 0) {
+      element.currentTime = Number.isFinite(element.duration) ? Math.min(time, element.duration) : time;
+    }
+  };
+  const speedControl = (
+    <label className="reader-media-speed">Playback speed
+      <select value={playbackRate} onChange={(event) => {
+        const rate = Number(event.target.value);
+        setPlaybackRate(rate);
+        if (mediaRef.current) {
+          mediaRef.current.playbackRate = rate;
+          onSaveMediaPlayback?.(message, { time: mediaRef.current.currentTime, rate });
+        }
+      }}>
+        {[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3].map((rate) => <option key={rate} value={rate}>{rate}×</option>)}
+      </select>
+    </label>
+  );
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const failedMedia = () => setError("This media could not be loaded. Try again.");
 
   useEffect(() => {
     let cancelled = false;
 
     async function load(): Promise<void> {
-      if (!directoryHandle || !message.media_path) {
+      if (!collapsed && message.media_path && /^\/api\/media\/\d+$/.test(message.media_path)) {
+        setObjectUrl(message.media_path); setError(null); return;
+      }
+      if (collapsed || !directoryHandle || !message.media_path) {
         setObjectUrl(null);
         return;
       }
 
+      setError(null);
       try {
         const url = await getMediaObjectUrl(directoryHandle, message.media_path, message.message_key);
         if (!cancelled) {
@@ -110,19 +174,27 @@ function MediaPreview({
     return () => {
       cancelled = true;
     };
-  }, [directoryHandle, message.media_path, message.message_key]);
+  }, [directoryHandle, message.media_path, message.message_key, collapsed, attempt]);
 
   if (!message.media_present) {
     return null;
   }
 
-  if (!directoryHandle || !message.media_path || error) {
+  if (collapsed) {
+    return <div className="reader-media reader-media-collapsed">
+      <span>{message.media_kind ?? "Media"} · hidden for focused reading</span>
+      <button type="button" className="reader-inline-button" onClick={() => setExpanded(true)}>Show media</button>
+    </div>;
+  }
+
+  if ((!directoryHandle && !message.media_path?.startsWith("/api/media/")) || !message.media_path || error) {
     return (
       <div className="reader-media reader-media-placeholder">
         <div>
           <p className="reader-media-kicker">{message.media_kind ?? "Media"}</p>
-          <strong>{message.media_path ?? "Metadata only"}</strong>
-          {!directoryHandle && onReattachMedia ? (
+          <strong>{message.media_path?.startsWith("/api/media/") ? "Media temporarily unavailable" : message.media_path ?? "Metadata only"}</strong>
+          {error?<button type="button" className="reader-inline-button" onClick={()=>setAttempt(v=>v+1)}>Retry media</button>:null}
+          {!directoryHandle && !message.media_path?.startsWith("/api/media/") && onReattachMedia ? (
             <button
               type="button"
               className="reader-media-reattach"
@@ -151,50 +223,43 @@ function MediaPreview({
   const caption = `#${message.message_id} · ${message.media_path ?? ""}`;
 
   if (message.media_kind === "photo" || message.media_kind === "sticker") {
-    return (
-      <figure
-        className="reader-media"
-        onClick={() => onOpenMedia?.(objectUrl, message.media_kind, caption)}
-      >
-        <img className="reader-media-visual" src={objectUrl} alt="" loading="lazy" />
-      </figure>
-    );
+    return <figure className={mediaClass}>
+      {onOpenMedia ? <button type="button" className="reader-media-image-button" aria-label={`Expand ${message.media_kind}`} onClick={() => onOpenMedia(objectUrl, message.media_kind, caption)}>
+        <img className="reader-media-visual" src={objectUrl} alt={`Attached ${message.media_kind}`} loading="lazy" onError={failedMedia}/>
+      </button> : <img className="reader-media-visual" src={objectUrl} alt={`Attached ${message.media_kind}`} loading="lazy" onError={failedMedia}/>}
+    </figure>;
   }
 
   if (message.media_kind === "video" || message.media_kind === "animation") {
-    return (
-      <figure
-        className="reader-media"
-        onClick={(event) => {
-          // Don't trigger lightbox when clicking the inline video controls
-          const target = event.target as HTMLElement;
-          if (target.tagName === "VIDEO") return;
-          onOpenMedia?.(objectUrl, message.media_kind, caption);
-        }}
-      >
-        <video className="reader-media-visual" src={objectUrl} controls preload="metadata" />
-      </figure>
-    );
+    return <figure className={mediaClass}>
+      <video ref={mediaRef as React.RefObject<HTMLVideoElement>} className="reader-media-visual" src={objectUrl} controls preload="metadata" onError={failedMedia}
+        onLoadedMetadata={restorePlayback} onTimeUpdate={savePlayback} onPause={(event) => savePlayback(event, true)} onSeeked={(event) => savePlayback(event, true)} onRateChange={(event) => { setPlaybackRate(event.currentTarget.playbackRate); savePlayback(event, true); }} />
+      {speedControl}
+      {onOpenMedia ? <button type="button" className="reader-inline-button" onClick={() => onOpenMedia(objectUrl, message.media_kind, caption)}>Expand video</button> : null}
+    </figure>;
   }
 
-  if (message.media_kind === "audio") {
-    return (
-      <div className="reader-media reader-media-audio">
-        <audio src={objectUrl} controls preload="metadata" />
-      </div>
-    );
+  if (message.media_kind === "audio" || message.media_kind === "voice") {
+    return <div className={`${mediaClass} reader-media-audio`}>
+      <audio ref={mediaRef as React.RefObject<HTMLAudioElement>} src={objectUrl} controls preload="metadata" onError={failedMedia}
+        onLoadedMetadata={restorePlayback} onTimeUpdate={savePlayback} onPause={(event) => savePlayback(event, true)} onSeeked={(event) => savePlayback(event, true)} onRateChange={(event) => { setPlaybackRate(event.currentTarget.playbackRate); savePlayback(event, true); }} />
+      {speedControl}
+    </div>;
   }
 
   return (
     <div className="reader-media reader-media-file">
       <a href={objectUrl} target="_blank" rel="noreferrer">
-        Open local {message.media_kind ?? "file"}
+        Open {message.media_kind ?? "file"}
       </a>
     </div>
   );
 }
 
 export default function MessageCard({
+  readingStatus = null, onSetReadingStatus, queued = false, onToggleQueue,
+  note = "", onSaveNote, savedPassages = [], onSavePassage, onRemovePassage,
+  mediaMode = "compact", mediaPlayback, onSaveMediaPlayback, searchHighlight, onReadAround,
   bookmark,
   directoryHandle,
   hasManualReadOverride,
@@ -218,6 +283,26 @@ export default function MessageCard({
 }: MessageCardProps) {
   const [tagInput, setTagInput] = useState(bookmark?.tags.join(", ") ?? "");
   const [sourcesOpen, setSourcesOpen] = useState(false);
+  const [noteOpen, setNoteOpen] = useState(false);
+  const [labelsOpen, setLabelsOpen] = useState(false);
+  const actionsRef = useRef<HTMLDetailsElement>(null);
+  const closeActions = () => { if(actionsRef.current){actionsRef.current.open=false;actionsRef.current.querySelector<HTMLElement>("summary")?.focus();} };
+  useEffect(()=>{const outside=(event:PointerEvent)=>{if(actionsRef.current?.open&&!actionsRef.current.contains(event.target as Node))actionsRef.current.open=false;};const key=(event:KeyboardEvent)=>{if(event.key==="Escape"&&actionsRef.current?.open){event.preventDefault();closeActions();}};document.addEventListener("pointerdown",outside);document.addEventListener("keydown",key);return()=>{document.removeEventListener("pointerdown",outside);document.removeEventListener("keydown",key);};},[]);
+  const [noteDraft, setNoteDraft] = useState(note);
+  const [selectedPassage, setSelectedPassage] = useState("");
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => { setNoteDraft(note); }, [note, message.message_key]);
+  const captureSelection = () => {
+    const selection = window.getSelection();
+    const body = bodyRef.current;
+    const text = selection?.toString().trim() ?? "";
+    if (!selection || !body || !selection.anchorNode || !selection.focusNode || !body.contains(selection.anchorNode) || !body.contains(selection.focusNode)
+      || text.length < 3 || text.length > 20000 || !message.text.replace(/\s+/g, " ").includes(text.replace(/\s+/g, " "))) {
+      setSelectedPassage("");
+      return;
+    }
+    setSelectedPassage(text);
+  };
   const messageEntities = useMemo(() => extractMessageEntities(message.raw), [message.raw]);
   const allSources = useMemo(() => {
     const explicit = Array.isArray(message.external_urls) ? message.external_urls : [];
@@ -280,8 +365,10 @@ export default function MessageCard({
 
         <div className="reader-message-badges">
           <span className={`reader-pill ${isRead ? "reader-pill-read" : "reader-pill-unread"}`}>
-            {isRead ? "Read" : "Unread"}
+            {isRead ? "Seen" : "Unseen"}
           </span>
+          {readingStatus ? <span className={`reader-pill reader-pill-${readingStatus}`}>{readingStatus === "in-progress" ? "In progress" : readingStatus === "finished" ? "Finished" : "Revisit"}</span> : null}
+          {queued ? <span className="reader-pill reader-pill-queued">Read later</span> : null}
           {message.is_quote_reply ? <span className="reader-pill reader-pill-quote">Quote</span> : null}
           {message.media_present ? (
             <span className="reader-pill reader-pill-media">{message.media_kind ?? "Media"}</span>
@@ -292,7 +379,7 @@ export default function MessageCard({
         </div>
       </header>
 
-      <div className="reader-message-context">
+      <div className="reader-message-context" data-tour="source-context">
         <div className="reader-message-threadline">
           <span>
             {message.thread_root_id === message.message_id
@@ -350,70 +437,72 @@ export default function MessageCard({
         </blockquote>
       ) : null}
 
-      <div className="reader-message-body">
+      <div className="reader-message-body" data-tour="passages" ref={bodyRef} onMouseUp={captureSelection} onKeyUp={captureSelection} onTouchEnd={captureSelection}>
         {message.text ? (
           <TelegramRichText
             className="reader-message-text"
             text={message.text}
             entities={messageEntities}
             highlightRange={effectiveHighlight}
+            searchHighlight={searchHighlight}
+            savedPassageTexts={savedPassages.map((passage) => passage.text)}
           />
         ) : (
           <p className="reader-empty-copy">No text content</p>
         )}
       </div>
 
+      {selectedPassage && onSavePassage ? <div className="reader-selection-bar" role="status">
+        <span>Save this passage to your library</span>
+        <button type="button" onClick={() => { onSavePassage(message, selectedPassage); setSelectedPassage(""); window.getSelection()?.removeAllRanges(); }}>Save passage</button>
+        <button type="button" className="reader-text-button" onClick={() => setSelectedPassage("")}>Dismiss</button>
+      </div> : null}
+
       <MediaPreview
         directoryHandle={directoryHandle}
         message={message}
         onOpenMedia={onOpenMedia}
         onReattachMedia={onReattachMedia}
+        mediaMode={mediaMode}
+        mediaPlayback={mediaPlayback}
+        onSaveMediaPlayback={onSaveMediaPlayback}
       />
 
       <footer className="reader-message-footer">
-        <div className="reader-message-actions">
-          <button type="button" className="is-primary" onClick={() => onMarkReadTillHere(message)}>
-            Read till here
-          </button>
-          <button type="button" onClick={() => onMarkRead(message)}>
-            Mark read
-          </button>
-          <button type="button" onClick={() => onMarkUnread(message)}>
-            Mark unread
-          </button>
-          {hasManualReadOverride ? (
-            <button
-              type="button"
-              className="reader-text-button"
-              onClick={() => onClearReadOverride(message.message_key)}
-            >
-              Clear override
-            </button>
-          ) : null}
-          <button
-            type="button"
-            className={bookmark ? "is-saved" : ""}
-            onClick={() => onToggleBookmark(message)}
-          >
-            {bookmark ? "★ Saved" : "Save"}
-          </button>
-          {allSources.length ? (
-            <button
-              type="button"
-              className={sourcesOpen ? "is-saved" : ""}
-              onClick={() => setSourcesOpen((open) => !open)}
-            >
-              {allSources.length === 1
-                ? "Source"
-                : `Sources (${allSources.length})`}
-            </button>
-          ) : null}
-          {message.permalink ? (
-            <a className="reader-text-link" href={message.permalink} target="_blank" rel="noreferrer">
-              Telegram ↗
-            </a>
-          ) : null}
+        <div className="reader-study-controls reader-compact-controls" data-tour="reading-state">
+          {onSetReadingStatus ? <label className="reader-status-control"><span className="sr-only">Reading state</span>
+            <select aria-label={`Reading state for post ${message.message_id}`} value={readingStatus ?? ""} onChange={(event) => onSetReadingStatus(message, event.target.value ? event.target.value as "in-progress" | "finished" | "revisit" : null)}>
+              <option value="">Not started</option><option value="in-progress">In progress</option><option value="finished">Finished</option><option value="revisit">Revisit</option>
+            </select>
+          </label> : null}
+          <div className="reader-compact-buttons">
+            {onToggleQueue ? <button type="button" aria-label={queued?"Remove from queue":"Read later"} title={queued?"Remove from queue":"Read later"} aria-pressed={queued} className={`post-icon-button ${queued?"is-saved":""}`} onClick={() => onToggleQueue(message)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><circle cx="10" cy="10" r="7"/><path d="M10 6v4l3 2"/></svg></button>:null}
+            <button type="button" className={`post-icon-button ${bookmark?"is-saved":""}`} aria-label={bookmark?"Remove bookmark":"Save post"} title={bookmark?"Remove bookmark":"Save post"} aria-pressed={!!bookmark} onClick={()=>onToggleBookmark(message)}><svg viewBox="0 0 20 20" fill={bookmark?"currentColor":"none"} stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M5 3h10v14l-5-3-5 3V3Z"/></svg></button>
+            <details ref={actionsRef} className="post-more-actions"><summary aria-label={`More actions for post ${message.message_id}`} title="More actions"><svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><circle cx="4" cy="10" r="1.5"/><circle cx="10" cy="10" r="1.5"/><circle cx="16" cy="10" r="1.5"/></svg></summary>
+              <div className="post-more-panel" role="group" aria-label={`Additional actions for post ${message.message_id}`}>
+                {onSaveNote?<button type="button" onClick={()=>{setNoteOpen(o=>!o);closeActions();}}>{note?"Edit note":"Add note"}</button>:null}
+                {onReadAround?<button type="button" onClick={()=>{closeActions();onReadAround(message);}}>Read around this</button>:null}
+                <button type="button" onClick={()=>{closeActions();onMarkReadTillHere(message);}}>Seen till here</button>
+                <button type="button" onClick={()=>{closeActions();onMarkRead(message);}}>Mark seen</button>
+                <button type="button" onClick={()=>{closeActions();onMarkUnread(message);}}>Mark unseen</button>
+                {hasManualReadOverride?<button type="button" onClick={()=>{closeActions();onClearReadOverride(message.message_key);}}>Clear override</button>:null}
+                {bookmark?<button type="button" onClick={()=>{setLabelsOpen(o=>!o);closeActions();}}>Edit bookmark labels</button>:null}
+                {allSources.length?<button type="button" onClick={()=>{setSourcesOpen(o=>!o);closeActions();}}>{allSources.length===1?"Source":`Sources (${allSources.length})`}</button>:null}
+                {message.permalink?<a href={message.permalink} target="_blank" rel="noreferrer" onClick={closeActions}>Open in Telegram ↗</a>:null}
+              </div>
+            </details>
+          </div>
         </div>
+        {noteOpen && onSaveNote ? <div className="reader-note-editor">
+          <label>Personal note<textarea autoFocus aria-label={`Note for post ${message.message_id}`} value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} placeholder="What do you want to remember?" rows={3} /></label>
+          <button type="button" onClick={() => { onSaveNote(message, noteDraft.trim()); setNoteOpen(false); }}>Save note</button>
+          <button type="button" className="reader-text-button" onClick={() => { setNoteDraft(note); setNoteOpen(false); }}>Cancel</button>
+        </div> : note ? <div className="reader-personal-note"><small>Your note</small><p>{note}</p></div> : null}
+        {savedPassages.length ? <details className="reader-saved-passages"><summary>{savedPassages.length} saved {savedPassages.length === 1 ? "passage" : "passages"}</summary>
+          {savedPassages.map((passage) => <div className="reader-saved-passage" key={passage.id}><blockquote>{passage.text}</blockquote>{passage.note ? <p>{passage.note}</p> : null}
+            {onRemovePassage ? <button type="button" className="reader-text-button" onClick={() => onRemovePassage(passage.id)}>Remove passage</button> : null}
+          </div>)}
+        </details> : null}
         {sourcesOpen && allSources.length ? (
           <div className="reader-sources-panel">
             <p className="reader-sources-label">
@@ -433,7 +522,7 @@ export default function MessageCard({
           </div>
         ) : null}
 
-        {bookmark ? (
+        {bookmark && labelsOpen ? (
           <div className="reader-bookmark-editor">
             <label>
               Notes or labels

@@ -9,4 +9,15 @@ telegram_archive.zip
 .telegram_export_lastrun.json
 .venv/
 .gstack/
+.pnpm-store/
 .claude/
+.env
+.env.*
+!.env.example
+data/
+*.session-journal
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+
+deploy/secrets/

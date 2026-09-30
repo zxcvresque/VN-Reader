@@ -1,3 +1,4 @@
+import { resetArchiveData } from "./idb";
 import {
   getManifest,
   getMessageRecords,
@@ -115,7 +116,7 @@ function toMessageSeed(input: ArchiveMessage | MessageRecord): MessageSeed {
   };
 }
 
-function recomputeThreadLinks(messages: MessageSeed[]): MessageRecord[] {
+export function recomputeThreadLinks(messages: MessageSeed[]): MessageRecord[] {
   const ordered = [...messages].sort((left, right) => left.message_id - right.message_id);
   const threadRootByMessageId = new Map<number, number>();
 
@@ -146,7 +147,7 @@ function recomputeThreadLinks(messages: MessageSeed[]): MessageRecord[] {
   });
 }
 
-function buildThreadRecords(messages: MessageRecord[]): ThreadRecord[] {
+export function buildThreadRecords(messages: MessageRecord[]): ThreadRecord[] {
   const byThread = new Map<string, ThreadRecord>();
 
   for (const message of messages) {
@@ -278,7 +279,7 @@ export async function importArchiveDirectory(
 
   if (
     existingManifest &&
-    existingManifest.source.chat_id !== manifest.source.chat_id
+    existingManifest.source.chat_id !== manifest.source.chat_id && existingManifest.source.chat_id !== -90001
   ) {
     throw new Error(
       "This reader is single-channel for v1. Reset local data before importing another channel."
@@ -288,7 +289,8 @@ export async function importArchiveDirectory(
   const fileHandle = await directoryHandle.getFileHandle(manifest.files.messages);
   const file = await fileHandle.getFile();
 
-  const existingMessages = await getMessageRecords();
+  const replacingSample = existingManifest?.source.chat_id === -90001 && manifest.source.chat_id !== -90001;
+  const existingMessages = replacingSample ? [] : await getMessageRecords();
   const merged = new Map<string, MessageSeed>(
     existingMessages.map((message) => [message.message_key, toMessageSeed(message)])
   );
@@ -303,6 +305,7 @@ export async function importArchiveDirectory(
   const normalizedMessages = recomputeThreadLinks(Array.from(merged.values()));
   const threads = buildThreadRecords(normalizedMessages);
 
+  if (replacingSample) await resetArchiveData();
   await replaceAllMessages(normalizedMessages);
   await replaceAllThreads(threads);
   await saveManifest(manifest);

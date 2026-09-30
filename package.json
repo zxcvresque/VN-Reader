@@ -6,10 +6,17 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test tests/*.test.mjs",
+    "accounts": "node server/accountService.mjs",
+    "test:accounts": "node --test tests/accounts.test.mjs"
   },
   "dependencies": {
+    "better-auth": "^1.7.6",
     "cmdk": "^1.1.1",
+    "dotenv": "^18.0.4",
+    "express": "^5.2.1",
+    "nodemailer": "^10.0.12",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
@@ -17,7 +24,11 @@
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "react-test-renderer": "18.3.1",
     "typescript": "^5.6.3",
     "vite": "^5.4.10"
+  },
+  "engines": {
+    "node": ">=24.15.0"
   }
 }

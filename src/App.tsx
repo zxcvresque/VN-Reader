@@ -1,10 +1,24 @@
 import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { loadSampleArchive } from "./lib/demo";
+import ReaderSettings from "./components/ReaderSettings";
+import ReaderGuide from "./components/ReaderGuide";
+import ReaderAccount from "./components/ReaderAccount";
+import { useReaderAccount } from "./lib/useReaderAccount";
+import { fetchSiteArchive } from "./lib/api";
+import type { ReadingBackup } from "./lib/backup";
+import type { GuideTopic, TourStep } from "./lib/tours";
+import ReadingLibrary from "./components/ReadingLibrary";
+import { applyPreferences, loadPreferences, savePreferences, PREFERENCES_KEY, type ReaderPreferences } from "./lib/preferences";
+import { createReadingState, loadReadingState, saveReadingState, type ReadingState } from "./lib/readingState";
+import { createBackup, parseBackup } from "./lib/backup";
 import CommandPalette, { type ViewName } from "./components/CommandPalette";
 import MediaLightbox, { type LightboxMedia } from "./components/MediaLightbox";
 import MessageCard from "./components/MessageCard";
 import ThreadRail from "./components/ThreadRail";
 import TopBar from "./components/TopBar";
+import PostTimeline from "./components/PostTimeline";
 import VirtualizedMessageList, {
+  type ReadingPosition,
   type VirtualizedMessageListHandle
 } from "./components/VirtualizedMessageList";
 import {
@@ -12,7 +26,7 @@ import {
   importArchiveDirectory,
   parseTagInput,
   pickArchiveDirectory,
-  reattachArchiveDirectory
+  reattachArchiveDirectory, recomputeThreadLinks, buildThreadRecords
 } from "./lib/archive";
 import {
   deleteBookmark,
@@ -22,6 +36,8 @@ import {
   putReadCursor,
   putReadOverride,
   resetArchiveData,
+  restoreLegacyReadingState,
+  replaceAllMessages, replaceAllThreads, saveManifest, saveDirectoryHandle,
 } from "./lib/idb";
 import { revokeAllMediaObjectUrls } from "./lib/media";
 import type {
@@ -37,7 +53,8 @@ interface NavEntry {
   view: ViewName;
   threadKey: string | null;
   messageKey: string | null;
-  label: string; // human-readable origin, e.g. "msg #4551"
+  label: string;
+  position: ReadingPosition | null;
 }
 
 const EMPTY_SNAPSHOT: AppSnapshot = {
@@ -51,6 +68,10 @@ const EMPTY_SNAPSHOT: AppSnapshot = {
   directoryHandle: null
 };
 
+function savedPosition(position:ReadingPosition) {
+  const {messageKey: _key,...withinPost}=position;
+  return {...withinPost,updatedAt:new Date().toISOString()};
+}
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -90,6 +111,59 @@ export default function App() {
   const [threadRailOpen, setThreadRailOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [navStack, setNavStack] = useState<NavEntry[]>([]);
+  const [forwardStack, setForwardStack] = useState<NavEntry[]>([]);
+  const [preferences, setPreferences] = useState<ReaderPreferences>(loadPreferences);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const accountActiveRef = useRef(false);
+  const guestBackupRef = useRef<ReadingBackup | null>(null);
+  const preferencesRef = useRef(preferences); preferencesRef.current = preferences;
+  const snapshotRef = useRef(snapshot); snapshotRef.current = snapshot;
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
+  const [guideTopic, setGuideTopic] = useState<GuideTopic | null>(null);
+  const [guideStep, setGuideStep] = useState<TourStep | null>(null);
+  const guideReturnRef = useRef<{ entry: NavEntry; library: boolean; search: boolean; query: string; streamQuery: string; windowTop: number; readingPosition: ReadingPosition | null; settings: boolean; settingsScroll: number; reached: boolean; source: {message: MessageRecord; origin: MessageRecord} | null } | null>(null);
+  const guideActiveRef = useRef(false);
+  const [readerSearchOpen, setReaderSearchOpen] = useState(false);
+  const [readerSearch, setReaderSearch] = useState("");
+  const [sourcePeek, setSourcePeek] = useState<{message: MessageRecord; origin: MessageRecord} | null>(null);
+  const [personal, setPersonal] = useState<ReadingState>(() => createReadingState(null));
+  const personalRef = useRef(personal);
+  const lastPositionRef = useRef<ReadingPosition | null>(null);
+  const pendingPositionRef = useRef<ReadingPosition | null>(null);
+  const initialRestoreRef = useRef<number | null>(null);
+  const searchReturnRef = useRef<NavEntry | null>(null);
+  const positionTimerRef = useRef<number | null>(null);
+  const [navigationVersion, setNavigationVersion] = useState(0);
+  const appliedNavigationRef = useRef(-1);
+  const [backupBusy, setBackupBusy] = useState(false);
+  const restoringBackupRef=useRef(false);
+  const [sessionMode, setSessionMode] = useState<"posts"|"minutes"|"date">("posts");
+  const [sessionValue, setSessionValue] = useState("5");
+  const [session, setSession] = useState<{endKey:string; label:string} | null>(null);
+  const [sessionReached, setSessionReached] = useState(false);
+
+  const commitPersonal = useCallback((next: ReadingState) => {
+    try { if (!accountActiveRef.current) saveReadingState(next); personalRef.current = next; setPersonal(next); }
+    catch (e) { setError(e instanceof Error ? e.message : "Could not save reading state."); }
+  }, []);
+  const changePreferences = useCallback((next: ReaderPreferences) => {
+    try { if (!accountActiveRef.current) savePreferences(next); applyPreferences(next); setPreferences(next); }
+    catch (e) { setError(e instanceof Error ? e.message : "Could not save preferences."); }
+  }, []);
+  useEffect(() => {
+    applyPreferences(guideOpen && guideTopic ? { ...preferences, focusMode: false } : preferences);
+    document.documentElement.dataset.touring = String(guideOpen && guideTopic !== null);
+  }, [preferences, guideOpen, guideTopic]);
+  useEffect(()=>{
+    const sync=(event:StorageEvent)=>{if(event.key===PREFERENCES_KEY&&!accountActiveRef.current)setPreferences(loadPreferences());};
+    window.addEventListener("storage",sync);return()=>window.removeEventListener("storage",sync);
+  },[]);
+  useEffect(()=>{
+    if(!preferences.focusMode)return;
+    setView("read");setLibraryOpen(false);setReaderSearchOpen(false);setSourcePeek(null);setThreadRailOpen(false);
+  },[preferences.focusMode]);
   const [lightboxMedia, setLightboxMedia] = useState<LightboxMedia | null>(null);
   const [quoteHighlight, setQuoteHighlight] = useState<{
     messageKey: string;
@@ -102,6 +176,34 @@ export default function App() {
   >("needs-reattach");
 
   const timelineRef = useRef<VirtualizedMessageListHandle | null>(null);
+  const applyAccountDocument = useCallback((data: ReadingBackup, restorePosition = false) => {
+    const initial = guestBackupRef.current === null;
+    if (initial) guestBackupRef.current = createBackup(snapshotRef.current, personalRef.current, preferencesRef.current);
+    if(positionTimerRef.current){window.clearTimeout(positionTimerRef.current);positionTimerRef.current=null;}
+    personalRef.current=data.readingState;setPersonal(data.readingState);setPreferences(data.preferences);
+    setSnapshot(s=>({...s,bookmarks:data.bookmarks,readOverrides:data.readOverrides,readCursor:data.readCursor}));
+    if(initial||restorePosition){
+      lastPositionRef.current=null;
+      const latest=Object.entries(data.readingState.positions).sort((a,b)=>b[1].updatedAt.localeCompare(a[1].updatedAt))[0];
+      pendingPositionRef.current=latest?{...latest[1],messageKey:latest[0]}:null;
+      setHighlightedMessageKey(latest?.[0]??data.readCursor?.message_key??null);setNavigationVersion(v=>v+1);
+    }
+  },[]);
+  const restoreGuest = useCallback(() => {
+    const saved=guestBackupRef.current;guestBackupRef.current=null;
+    if(saved&&saved.chatId===snapshotRef.current.manifest?.source.chat_id){
+      personalRef.current=saved.readingState;setPersonal(saved.readingState);setPreferences(loadPreferences());
+      setSnapshot(s=>({...s,bookmarks:saved.bookmarks,readOverrides:saved.readOverrides,readCursor:saved.readCursor}));
+      const latest=Object.entries(saved.readingState.positions).sort((a,b)=>b[1].updatedAt.localeCompare(a[1].updatedAt))[0];
+      lastPositionRef.current=null;pendingPositionRef.current=latest?{...latest[1],messageKey:latest[0]}:null;
+      setHighlightedMessageKey(latest?.[0]??saved.readCursor?.message_key??null);setNavigationVersion(v=>v+1);
+    }else{initialRestoreRef.current=null;setPreferences(loadPreferences());void loadAppSnapshot().then(s=>setSnapshot(s));}
+  },[]);
+  const accountDocument=useMemo(()=>({...createBackup(snapshot,personal,preferences),exportedAt:"2000-01-01T00:00:00.000Z"}),[snapshot,personal,preferences]);
+  const account=useReaderAccount(accountDocument,applyAccountDocument,restoreGuest,(data)=>parseBackup(data,snapshotRef.current));
+  const accountFlushRef=useRef(account.flush);accountFlushRef.current=account.flush;
+  accountActiveRef.current=account.user!==null;
+  const accountDialog=accountOpen?<ReaderAccount account={account} onClose={()=>setAccountOpen(false)}/>:null;
   const deferredSearch = useDeferredValue(searchQuery.trim().toLowerCase());
 
   // -------- snapshot loading --------
@@ -109,15 +211,41 @@ export default function App() {
   const refreshSnapshot = useCallback(async (message?: string): Promise<void> => {
     const next = await loadAppSnapshot();
     startTransition(() => {
-      setSnapshot(next);
+      setSnapshot(current=>accountActiveRef.current?{...next,
+        bookmarks:current.bookmarks.filter(b=>b.chat_id===next.manifest?.source.chat_id),
+        readOverrides:current.readOverrides.filter(r=>r.message_key.startsWith(`${next.manifest?.source.chat_id}:`)),
+        readCursor:current.readCursor?.chat_id===next.manifest?.source.chat_id?current.readCursor:null}:next);
       setBusyLabel(null);
       if (message) setNotice(message);
     });
   }, []);
 
   useEffect(() => {
-    void refreshSnapshot();
+    void refreshSnapshot().catch((e) => { setBusyLabel(null); setError(e instanceof Error ? e.message : "Could not load archive."); });
   }, [refreshSnapshot]);
+
+  useEffect(() => {
+    if(!account.config?.archiveEnabled)return;
+    let stopped=false;let running=false;
+    const update=async()=>{
+      if(running)return;running=true;
+      try{
+        const data=await fetchSiteArchive();if(stopped)return;
+        const messages=recomputeThreadLinks(data.messages);const threads=buildThreadRecords(messages);
+        if(!messages.length)return;
+        await replaceAllMessages(messages);await replaceAllThreads(threads);await saveManifest(data.manifest);await saveDirectoryHandle(null);
+        if(stopped)return;
+        setSnapshot(current=>({...current,manifest:data.manifest,messages,threads,directoryHandle:null,
+          bookmarks:current.bookmarks.filter(b=>b.chat_id===data.manifest.source.chat_id),
+          readOverrides:current.readOverrides.filter(r=>r.message_key.startsWith(`${data.manifest.source.chat_id}:`)),
+          readCursor:current.readCursor?.chat_id===data.manifest.source.chat_id?current.readCursor:null}));
+        setBusyLabel(null);
+      }catch(e){if(snapshotRef.current.messages.length===0)setError(e instanceof Error?e.message:"The archive could not be reached.");}
+      finally{running=false;}
+    };
+    void update();const timer=window.setInterval(()=>{if(document.visibilityState==="visible")void update();},60000);
+    return()=>{stopped=true;window.clearInterval(timer);};
+  },[account.config?.archiveEnabled]);
 
   useEffect(() => {
     let cancelled = false;
@@ -134,10 +262,39 @@ export default function App() {
   useEffect(() => () => revokeAllMediaObjectUrls(), []);
 
   useEffect(() => {
-    if (!highlightedMessageKey && snapshot.readCursor?.message_key) {
-      setHighlightedMessageKey(snapshot.readCursor.message_key);
-    }
-  }, [highlightedMessageKey, snapshot.readCursor]);
+    const chatId = snapshot.manifest?.source.chat_id ?? null;
+    if (chatId === null || initialRestoreRef.current === chatId) return;
+    initialRestoreRef.current = chatId;
+    // Load schedules a new navigation render; do not consume its pending position
+    // in the current render and then jump to the post start in the next one.
+    appliedNavigationRef.current = navigationVersion;
+    if(positionTimerRef.current){window.clearTimeout(positionTimerRef.current);positionTimerRef.current=null;}
+    lastPositionRef.current=null;pendingPositionRef.current=null;
+    setNavStack([]);setForwardStack([]);setHighlightedMessageKey(null);setSelectedThreadKey(null);
+    setSession(null);setSessionReached(false);
+    try {
+      const next = loadReadingState(chatId);
+      personalRef.current = next; setPersonal(next);
+      const saved = Object.entries(next.positions).filter(([key]) => snapshot.messages.some(m => m.message_key === key))
+        .sort((a,b) => b[1].updatedAt.localeCompare(a[1].updatedAt))[0];
+      if (saved) { pendingPositionRef.current = {...saved[1],messageKey:saved[0]}; setHighlightedMessageKey(saved[0]); }
+      else if (snapshot.readCursor) { setHighlightedMessageKey(snapshot.readCursor.message_key); }
+      setNavigationVersion(v => v+1);
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not load reading state."); }
+  }, [snapshot.manifest, snapshot.messages, snapshot.readCursor]);
+
+  useEffect(() => {
+    const flush = () => {
+      const position = lastPositionRef.current;
+      if (!position || personalRef.current.chatId === null || restoringBackupRef.current) return;
+      const next = {...personalRef.current, positions: {...personalRef.current.positions,
+        [position.messageKey]: savedPosition(position)}};
+      try {if(!accountActiveRef.current)saveReadingState(next); personalRef.current = next;} catch { /* surfaced during normal saves */ }
+      if(accountActiveRef.current)accountFlushRef.current(createBackup(snapshotRef.current,next,preferencesRef.current));
+    };
+    window.addEventListener("pagehide",flush);
+    return () => {window.removeEventListener("pagehide",flush);flush(); if(positionTimerRef.current) window.clearTimeout(positionTimerRef.current);};
+  }, []);
 
   // Auto-clear notices
   useEffect(() => {
@@ -154,6 +311,7 @@ export default function App() {
   // ⌘K listener
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
+      if (guideOpen) return;
       const isModK =
         (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k";
       if (isModK) {
@@ -161,14 +319,14 @@ export default function App() {
         setPaletteOpen((current) => !current);
       } else if (event.key === "/" && !paletteOpen) {
         const target = event.target as HTMLElement | null;
-        if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
+        if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable)) return;
         event.preventDefault();
         setPaletteOpen(true);
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [paletteOpen]);
+  }, [paletteOpen, guideOpen]);
 
   // -------- derived collections --------
 
@@ -312,11 +470,15 @@ export default function App() {
 
   const filteredMessages = useMemo(() => {
     let list = snapshot.messages;
+    if (session) {
+      const end = list.findIndex(m => m.message_key === session.endKey);
+      if (end >= 0) list = list.slice(0,end+1);
+    }
     if (deferredSearch) {
       list = list.filter((m) => m.search_text.includes(deferredSearch));
     }
     return list;
-  }, [snapshot.messages, deferredSearch]);
+  }, [snapshot.messages, deferredSearch, session]);
 
   const filteredThreads = useMemo(() => {
     if (!deferredSearch) return derivedThreads;
@@ -339,12 +501,16 @@ export default function App() {
   }, [filteredThreads, selectedThreadKey, view]);
 
   useEffect(() => {
-    if (view !== "read" || !highlightedMessageKey) return;
-    const index = filteredMessages.findIndex(
-      (m) => m.message_key === highlightedMessageKey
-    );
-    if (index >= 0) timelineRef.current?.scrollToIndex(index, "center");
-  }, [filteredMessages, highlightedMessageKey, view]);
+    if (view !== "read" || appliedNavigationRef.current === navigationVersion || !timelineRef.current) return;
+    const pending = pendingPositionRef.current;
+    const targetKey = pending?.messageKey ?? highlightedMessageKey;
+    if (!targetKey) {appliedNavigationRef.current = navigationVersion;return;}
+    const index = filteredMessages.findIndex(m=>m.message_key===targetKey);
+    if(index<0)return; // Deferred filters may still be clearing; wait for the target.
+    if (pending) {timelineRef.current.restorePosition(pending);pendingPositionRef.current=null;}
+    else timelineRef.current.scrollToIndex(index,"start");
+    appliedNavigationRef.current=navigationVersion;
+  }, [view, navigationVersion, filteredMessages, highlightedMessageKey]);
 
   // Stats
   const stats = useMemo(() => {
@@ -431,6 +597,9 @@ export default function App() {
       : 0;
 
   // -------- handlers --------
+  function runAction(task:Promise<unknown>):void {
+    void task.catch(e=>setError(e instanceof Error?e.message:"Could not save this change."));
+  }
 
   async function handleImportArchive(): Promise<void> {
     setBusyLabel("Importing archive folder...");
@@ -472,8 +641,14 @@ export default function App() {
     setError(null);
     setNotice(null);
     try {
+      if(positionTimerRef.current){window.clearTimeout(positionTimerRef.current);positionTimerRef.current=null;}
       revokeAllMediaObjectUrls();
+      if (!accountActiveRef.current && personalRef.current.chatId !== null) commitPersonal(createReadingState(personalRef.current.chatId));
       await resetArchiveData();
+      initialRestoreRef.current = null;
+      setPersonal(createReadingState(null)); personalRef.current = createReadingState(null);
+      lastPositionRef.current = null; pendingPositionRef.current = null;
+      setNavStack([]); setForwardStack([]); setSession(null);
       await refreshSnapshot("Local archive cleared.");
       setSelectedThreadKey(null);
       setHighlightedMessageKey(null);
@@ -502,7 +677,7 @@ export default function App() {
       date_utc: message.date_utc,
       updated_at_utc: nowIso()
     };
-    await putReadCursor(cursor);
+    if (!accountActiveRef.current) await putReadCursor(cursor);
     setSnapshot((c) => ({ ...c, readCursor: cursor }));
   }
 
@@ -512,7 +687,7 @@ export default function App() {
       status: "read",
       updated_at_utc: nowIso()
     };
-    await putReadOverride(next);
+    if (!accountActiveRef.current) await putReadOverride(next);
     updateReadOverrides(next);
   }
 
@@ -522,12 +697,12 @@ export default function App() {
       status: "unread",
       updated_at_utc: nowIso()
     };
-    await putReadOverride(next);
+    if (!accountActiveRef.current) await putReadOverride(next);
     updateReadOverrides(next);
   }
 
   async function handleClearReadOverride(messageKey: string): Promise<void> {
-    await deleteReadOverride(messageKey);
+    if (!accountActiveRef.current) await deleteReadOverride(messageKey);
     setSnapshot((c) => ({
       ...c,
       readOverrides: c.readOverrides.filter((o) => o.message_key !== messageKey)
@@ -537,7 +712,7 @@ export default function App() {
   async function handleToggleMessageBookmark(message: MessageRecord): Promise<void> {
     const existing = messageBookmarkByKey.get(message.message_key);
     if (existing) {
-      await deleteBookmark(existing.bookmark_id);
+      if (!accountActiveRef.current) await deleteBookmark(existing.bookmark_id);
       setSnapshot((c) => ({
         ...c,
         bookmarks: c.bookmarks.filter((b) => b.bookmark_id !== existing.bookmark_id)
@@ -554,7 +729,7 @@ export default function App() {
       tags: [],
       updated_at_utc: nowIso()
     };
-    await putBookmark(bookmark);
+    if (!accountActiveRef.current) await putBookmark(bookmark);
     setSnapshot((c) => ({ ...c, bookmarks: [...c.bookmarks, bookmark] }));
   }
 
@@ -573,7 +748,7 @@ export default function App() {
       tags: parseTagInput(rawTags.join(",")),
       updated_at_utc: nowIso()
     };
-    await putBookmark(bookmark);
+    if (!accountActiveRef.current) await putBookmark(bookmark);
     setSnapshot((c) => ({
       ...c,
       bookmarks: [...c.bookmarks.filter((b) => b.bookmark_id !== existing?.bookmark_id), bookmark]
@@ -583,7 +758,7 @@ export default function App() {
   async function handleToggleThreadBookmark(thread: ThreadRecord): Promise<void> {
     const existing = threadBookmarkByKey.get(thread.thread_key);
     if (existing) {
-      await deleteBookmark(existing.bookmark_id);
+      if (!accountActiveRef.current) await deleteBookmark(existing.bookmark_id);
       setSnapshot((c) => ({
         ...c,
         bookmarks: c.bookmarks.filter((b) => b.bookmark_id !== existing.bookmark_id)
@@ -600,44 +775,43 @@ export default function App() {
       tags: [],
       updated_at_utc: nowIso()
     };
-    await putBookmark(bookmark);
+    if (!accountActiveRef.current) await putBookmark(bookmark);
     setSnapshot((c) => ({ ...c, bookmarks: [...c.bookmarks, bookmark] }));
   }
 
   // -------- focus actions --------
 
-  const focusMessage = useCallback(
-    (messageKey: string, options?: { openRail?: boolean }) => {
-      const target = messageByKey.get(messageKey);
-      if (!target) {
-        setError(`Message ${messageKey} not in archive.`);
-        return;
-      }
-      setView("read");
-      setHighlightedMessageKey(target.message_key);
-      setSelectedThreadKey(target.thread_key);
-      if (options?.openRail) {
-        const threadSize = (threadMessagesMap.get(target.thread_key) ?? []).length;
-        if (threadSize > 1) setThreadRailOpen(true);
-      }
-      setPaletteOpen(false);
-    },
-    [messageByKey, threadMessagesMap]
-  );
-
-  const focusThread = useCallback(
-    (threadKey: string) => {
-      const thread = threadByKey.get(threadKey);
-      if (!thread) {
-        setError("Thread not found.");
-        return;
-      }
-      setView("threads");
-      setSelectedThreadKey(threadKey);
-      setPaletteOpen(false);
-    },
-    [threadByKey]
-  );
+  function captureEntry(): NavEntry {
+    const position = view === "read" ? timelineRef.current?.getPosition() ?? lastPositionRef.current : null;
+    return {view,threadKey:selectedThreadKey,messageKey:position?.messageKey ?? highlightedMessageKey,
+      label: position ? `post #${messageByKey.get(position.messageKey)?.message_id ?? ""}` : view,
+      position};
+  }
+  function recordNavigation(): void {
+    setNavStack(stack => [...stack.slice(-49), captureEntry()]);
+    setForwardStack([]);
+  }
+  const focusMessage = (messageKey: string, options?: {openRail?:boolean; skipTrail?:boolean; position?:ReadingPosition}) => {
+    const target = messageByKey.get(messageKey);
+    if (!target) {setError(`Message ${messageKey} not in archive.`);return;}
+    if (!options?.skipTrail) recordNavigation();
+    setSession(null);setSessionReached(false);
+    setSearchQuery(""); setView("read"); setHighlightedMessageKey(target.message_key);
+    setSelectedThreadKey(target.thread_key);
+    pendingPositionRef.current = options?.position ?? null;
+    setNavigationVersion(v => v+1);
+    if (options?.openRail && (threadMessagesMap.get(target.thread_key)?.length ?? 0)>1) setThreadRailOpen(true);
+    setPaletteOpen(false);
+  };
+  const focusThread = (threadKey:string) => {
+    if (!threadByKey.has(threadKey)) {setError("Thread not found.");return;}
+    recordNavigation();setView("threads");setSelectedThreadKey(threadKey);setSearchQuery("");setPaletteOpen(false);
+  };
+  function setAppView(next: ViewName): void {
+    if (next === view) return;
+    recordNavigation();setView(next);setSearchQuery("");setPaletteOpen(false);
+    if(next === "read" && lastPositionRef.current) {pendingPositionRef.current=lastPositionRef.current;setNavigationVersion(v=>v+1);}
+  }
 
   const launchFromBeginning = useCallback(() => {
     const first = snapshot.messages[0];
@@ -645,13 +819,12 @@ export default function App() {
     focusMessage(first.message_key);
   }, [snapshot.messages, focusMessage]);
 
-  const launchResume = useCallback(() => {
-    if (snapshot.readCursor?.message_key) {
-      focusMessage(snapshot.readCursor.message_key);
-    } else {
-      launchFromBeginning();
-    }
-  }, [snapshot.readCursor, focusMessage, launchFromBeginning]);
+  const launchResume = () => {
+    const saved = Object.entries(personalRef.current.positions).sort((a,b)=>b[1].updatedAt.localeCompare(a[1].updatedAt))[0];
+    if (saved && messageByKey.has(saved[0])) focusMessage(saved[0],{position:{...saved[1],messageKey:saved[0]}});
+    else if (snapshot.readCursor) focusMessage(snapshot.readCursor.message_key);
+    else launchFromBeginning();
+  };
 
   const launchLatest = useCallback(() => {
     if (latestMessage) focusMessage(latestMessage.message_key);
@@ -680,49 +853,187 @@ export default function App() {
     [snapshot.messages, focusMessage]
   );
 
-  const handleOpenQuoteSource = useCallback(
-    (currentMessage: MessageRecord, replyToMsgId: number) => {
-      const target = snapshot.messages.find((m) => m.message_id === replyToMsgId);
-      if (!target) {
-        setError(`Quoted message #${replyToMsgId} not in archive.`);
-        return;
-      }
-      // Push current view+selection so the user can navigate back
-      setNavStack((stack) => [
-        ...stack,
-        {
-          view,
-          threadKey: selectedThreadKey,
-          messageKey: currentMessage.message_key,
-          label: `msg #${currentMessage.message_id}`
-        }
-      ]);
-      // Pass the quoted span info so the source message can highlight it.
-      // offset comes from raw entities; if missing we fall back to substring
-      // search inside MessageCard.
-      setQuoteHighlight({
-        messageKey: target.message_key,
-        offset: currentMessage.quote_offset_utf16 ?? -1,
-        length: currentMessage.quote_text_length ?? 0,
-        fallbackText: currentMessage.quote_text
-      });
-      focusMessage(target.message_key, { openRail: true });
-    },
-    [snapshot.messages, view, selectedThreadKey, focusMessage]
-  );
+  const handleOpenQuoteSource = (currentMessage: MessageRecord, replyToMsgId:number) => {
+    const target = snapshot.messages.find(m=>m.message_id===replyToMsgId);
+    if(!target){setError(`Quoted post #${replyToMsgId} is not in this archive.`);return;}
+    setLibraryOpen(false);setReaderSearchOpen(false);setSourcePeek({message:target,origin:currentMessage});
+  };
+  function restoreEntry(target: NavEntry):void {
+    setView(target.view);setSelectedThreadKey(target.threadKey);setHighlightedMessageKey(target.messageKey);
+    setSearchQuery("");setQuoteHighlight(null);setSession(null);setSessionReached(false);
+    pendingPositionRef.current=target.position;setNavigationVersion(v=>v+1);
+  }
+  const handleNavigateBack = () => {
+    const target=navStack.at(-1);if(!target)return;
+    setForwardStack(stack=>[...stack,captureEntry()]);setNavStack(stack=>stack.slice(0,-1));restoreEntry(target);
+  };
+  const handleNavigateForward = () => {
+    const target=forwardStack.at(-1);if(!target)return;
+    setNavStack(stack=>[...stack,captureEntry()]);setForwardStack(stack=>stack.slice(0,-1));restoreEntry(target);
+  };
 
-  const handleNavigateBack = useCallback(() => {
-    setNavStack((stack) => {
-      if (!stack.length) return stack;
-      const next = stack.slice(0, -1);
-      const target = stack[stack.length - 1];
-      setView(target.view);
-      setSelectedThreadKey(target.threadKey);
-      setHighlightedMessageKey(target.messageKey);
-      setQuoteHighlight(null);
-      return next;
-    });
-  }, []);
+  function onPositionChange(position:ReadingPosition):void {
+    if (guideActiveRef.current || restoringBackupRef.current || !snapshot.messages.some(m=>m.message_key===position.messageKey) || Number(position.messageKey.split(":")[0])!==personalRef.current.chatId) return;
+    lastPositionRef.current=position;
+    if(positionTimerRef.current)window.clearTimeout(positionTimerRef.current);
+    positionTimerRef.current=window.setTimeout(()=>{
+      if(personalRef.current.chatId===null || Number(position.messageKey.split(":")[0])!==personalRef.current.chatId)return;
+      commitPersonal({...personalRef.current,positions:{...personalRef.current.positions,[position.messageKey]:savedPosition(position)}});
+    },250);
+  }
+  function cardExtras(message:MessageRecord) {
+    return {
+      readingStatus:personal.statuses[message.message_key] ?? null,
+      onSetReadingStatus:(m:MessageRecord,status:"in-progress"|"finished"|"revisit"|null)=>{
+        const current=personalRef.current;const statuses={...current.statuses};
+        if(status)statuses[m.message_key]=status;else delete statuses[m.message_key];
+        commitPersonal({...current,statuses,queue:status==="finished"?current.queue.filter(k=>k!==m.message_key):current.queue});
+      },
+      queued:personal.queue.includes(message.message_key),
+      onToggleQueue:(m:MessageRecord)=>{const c=personalRef.current;commitPersonal({...c,queue:c.queue.includes(m.message_key)?c.queue.filter(k=>k!==m.message_key):[...c.queue,m.message_key]});},
+      note:personal.notes[message.message_key]??"",
+      onSaveNote:(m:MessageRecord,note:string)=>{const c=personalRef.current;const notes={...c.notes};if(note.trim())notes[m.message_key]=note;else delete notes[m.message_key];commitPersonal({...c,notes});setNotice("Note saved.");},
+      savedPassages:personal.passages.filter(p=>p.messageKey===message.message_key),
+      onSavePassage:(m:MessageRecord,text:string)=>{const c=personalRef.current;if(c.passages.some(p=>p.messageKey===m.message_key&&p.text===text))return;commitPersonal({...c,passages:[...c.passages,{id:crypto.randomUUID(),messageKey:m.message_key,text,note:"",createdAt:nowIso()}]});setNotice("Passage saved to My work.");},
+      onRemovePassage:(id:string)=>{const c=personalRef.current;commitPersonal({...c,passages:c.passages.filter(p=>p.id!==id),collections:c.collections.map(col=>({...col,items:col.items.filter(i=>i.passageId!==id)}))});},
+      mediaMode:preferences.mediaMode,
+      mediaPlayback:personal.media[message.message_key]??null,
+      onSaveMediaPlayback:(m:MessageRecord,playback:{time:number;rate:number})=>{const c=personalRef.current;commitPersonal({...c,media:{...c.media,[m.message_key]:playback}});},
+      searchHighlight:readerSearchOpen?readerSearch:"",
+      onReadAround:(m:MessageRecord)=>readAround(m.message_key)
+    };
+  }
+  function readAround(key:string):void {
+    setLibraryOpen(false);focusMessage(key);
+    setNotice("Showing this post in its surrounding chronological context.");
+  }
+  function toggleReaderSearch():void {
+    if(readerSearchOpen){setReaderSearchOpen(false);if(searchReturnRef.current){restoreEntry(searchReturnRef.current);searchReturnRef.current=null;}}
+    else{setLibraryOpen(false);setSourcePeek(null);searchReturnRef.current=captureEntry();setReaderSearchOpen(true);}
+  }
+  function startSession():void {
+    const position=timelineRef.current?.getPosition()??lastPositionRef.current;
+    const start=Math.max(0,snapshot.messages.findIndex(m=>m.message_key===(position?.messageKey??highlightedMessageKey)));
+    let end=start;let label="";
+    if(sessionMode==="date"){
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(sessionValue)){setError("Choose an ending date.");return;}
+      const eligible=snapshot.messages.slice(start).filter(m=>m.date_utc&&m.date_utc.slice(0,10)<=sessionValue);
+      if(!eligible.length){setError("Choose a date on or after your current post.");return;}
+      end=snapshot.messages.indexOf(eligible.at(-1)!);label=`Through ${sessionValue}`;
+    }else{
+      const count=Number(sessionValue);if(!Number.isFinite(count)||count<1||count>500){setError("Choose a target from 1 to 500.");return;}
+      if(sessionMode==="posts"){end=Math.min(snapshot.messages.length-1,start+Math.floor(count)-1);label=`${end-start+1} posts`;}
+      else{let minutes=0;while(end<snapshot.messages.length-1){minutes+=Math.max(.25,snapshot.messages[end].text.split(/\s+/).length/220);if(minutes>=count)break;end++;}label=`About ${count} minutes`;}
+    }
+    if(!snapshot.messages[end])return;
+    pendingPositionRef.current=position;
+    setSession({endKey:snapshot.messages[end].message_key,label});setSessionReached(false);setNavigationVersion(v=>v+1);
+  }
+  async function exportBackup():Promise<void>{
+    try{
+      const data=createBackup(snapshot,personalRef.current,preferences);
+      const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:"application/json"}));
+      const anchor=document.createElement("a");anchor.href=url;anchor.download=`vn-reader-state-${new Date().toISOString().slice(0,10)}.json`;anchor.click();
+      window.setTimeout(()=>URL.revokeObjectURL(url),1000);setNotice("Reading-state backup exported.");
+    }catch(e){setError(e instanceof Error?e.message:"Could not export backup.");}
+  }
+  async function importBackup(file:File):Promise<void>{
+    restoringBackupRef.current=true;setBackupBusy(true);
+    if(positionTimerRef.current){window.clearTimeout(positionTimerRef.current);positionTimerRef.current=null;}
+    try{
+      if(file.size>20_000_000)throw new Error("Backup exceeds the 20 MB limit.");
+      const data=parseBackup(JSON.parse(await file.text()),snapshot);
+      // Preflight browser storage before committing the IndexedDB transaction.
+      const previous=personalRef.current;const previousPrefs=preferences;
+      try {if(!accountActiveRef.current){saveReadingState(data.readingState);savePreferences(data.preferences);await restoreLegacyReadingState(data.bookmarks,data.readOverrides,data.readCursor);}}
+      catch(e){try{if(!accountActiveRef.current){saveReadingState(previous);savePreferences(previousPrefs);}}catch{ /* preserve original error */ }throw e;}
+      personalRef.current=data.readingState;setPersonal(data.readingState);changePreferences(data.preferences);
+      lastPositionRef.current=null;
+      if(accountActiveRef.current)setSnapshot(s=>({...s,bookmarks:data.bookmarks,readOverrides:data.readOverrides,readCursor:data.readCursor}));else await refreshSnapshot();setNotice("Reading state restored.");
+      const saved=Object.entries(data.readingState.positions).sort((a,b)=>b[1].updatedAt.localeCompare(a[1].updatedAt))[0];
+      if(saved)focusMessage(saved[0],{position:{...saved[1],messageKey:saved[0]}});
+      else if(data.readCursor)focusMessage(data.readCursor.message_key);
+    }catch(e){setError(e instanceof Error?e.message:"Could not restore backup.");}
+    finally{restoringBackupRef.current=false;setBackupBusy(false);}
+  }
+  function openGuide(): void {
+    guideReturnRef.current = { entry: captureEntry(), library: libraryOpen, search: readerSearchOpen, query: readerSearch, streamQuery: searchQuery, windowTop: window.scrollY, settings: settingsOpen, settingsScroll: document.querySelector(".reader-settings-body")?.scrollTop ?? 0, reached: sessionReached, readingPosition: view === "read" ? timelineRef.current?.getPosition() ?? lastPositionRef.current : lastPositionRef.current, source: sourcePeek };
+    guideActiveRef.current = true;
+    if (positionTimerRef.current) { window.clearTimeout(positionTimerRef.current); positionTimerRef.current = null; }
+    setSettingsOpen(false); setPaletteOpen(false); setSourcePeek(null);
+    setGuideTopic(null); setGuideOpen(true);
+  }
+  function closeGuide(): void {
+    setGuideOpen(false); setGuideTopic(null); setGuideStep(null);
+    const origin = guideReturnRef.current;
+    setSettingsOpen(origin?.settings ?? false);
+    if (origin) {
+      setSessionReached(origin.reached);
+      setView(origin.entry.view); setSelectedThreadKey(origin.entry.threadKey); setHighlightedMessageKey(origin.entry.messageKey);
+      setLibraryOpen(origin.library); setSourcePeek(origin.source); setReaderSearchOpen(origin.search); setReaderSearch(origin.query); setSearchQuery(origin.streamQuery);
+      pendingPositionRef.current = origin.entry.position;
+      lastPositionRef.current = origin.readingPosition;
+      setNavigationVersion(v => v + 1);
+    }
+    guideReturnRef.current = null;
+    // Resume saving after the virtual reader has restored the original passage.
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+      if (guideReturnRef.current) return;
+      if (origin) {
+        window.scrollTo({ top: origin.windowTop, behavior: "instant" });
+        const settingsBody = document.querySelector(".reader-settings-body");
+        if (settingsBody) settingsBody.scrollTop = origin.settingsScroll;
+      }
+      if (document.activeElement === document.body) document.querySelector<HTMLButtonElement>('[data-tour="help"]')?.focus();
+      guideActiveRef.current = false;
+    }));
+  }
+  const prepareTourStep = useCallback((step: TourStep | null) => {
+    setGuideStep(step);
+    document.documentElement.dataset.tourStep = step?.id ?? "";
+    if (!step) return;
+    if(step.id.startsWith("account-"))window.scrollTo({top:0,behavior:"instant"});
+    const appearance = step.id.startsWith("appearance-");
+    const search = step.id === "search-panel" || step.id === "search-context";
+    setSettingsOpen(appearance); setReaderSearchOpen(search); setSourcePeek(null); setPaletteOpen(false);
+    setView(step.id === "reading-timeline" ? "progress" : "read"); setSearchQuery("");
+    if (["reading-state", "reading-context", "library-save", "library-notes"].includes(step.id)) {
+      const post = (step.id === "reading-context" ? snapshot.messages.find(m => m.is_quote_reply) : null)
+        ?? snapshot.messages.find(m => m.text.length > 0 && m.text.length < 900) ?? snapshot.messages[0];
+      if (post) {
+        pendingPositionRef.current = { messageKey: post.message_key, offset: 0 };
+        setHighlightedMessageKey(post.message_key); setNavigationVersion(v => v + 1);
+      }
+    }
+  }, [snapshot.messages]);
+  useEffect(() => {
+    if (!guideStep) return;
+    let frame = 0;
+    let attempts = 0;
+    const reveal = () => {
+      if (guideStep.id === "library-collections" || guideStep.id === "library-work") {
+        const tab = document.getElementById(guideStep.id === "library-work" ? "guide-library-tab-work" : "guide-library-tab-collections");
+        if (tab?.getAttribute("aria-selected") === "false") tab.click();
+      }
+      const candidates = [...document.querySelectorAll<HTMLElement>(guideStep.target)];
+      const target = candidates.find(el => el.getBoundingClientRect().height > 0);
+      const container = target?.closest<HTMLElement>(".virtual-list-container, .reader-settings-body");
+      if (target && container) {
+        let rect = target.getBoundingClientRect(), bounds = container.getBoundingClientRect();
+        if (container.classList.contains("virtual-list-container") && window.innerWidth < 1000 && bounds.top > 150) {
+          window.scrollTo({ top: window.scrollY + bounds.top - 110, behavior: "instant" });
+          rect = target.getBoundingClientRect(); bounds = container.getBoundingClientRect();
+        }
+        if (rect.top < bounds.top || rect.bottom > Math.min(bounds.bottom, window.innerHeight - 16)) container.scrollTop += rect.top - bounds.top - 28;
+      }
+      if (++attempts < 24) frame = window.requestAnimationFrame(reveal);
+    };
+    frame = window.requestAnimationFrame(reveal);
+    return () => window.cancelAnimationFrame(frame);
+  }, [guideStep]);
+  const guideDialog = guideOpen ? <ReaderGuide topic={guideTopic} hasArchive={snapshot.messages.length > 0} onSelectTopic={topic => { setGuideTopic(topic); }} onClose={closeGuide} onStepChange={prepareTourStep} /> : null;
+  const settingsDialog = settingsOpen || (guideOpen && guideReturnRef.current?.settings) ? <div hidden={guideOpen && guideTopic !== "appearance"}><ReaderSettings preferences={preferences} onChange={changePreferences} onClose={() => setSettingsOpen(false)} onOpenGuide={openGuide} tourActive={guideOpen} onExportBackup={() => void exportBackup()} onImportBackup={importBackup} backupBusy={backupBusy} /></div> : null;
+
 
   // Auto-clear the quote highlight if the user navigates away or stays a while
   useEffect(() => {
@@ -737,7 +1048,7 @@ export default function App() {
     let cancelled = false;
     const poll = (attempts: number) => {
       if (cancelled) return;
-      const mark = document.querySelector(".tg-quote-highlight");
+      const mark = document.querySelector(".reading-stage .tg-quote-highlight");
       if (mark) {
         const container = mark.closest(".virtual-list-container");
         if (container) {
@@ -791,20 +1102,25 @@ export default function App() {
           <p className="eyebrow">VN Reader</p>
           <h1>Read your channel archive like a long-form book.</h1>
           <p className="landing-summary">
-            Import your exported Telegram archive folder. Everything stays local. Use ⌘K
-            to navigate.
+            A quiet place for the VN archive. Read without an account, or sign in to keep your place across devices. You can also import an archive folder. Use ⌘K to navigate.
           </p>
-          <div className="landing-actions">
+          <div className="landing-actions"><button type="button" data-tour="account-status" className="btn-ghost" onClick={()=>setAccountOpen(true)}>{account.user?"Your account":"Sign in · Create account"}</button>
+            <button type="button" className="btn-ghost" onClick={()=>setSettingsOpen(true)}>Appearance & settings</button>
+            <button type="button" className="btn-ghost" onClick={openGuide}>How VN Reader works</button>
             <button type="button" onClick={() => void handleImportArchive()}>
               Import archive folder
             </button>
+            <button type="button" className="btn-ghost" onClick={()=>{setBusyLabel("Opening sample archive…");void loadSampleArchive().then(()=>refreshSnapshot("Sample archive opened. Import your own archive from the command menu.")).catch(e=>{setBusyLabel(null);setError(String(e));});}}>Explore a sample archive</button>
           </div>
           <div className="landing-notes">
-            <p>Drop an archive folder produced by the exporter</p>
-            <p>Bookmarks and read state live in this browser only</p>
+            <p>Select an archive folder produced by the exporter</p>
+            <p>Guest progress stays in this browser. Accounts sync your reading across devices.</p>
           </div>
         </div>
-        {error ? <div className="status-banner status-error">{error}</div> : null}
+        {accountDialog}
+        {settingsDialog}
+        {guideDialog}
+        {error ? <div role="alert" className="status-banner status-error">{error}</div> : null}
       </div>
     );
   }
@@ -823,7 +1139,7 @@ export default function App() {
   // -------- main shell --------
 
   const channelTitle = snapshot.manifest?.source.chat_title ?? "Archive";
-  const channelMeta = `${stats.totalMessages.toLocaleString()} messages · ${stats.totalThreads.toLocaleString()} threads · ${stats.percentRead}% read`;
+  const channelMeta = `${stats.totalMessages.toLocaleString()} messages · ${stats.totalThreads.toLocaleString()} threads · ${stats.percentRead}% seen`;
   const anchorLabel = activeAnchorMessage
     ? `#${activeAnchorMessage.message_id} · ${anchorPercent}%`
     : "—";
@@ -847,13 +1163,57 @@ export default function App() {
         anchorLabel={anchorLabel}
         progressPercent={anchorPercent}
         view={view}
-        onSetView={setView}
+        onSetView={setAppView}
         onOpenPalette={() => setPaletteOpen(true)}
+        onOpenSettings={()=>setSettingsOpen(true)}
+        onOpenGuide={openGuide}
+        onOpenAccount={()=>setAccountOpen(true)}
+        accountLabel={account.user?"Your account":"Sign in or create account"}
+        paletteOpen={paletteOpen}
+        settingsOpen={settingsOpen}
+        guideOpen={guideOpen}
+        accountOpen={accountOpen}
+        focusMode={preferences.focusMode}
+        onToggleFocus={()=>{if(!preferences.focusMode)setAppView("read");changePreferences({...preferences,focusMode:!preferences.focusMode});}}
       />
 
+      <div className="account-strip" data-tour="account-status"><button onClick={()=>setAccountOpen(true)}>{account.user?account.user.email:"Reading as a guest"}</button><span role="status">{account.user?({guest:"Browser only",loading:"Opening account…",saving:"Saving…",saved:"Saved across devices",offline:"Sync pending · device copy kept",conflict:"Sync needs attention"})[account.status]:"Progress saved in this browser"}</span>{account.user&&account.status==="offline"?<button onClick={()=>account.sync()}>Retry sync</button>:null}</div>
+      <div className="reading-tools" data-tour="reading-tools">
+        <div className="reader-trail" aria-label="Reading trail">
+          <button type="button" disabled={!navStack.length} onClick={handleNavigateBack} aria-label="Previous reading location">← Back</button>
+          <button type="button" disabled={!forwardStack.length} onClick={handleNavigateForward} aria-label="Next reading location">Forward →</button>
+          {navStack.length ? <span>Return to {navStack.at(-1)?.label}</span>: <span>Your reading trail starts here</span>}
+        </div>
+        <div className="reader-tool-actions">
+          <button type="button" onClick={launchResume}>Resume your place</button>
+          <button type="button" aria-expanded={readerSearchOpen} onClick={toggleReaderSearch}>Search beside reading</button>
+          <button type="button" aria-expanded={libraryOpen} onClick={()=>{setReaderSearchOpen(false);setSourcePeek(null);setLibraryOpen(o=>!o);}}>My library · {personal.queue.length}</button>
+        </div>
+      </div>
+      {preferences.focusMode?<button type="button" className="reader-focus-exit" onClick={()=>changePreferences({...preferences,focusMode:false})}>Exit focus · Settings</button>:null}
+      {view==="read" ? <form className="session-controls" data-tour="session" onSubmit={e=>{e.preventDefault();startSession();}}>
+        <span className="eyebrow">A little at a time</span>
+        <label>Session target <select value={sessionMode} onChange={e=>{const mode=e.target.value as typeof sessionMode;setSessionMode(mode);setSessionValue(mode==="date"?(activeAnchorMessage?.date_utc?.slice(0,10)??new Date().toISOString().slice(0,10)):"5");}}><option value="posts">Posts</option><option value="minutes">Reading minutes</option><option value="date">Until date</option></select></label>
+        <input aria-label="Session target value" type={sessionMode==="date"?"date":"number"} min="1" max="500" value={sessionValue} onChange={e=>setSessionValue(e.target.value)}/>
+        <button type="submit">Set boundary</button>
+        {session?<><span>{session.label} · ending at #{messageByKey.get(session.endKey)?.message_id}</span><button type="button" className="btn-ghost" onClick={()=>{const pos=timelineRef.current?.getPosition();setSession(null);setSessionReached(false);pendingPositionRef.current=pos??null;setNavigationVersion(v=>v+1);}}>Clear boundary</button></>:null}
+      </form>:null}
+      {libraryOpen?<aside hidden={guideOpen && guideTopic !== null} className="reader-side-panel" data-tour="library-panel" aria-label="Personal reading library"><header><h2>Your reading library</h2><button type="button" onClick={()=>setLibraryOpen(false)} aria-label="Close library">×</button></header><ReadingLibrary state={personal} onChange={commitPersonal} messages={snapshot.messages} onOpenMessage={key=>{setLibraryOpen(false);focusMessage(key);}} onReadAround={readAround}/></aside>:null}
+      {guideOpen && guideStep && ["library-queue", "library-collections", "library-work"].includes(guideStep.id) ? <aside className="reader-side-panel" data-tour="library-panel" aria-label="Library tour preview"><header><h2>Your reading library</h2><span className="eyebrow">Tour preview</span></header><ReadingLibrary idPrefix="guide-" state={personal} onChange={() => {}} messages={snapshot.messages} onOpenMessage={() => {}} onReadAround={() => {}} /></aside> : null}
+      {readerSearchOpen?<aside className="reader-side-panel reader-search-panel" data-tour="search-panel" aria-label="Search beside reading"><header><h2>Find a thought</h2><button type="button" onClick={toggleReaderSearch} aria-label="Close search and return to your place">×</button></header><input autoFocus type="search" aria-label="Search archive beside reading" placeholder="Search the archive…" value={readerSearch} onChange={e=>setReaderSearch(e.target.value)}/><p>Close to return to your original passage.</p>{readerSearch.trim()?snapshot.messages.filter(m=>m.search_text.includes(readerSearch.trim().toLowerCase())).slice(0,100).map(m=><article className="library-card" key={m.message_key}><p><strong>#{m.message_id}</strong> · {trimPreview(m.text,180)}</p><div className="library-actions"><button type="button" onClick={()=>focusMessage(m.message_key)}>Read post</button><button type="button" onClick={()=>readAround(m.message_key)}>Read around this</button></div></article>):<p>Search for a phrase, topic, or source.</p>}{readerSearch.trim()&&!snapshot.messages.some(m=>m.search_text.includes(readerSearch.trim().toLowerCase()))?<p>No posts match this phrase.</p>:null}</aside>:null}
+      {sourcePeek?<aside className="reader-side-panel reader-source-peek" role="dialog" aria-label="Quoted source preview"><header><div><p className="eyebrow">Quoted source</p><h2>Post #{sourcePeek.message.message_id}</h2></div><button type="button" onClick={()=>setSourcePeek(null)} aria-label="Close quoted source">×</button></header><p>Your place in post #{sourcePeek.origin.message_id} is preserved.</p><div className="reader-message-text" style={{whiteSpace:"pre-wrap"}}>{sourcePeek.message.text||"This source contains media without text."}</div><div className="library-actions"><button type="button" onClick={()=>{const peek=sourcePeek;setSourcePeek(null);focusMessage(peek.message.message_key);setQuoteHighlight({messageKey:peek.message.message_key,offset:peek.origin.quote_offset_utf16??-1,length:peek.origin.quote_text_length??0,fallbackText:peek.origin.quote_text});}}>Expand source</button><button type="button" onClick={()=>{const key=sourcePeek.message.message_key;setSourcePeek(null);readAround(key);}}>Read surrounding posts</button></div></aside>:null}
+      {accountDialog}
+      {settingsDialog}
       {view === "read" ? (
         <ReadingView
           messages={filteredMessages}
+          cardExtras={cardExtras}
+          onPositionChange={onPositionChange}
+          layoutKey={JSON.stringify(preferences)}
+          sessionEndKey={session?.endKey??null}
+          onSessionEnd={()=>{if(!guideActiveRef.current)setSessionReached(true);}}
+          sessionReached={sessionReached}
+          onContinueSession={()=>{const pos=timelineRef.current?.getPosition();setSession(null);setSessionReached(false);pendingPositionRef.current=pos??null;setNavigationVersion(v=>v+1);}}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
           deferredSearch={deferredSearch}
@@ -878,17 +1238,17 @@ export default function App() {
           onLaunchResume={launchResume}
           onLaunchLatest={launchLatest}
           onLaunchRandom={launchRandom}
-          onClearReadOverride={(key) => void handleClearReadOverride(key)}
-          onMarkRead={(m) => void handleMarkRead(m)}
-          onMarkReadTillHere={(m) => void handleMarkReadTillHere(m)}
-          onMarkUnread={(m) => void handleMarkUnread(m)}
+          onClearReadOverride={(key) => runAction(handleClearReadOverride(key))}
+          onMarkRead={(m) => runAction(handleMarkRead(m))}
+          onMarkReadTillHere={(m) => runAction(handleMarkReadTillHere(m))}
+          onMarkUnread={(m) => runAction(handleMarkUnread(m))}
           onOpenMedia={(url, kind, caption) =>
             setLightboxMedia({ url, kind, caption })
           }
           onOpenQuoteSource={handleOpenQuoteSource}
           onReattachMedia={() => void handleReattachFolder()}
-          onSaveBookmarkTags={(m, t) => void handleSaveMessageBookmarkTags(m, t)}
-          onToggleBookmark={(m) => void handleToggleMessageBookmark(m)}
+          onSaveBookmarkTags={(m, t) => runAction(handleSaveMessageBookmarkTags(m, t))}
+          onToggleBookmark={(m) => runAction(handleToggleMessageBookmark(m))}
           onOpenThreadRail={(key) => {
             setHighlightedMessageKey(key);
             setThreadRailOpen(true);
@@ -898,9 +1258,11 @@ export default function App() {
 
       {view === "threads" ? (
         <ThreadsView
+          cardExtras={cardExtras}
           threads={filteredThreads}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
+          onReattachMedia={()=>void handleReattachFolder()}
           selectedThread={selectedThread}
           selectedMessages={selectedThreadMessages}
           quoteHighlight={quoteHighlight}
@@ -915,17 +1277,17 @@ export default function App() {
               : null
           }
           onSelect={setSelectedThreadKey}
-          onToggleThreadBookmark={(t) => void handleToggleThreadBookmark(t)}
-          onClearReadOverride={(key) => void handleClearReadOverride(key)}
-          onMarkRead={(m) => void handleMarkRead(m)}
-          onMarkReadTillHere={(m) => void handleMarkReadTillHere(m)}
-          onMarkUnread={(m) => void handleMarkUnread(m)}
+          onToggleThreadBookmark={(t) => runAction(handleToggleThreadBookmark(t))}
+          onClearReadOverride={(key) => runAction(handleClearReadOverride(key))}
+          onMarkRead={(m) => runAction(handleMarkRead(m))}
+          onMarkReadTillHere={(m) => runAction(handleMarkReadTillHere(m))}
+          onMarkUnread={(m) => runAction(handleMarkUnread(m))}
           onOpenMedia={(url, kind, caption) =>
             setLightboxMedia({ url, kind, caption })
           }
           onOpenQuoteSource={handleOpenQuoteSource}
-          onSaveBookmarkTags={(m, t) => void handleSaveMessageBookmarkTags(m, t)}
-          onToggleBookmark={(m) => void handleToggleMessageBookmark(m)}
+          onSaveBookmarkTags={(m, t) => runAction(handleSaveMessageBookmarkTags(m, t))}
+          onToggleBookmark={(m) => runAction(handleToggleMessageBookmark(m))}
         />
       ) : null}
 
@@ -936,11 +1298,16 @@ export default function App() {
           threads={snapshot.threads}
           onOpenMessage={(key) => focusMessage(key, { openRail: true })}
           onOpenThread={focusThread}
+          onReadAround={readAround}
         />
       ) : null}
 
       {view === "progress" ? (
         <ProgressView
+          messages={snapshot.messages}
+          directoryHandle={snapshot.directoryHandle}
+          onOpenMessage={focusMessage}
+          readingState={personal}
           stats={stats}
           firstUnread={firstUnreadMessage}
           importSessions={snapshot.importSessions}
@@ -996,34 +1363,19 @@ export default function App() {
         onJumpToMessageId={handleJumpToMessageId}
         onJumpToDate={handleJumpToDate}
         onJumpToThreadId={handleJumpToThreadId}
-        onSetView={setView}
+        onSetView={setAppView}
         onImport={() => void handleImportArchive()}
         onReattachMedia={() => void handleReattachFolder()}
         onResetArchive={() => void handleResetArchive()}
       />
 
+      {guideDialog}
       <MediaLightbox media={lightboxMedia} onClose={() => setLightboxMedia(null)} />
 
-      {navStack.length ? (
-        <button
-          type="button"
-          className="nav-back-button"
-          onClick={handleNavigateBack}
-          aria-label="Go back"
-        >
-          <span className="nav-back-arrow">←</span>
-          <span className="nav-back-label">
-            Back to {navStack[navStack.length - 1].label}
-          </span>
-          {navStack.length > 1 ? (
-            <span className="nav-back-depth">{navStack.length}</span>
-          ) : null}
-        </button>
-      ) : null}
 
       {busyLabel ? <div className="status-banner">{busyLabel}</div> : null}
-      {notice ? <div className="status-banner status-ok">{notice}</div> : null}
-      {error ? <div className="status-banner status-error">{error}</div> : null}
+      {notice ? <div role="status" className="status-banner status-ok">{notice}</div> : null}
+      {error ? <div role="alert" className="status-banner status-error">{error}</div> : null}
     </div>
   );
 }
@@ -1039,7 +1391,15 @@ interface QuoteHighlight {
   fallbackText: string | null;
 }
 
+type CardExtras = (message: MessageRecord) => Partial<React.ComponentProps<typeof MessageCard>>;
 interface ReadingViewProps {
+  cardExtras: CardExtras;
+  onPositionChange: (position:ReadingPosition)=>void;
+  layoutKey:string;
+  sessionEndKey:string|null;
+  onSessionEnd:()=>void;
+  sessionReached:boolean;
+  onContinueSession:()=>void;
   messages: MessageRecord[];
   searchQuery: string;
   onSearchChange: (next: string) => void;
@@ -1132,7 +1492,8 @@ function ReadingView(props: ReadingViewProps) {
           type="search"
           value={searchQuery}
           onChange={(event) => onSearchChange(event.target.value)}
-          placeholder="Or filter the stream right here by text…"
+          aria-label="Filter reading stream"
+          placeholder="Filter reading stream…"
           style={{ marginTop: "0.5rem" }}
         />
       </div>
@@ -1172,6 +1533,8 @@ function ReadingView(props: ReadingViewProps) {
       <VirtualizedMessageList
         ref={timelineRef}
         messages={messages}
+        layoutKey={props.layoutKey}
+        onPositionChange={props.onPositionChange}
         emptyState={
           deferredSearch
             ? `No messages matched "${searchQuery.trim()}".`
@@ -1209,6 +1572,7 @@ function ReadingView(props: ReadingViewProps) {
                 </div>
               ) : null}
               <MessageCard
+                {...props.cardExtras(message)}
                 bookmark={messageBookmarkByKey.get(message.message_key) ?? null}
                 directoryHandle={directoryHandle}
                 hasManualReadOverride={readOverrideMap.has(message.message_key)}
@@ -1233,6 +1597,7 @@ function ReadingView(props: ReadingViewProps) {
                 threadMessageCount={(threadMessagesMap.get(message.thread_key) ?? []).length}
                 threadRootMissing={threadByKey.get(message.thread_key)?.root_missing ?? false}
               />
+              {props.sessionEndKey===message.message_key?<SessionBoundary reached={props.sessionReached} onReached={props.onSessionEnd} onContinue={props.onContinueSession}/>:null}
             </div>
           );
         }}
@@ -1247,6 +1612,8 @@ function ReadingView(props: ReadingViewProps) {
 // =================================================================
 
 interface ThreadsViewProps {
+  cardExtras: CardExtras;
+  onReattachMedia:()=>void;
   threads: ThreadRecord[];
   searchQuery: string;
   onSearchChange: (next: string) => void;
@@ -1307,6 +1674,7 @@ function ThreadsView(props: ThreadsViewProps) {
             type="search"
             value={searchQuery}
             onChange={(event) => onSearchChange(event.target.value)}
+            aria-label="Filter threads"
             placeholder="Filter threads…"
           />
         </div>
@@ -1366,6 +1734,7 @@ function ThreadsView(props: ThreadsViewProps) {
             </div>
             {selectedMessages.map((message) => (
               <MessageCard
+                {...props.cardExtras(message)}
                 key={message.message_key}
                 bookmark={messageBookmarkByKey.get(message.message_key) ?? null}
                 directoryHandle={directoryHandle}
@@ -1388,6 +1757,7 @@ function ThreadsView(props: ThreadsViewProps) {
                 onToggleBookmark={onToggleBookmark}
                 threadMessageCount={selectedMessages.length}
                 threadRootMissing={selectedThread.root_missing}
+                onReattachMedia={props.onReattachMedia}
                 viewMode="thread"
               />
             ))}
@@ -1410,6 +1780,7 @@ interface BookmarksViewProps {
   threads: ThreadRecord[];
   onOpenMessage: (key: string) => void;
   onOpenThread: (key: string) => void;
+  onReadAround:(key:string)=>void;
 }
 
 function BookmarksView({
@@ -1417,7 +1788,8 @@ function BookmarksView({
   messages,
   threads,
   onOpenMessage,
-  onOpenThread
+  onOpenThread,
+  onReadAround
 }: BookmarksViewProps) {
   const messageByKey = useMemo(() => new Map(messages.map((m) => [m.message_key, m])), [messages]);
   const threadByKey = useMemo(() => new Map(threads.map((t) => [t.thread_key, t])), [threads]);
@@ -1471,6 +1843,7 @@ function BookmarksView({
                       Open message
                     </button>
                   ) : null}
+                  {bookmark.message_key?<button type="button" className="btn-ghost" onClick={()=>onReadAround(bookmark.message_key!)}>Read around this</button>:null}
                   {bookmark.thread_key ? (
                     <button
                       type="button"
@@ -1495,6 +1868,10 @@ function BookmarksView({
 // =================================================================
 
 interface ProgressViewProps {
+  messages:MessageRecord[];
+  directoryHandle:FileSystemDirectoryHandle|null;
+  onOpenMessage:(key:string)=>void;
+  readingState:ReadingState;
   stats: {
     totalMessages: number;
     totalThreads: number;
@@ -1510,22 +1887,27 @@ interface ProgressViewProps {
   importSessions: AppSnapshot["importSessions"];
 }
 
-function ProgressView({ stats, firstUnread, importSessions }: ProgressViewProps) {
+function ProgressView({ messages,directoryHandle,onOpenMessage,readingState, stats, firstUnread, importSessions }: ProgressViewProps) {
   return (
     <div className="progress-stage">
       <div className="reading-header">
         <p className="eyebrow">Progress</p>
         <h2>
-          {stats.percentRead}% through the archive
+          {stats.percentRead}% of posts seen
         </h2>
         <p>
           {stats.readMessages.toLocaleString()} of {stats.totalMessages.toLocaleString()} messages
-          read · {stats.unreadMessages.toLocaleString()} unread
+          seen · {stats.unreadMessages.toLocaleString()} unread
         </p>
       </div>
 
+      <PostTimeline messages={messages} directoryHandle={directoryHandle} onOpenMessage={onOpenMessage}/>
       <div className="stat-grid">
-        <Stat label="Read" value={`${stats.readMessages.toLocaleString()}`} />
+        <Stat label="Seen" value={`${stats.readMessages.toLocaleString()}`} />
+        <Stat label="Finished" value={String(Object.values(readingState.statuses).filter(s=>s==="finished").length)} />
+        <Stat label="In progress" value={String(Object.values(readingState.statuses).filter(s=>s==="in-progress").length)} />
+        <Stat label="To revisit" value={String(Object.values(readingState.statuses).filter(s=>s==="revisit").length)} />
+        <Stat label="Read later" value={String(readingState.queue.length)} />
         <Stat label="Unread" value={`${stats.unreadMessages.toLocaleString()}`} />
         <Stat label="Threads" value={`${stats.totalThreads.toLocaleString()}`} />
         <Stat label="Unread threads" value={`${stats.unreadThreadCount.toLocaleString()}`} />
@@ -1599,4 +1981,10 @@ function Stat({
       {detail ? <span className="stat-tile-detail">{detail}</span> : null}
     </div>
   );
+}
+
+function SessionBoundary({reached,onReached,onContinue}:{reached:boolean;onReached:()=>void;onContinue:()=>void}) {
+  const ref=useRef<HTMLDivElement|null>(null);
+  useEffect(()=>{const node=ref.current;if(!node)return;const observer=new IntersectionObserver(entries=>{if(entries.some(e=>e.isIntersecting))onReached();},{threshold:.5});observer.observe(node);return()=>observer.disconnect();},[onReached]);
+  return <div className="reader-session-banner" ref={ref}><p className="eyebrow">{reached?"A good place to pause":"Your session boundary"}</p><h3>Let this settle.</h3><p>You reached the last post in this session. Your place is saved.</p><button type="button" onClick={onContinue}>Keep reading</button></div>;
 }

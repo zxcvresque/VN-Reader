@@ -1,0 +1,18 @@
+# Merge with the root compose.yaml. No host ports are published.
+services:
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    command: ["tunnel", "--no-autoupdate", "run", "--token-file", "/run/secrets/cloudflare_tunnel_token"]
+    user: "0:0"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    secrets: [cloudflare_tunnel_token]
+    depends_on: [web]
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+secrets:
+  cloudflare_tunnel_token:
+    file: ./deploy/secrets/cloudflare-tunnel-token

@@ -80,6 +80,10 @@ function applyEntityStyles(
         return <span key={key} className="tg-spoiler">{current}</span>;
       case "MessageEntityBlockquote":
         return <span key={key} className="tg-inline-quote">{current}</span>;
+      case "MessageEntitySearchHighlight":
+        return <mark key={key} className="tg-search-highlight">{current}</mark>;
+      case "MessageEntityPassageHighlight":
+        return <mark key={key} className="tg-passage-highlight">{current}</mark>;
       case "MessageEntityQuoteHighlight":
         return <mark key={key} className="tg-quote-highlight">{current}</mark>;
       default:
@@ -88,33 +92,13 @@ function applyEntityStyles(
   }, node);
 }
 
-function renderLinkifiedPlainText(text: string, keyPrefix: string): ReactNode[] {
-  const parts: ReactNode[] = [];
-  let cursor = 0;
-
-  for (const match of text.matchAll(URL_REGEX)) {
-    const start = match.index ?? 0;
-    const rawUrl = match[0];
-    const normalizedUrl = normalizeUrlCandidate(rawUrl);
-
-    if (start > cursor) parts.push(text.slice(cursor, start));
-    parts.push(
-      <a key={`${keyPrefix}-${start}`} href={normalizedUrl} target="_blank" rel="noreferrer">
-        {normalizedUrl}
-      </a>
-    );
-    cursor = start + rawUrl.length;
-  }
-
-  if (cursor < text.length) parts.push(text.slice(cursor));
-  return parts;
-}
-
 export interface TelegramRichTextProps {
   className?: string;
   entities?: unknown;
   text: string;
   highlightRange?: { offset: number; length: number } | null;
+  searchHighlight?: string;
+  savedPassageTexts?: string[];
 }
 
 export function extractMessageEntities(raw: unknown): TelegramEntity[] {
@@ -127,111 +111,75 @@ export function extractMessageEntities(raw: unknown): TelegramEntity[] {
 }
 
 export default function TelegramRichText({
-  className,
-  entities,
-  text,
-  highlightRange
+  className, entities, text, highlightRange, searchHighlight, savedPassageTexts = []
 }: TelegramRichTextProps) {
   const normalizedText = text ?? "";
-  const baseEntities = normalizeEntities(entities);
-
-  // Inject the quote-highlight as a synthetic entity so it goes through the
-  // same boundary/segment pipeline as bold/italic/etc.
-  const normalizedEntities: TelegramEntity[] = [...baseEntities];
-  if (
-    highlightRange &&
-    highlightRange.length > 0 &&
-    highlightRange.offset >= 0 &&
-    highlightRange.offset < normalizedText.length
-  ) {
-    const start = Math.max(0, Math.min(normalizedText.length, highlightRange.offset));
-    const end = Math.max(
-      start,
-      Math.min(normalizedText.length, highlightRange.offset + highlightRange.length)
-    );
-    if (end > start) {
-      normalizedEntities.push({
-        _: "MessageEntityQuoteHighlight",
-        offset: start,
-        length: end - start
-      });
+  if (!normalizedText) return null;
+  const normalizedEntities: TelegramEntity[] = [...normalizeEntities(entities)];
+  // Link boundaries and highlights share one pipeline so formatting and URLs survive splitting.
+  for (const match of normalizedText.matchAll(URL_REGEX)) {
+    const offset = match.index ?? 0;
+    if (!normalizedEntities.some((entity) => entity.offset <= offset && offset < entity.offset + entity.length && ["MessageEntityUrl", "MessageEntityTextUrl"].includes(entity._))) {
+      const url = normalizeUrlCandidate(match[0]);
+      normalizedEntities.push({ _: "MessageEntityTextUrl", offset, length: url.length, url });
     }
   }
-
-  if (!normalizedText) {
-    return null;
-  }
-
-  if (!normalizedEntities.length) {
-    const inlineNodes = renderLinkifiedPlainText(normalizedText, "plain");
-    return (
-      <div className={["telegram-rich-text", className].filter(Boolean).join(" ")}>
-        {inlineNodes}
-      </div>
-    );
-  }
-
-  const boundaries = new Set<number>([0, normalizedText.length]);
-  for (const entity of normalizedEntities) {
-    boundaries.add(Math.max(0, Math.min(normalizedText.length, entity.offset)));
-    boundaries.add(Math.max(0, Math.min(normalizedText.length, entity.offset + entity.length)));
-  }
-
-  const orderedBoundaries = Array.from(boundaries).sort((left, right) => left - right);
-  const nodes: ReactNode[] = [];
-
-  for (let index = 0; index < orderedBoundaries.length - 1; index += 1) {
-    const start = orderedBoundaries[index];
-    const end = orderedBoundaries[index + 1];
-    if (end <= start) {
-      continue;
+  const addMatches = (needle: string, kind: string) => {
+    if (!needle.trim()) return;
+    const haystack = normalizedText.toLocaleLowerCase();
+    const query = needle.toLocaleLowerCase();
+    let cursor = 0;
+    while (cursor < haystack.length) {
+      const offset = haystack.indexOf(query, cursor);
+      if (offset < 0) break;
+      normalizedEntities.push({ _: kind, offset, length: needle.length });
+      cursor = offset + Math.max(1, needle.length);
     }
+  };
+  for (const passage of savedPassageTexts) addMatches(passage, "MessageEntityPassageHighlight");
+  if (searchHighlight) addMatches(searchHighlight, "MessageEntitySearchHighlight");
+  if (highlightRange && highlightRange.length > 0 && highlightRange.offset >= 0 && highlightRange.offset < normalizedText.length) {
+    normalizedEntities.push({ _: "MessageEntityQuoteHighlight", offset: highlightRange.offset, length: Math.min(highlightRange.length, normalizedText.length - highlightRange.offset) });
+  }
 
-    const segmentText = normalizedText.slice(start, end);
-    if (!segmentText) {
-      continue;
+  function renderRange(rangeStart: number, rangeEnd: number): ReactNode[] {
+    const boundaries = new Set<number>([rangeStart, rangeEnd]);
+    for (const entity of normalizedEntities) {
+      if (entity.offset + entity.length <= rangeStart || entity.offset >= rangeEnd) continue;
+      boundaries.add(Math.max(rangeStart, Math.min(rangeEnd, entity.offset)));
+      boundaries.add(Math.max(rangeStart, Math.min(rangeEnd, entity.offset + entity.length)));
     }
-
-    const activeEntities = normalizedEntities.filter(
-      (entity) => entity.offset <= start && start < entity.offset + entity.length
-    );
-
-    const linkEntity =
-      activeEntities.find((entity) => entity._ === "MessageEntityTextUrl") ??
-      activeEntities.find((entity) =>
-        [
-          "MessageEntityUrl",
-          "MessageEntityEmail",
-          "MessageEntityPhone",
-          "MessageEntityMention"
-        ].includes(entity._)
-      );
-
-    let segmentNode: ReactNode = segmentText;
-    if (linkEntity) {
-      const href = entityHref(linkEntity, segmentText);
-      if (href) {
-        segmentNode = (
-          <a
-            key={`link-${start}-${end}`}
-            href={href}
-            target="_blank"
-            rel="noreferrer"
-          >
-            {segmentText}
-          </a>
-        );
+    const ordered = [...boundaries].sort((left, right) => left - right);
+    const nodes: ReactNode[] = [];
+    for (let index = 0; index < ordered.length - 1; index += 1) {
+      const start = ordered[index];
+      const end = ordered[index + 1];
+      if (end <= start) continue;
+      const segmentText = normalizedText.slice(start, end);
+      const active = normalizedEntities.filter((entity) => entity.offset <= start && start < entity.offset + entity.length);
+      const link = active.find((entity) => entity._ === "MessageEntityTextUrl") ?? active.find((entity) => ["MessageEntityUrl", "MessageEntityEmail", "MessageEntityPhone", "MessageEntityMention"].includes(entity._));
+      let node: ReactNode = segmentText;
+      if (link) {
+        // Derive the address from the entire entity, never the highlighted fragment.
+        const href = entityHref(link, normalizedText.slice(link.offset, link.offset + link.length));
+        if (href && /^(https?:|mailto:|tel:)/i.test(href)) node = <a href={href} target="_blank" rel="noreferrer">{segmentText}</a>;
       }
+      const highlight = active.find((entity) => entity._ === "MessageEntityQuoteHighlight")
+        ?? active.find((entity) => entity._ === "MessageEntitySearchHighlight")
+        ?? active.find((entity) => entity._ === "MessageEntityPassageHighlight");
+      node = applyEntityStyles(node, active.filter((entity) => entity !== link && (!entity._.endsWith("Highlight") || entity === highlight)), `segment-${start}-${end}`);
+      nodes.push(<span key={`segment-${start}-${end}`} data-text-offset={start}>{node}</span>);
     }
-
-    segmentNode = applyEntityStyles(
-      segmentNode,
-      activeEntities.filter((entity) => entity !== linkEntity),
-      `segment-${start}-${end}`
-    );
-
-    nodes.push(<span key={`segment-${start}-${end}`}>{segmentNode}</span>);
+    return nodes;
   }
 
-  return <div className={["telegram-rich-text", className].filter(Boolean).join(" ")}>{nodes}</div>;
+  const paragraphs: ReactNode[] = [];
+  let cursor = 0;
+  for (const separator of normalizedText.matchAll(/\n[ \t]*\n+/g)) {
+    const end = separator.index ?? 0;
+    paragraphs.push(<p className="reader-text-paragraph" data-paragraph-offset={cursor} key={cursor}>{renderRange(cursor, end)}</p>);
+    cursor = end + separator[0].length;
+  }
+  paragraphs.push(<p className="reader-text-paragraph" data-paragraph-offset={cursor} key={cursor}>{renderRange(cursor, normalizedText.length)}</p>);
+  return <div className={["telegram-rich-text", className].filter(Boolean).join(" ")}>{paragraphs}</div>;
 }
