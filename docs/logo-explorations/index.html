@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>VN Reader · Logo directions</title>
+  <style>
+    :root { color-scheme: light; --paper:#f5f4ef; --ink:#242720; --muted:#6f7369; --line:#d7dad1; --accent:#37564a; }
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; }
+    body { margin:0; background:var(--paper); color:var(--ink); font-family:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; -webkit-font-smoothing:antialiased; }
+    a { color:inherit; }
+    a:focus-visible { outline:3px solid #628d75; outline-offset:5px; }
+    .sheet { width:min(1120px,100%); margin:auto; padding:32px 40px 48px; }
+    header { display:flex; align-items:center; justify-content:space-between; gap:20px; padding-bottom:28px; border-bottom:1px solid var(--line); }
+    .brand { font-size:16px; font-weight:650; letter-spacing:-.02em; }
+    .brand span { color:var(--muted); font-weight:400; margin-left:8px; }
+    .label { color:var(--muted); font-size:12px; letter-spacing:.1em; text-transform:uppercase; }
+    .intro { padding:72px 0 60px; display:grid; grid-template-columns:1.4fr 1fr; align-items:end; gap:48px; }
+    h1 { margin:0; max-width:12ch; font-size:clamp(42px,6vw,70px); line-height:1.04; letter-spacing:-.065em; font-weight:540; }
+    .intro p { color:var(--muted); max-width:38ch; margin:0 0 4px; font-size:17px; line-height:1.6; }
+    nav { display:flex; gap:26px; padding-bottom:26px; }
+    nav a { font-size:14px; text-decoration:none; text-underline-offset:6px; }
+    nav a:hover { text-decoration:underline; }
+    article { border-top:1px solid var(--line); padding:32px 0 44px; scroll-margin-top:20px; }
+    .direction-head { display:grid; grid-template-columns:1fr 1fr; gap:24px; margin-bottom:24px; align-items:start; }
+    .title-row { display:flex; gap:18px; align-items:baseline; }
+    .number { color:var(--muted); font-size:13px; font-variant-numeric:tabular-nums; }
+    h2 { margin:0; font-size:28px; font-weight:550; letter-spacing:-.035em; }
+    .direction-head p { margin:0; color:var(--muted); line-height:1.6; font-size:15px; max-width:48ch; }
+    .samples { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    .sample { min-width:0; aspect-ratio:1.55; border-radius:4px; position:relative; display:grid; place-items:center; background:#fff; color:#242720; border:1px solid #e6e7df; }
+    .sample.dark { background:#141715; color:#f6f5f0; border-color:#141715; }
+    .sample > .mark { width:clamp(110px,17vw,185px); height:auto; }
+    .caption { position:absolute; left:20px; bottom:18px; font-size:11px; opacity:.55; letter-spacing:.08em; text-transform:uppercase; }
+    .context { display:flex; flex-wrap:wrap; align-items:center; gap:28px; margin-top:18px; }
+    .nav-context { display:flex; align-items:center; gap:10px; font-size:15px; font-weight:600; }
+    .tile { display:grid; place-items:center; width:40px; height:40px; border:1px solid var(--line); border-radius:9px; background:#fff; }
+    .tile .mark { width:30px; height:24px; }
+    .tiny { width:24px; height:24px; display:grid; place-items:center; background:var(--ink); color:var(--paper); border-radius:5px; }
+    .tiny .mark { width:21px; height:18px; }
+    .context .label { font-size:10px; }
+    .download { margin-left:auto; font-size:13px; text-decoration:none; padding:11px 14px; border:1px solid var(--line); border-radius:6px; transition:background .15s,border-color .15s; }
+    .download:hover { background:#e8ede5; border-color:#8f9d8e; }
+    footer { padding-top:24px; border-top:1px solid var(--line); display:flex; justify-content:space-between; gap:24px; color:var(--muted); font-size:12px; line-height:1.5; }
+    .defs { position:absolute; width:0; height:0; overflow:hidden; }
+    @media (prefers-color-scheme:dark) {
+      :root { color-scheme:dark; --paper:#1b1e1b; --ink:#f0f1eb; --muted:#a5aea0; --line:#3a4238; }
+      .tile { background:#272d26; }
+      .download:hover { background:#2e392e; border-color:#7b9577; }
+    }
+    @media (max-width:680px) {
+      .sheet { padding:24px 20px 32px; }
+      header { padding-bottom:22px; }
+      header .label { font-size:10px; }
+      .brand span { display:none; }
+      .intro { padding:46px 0 32px; grid-template-columns:1fr; gap:22px; }
+      .intro p { font-size:15px; max-width:42ch; }
+      nav { gap:22px; padding-bottom:20px; }
+      nav a { font-size:13px; }
+      article { padding:26px 0 32px; }
+      .direction-head { grid-template-columns:1fr; gap:12px; margin-bottom:20px; }
+      .direction-head p { font-size:14px; }
+      h2 { font-size:25px; }
+      .sample { aspect-ratio:1.05; }
+      .sample > .mark { width:min(72%,160px); }
+      .caption { left:12px; bottom:12px; font-size:9px; }
+      .context { gap:14px; }
+      .context .label { display:none; }
+      .download { padding:10px 12px; }
+      footer { flex-direction:column; gap:8px; }
+    }
+    @media (max-width:360px) {
+      .sheet { padding-inline:16px; }
+      .download { margin-left:0; }
+    }
+    @media (prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } .download { transition:none; } }
+  </style>
+</head>
+<body>
+  <svg class="defs" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+    <symbol id="type" viewBox="0 21 160 96">
+      <path fill="currentColor" d="M13 37h13l16 48 16-48h13L47 101H36L13 37Zm65 0h12v9c5-7 12-11 21-11 16 0 24 10 24 27v39h-12V63c0-11-5-17-14-17-10 0-18 8-18 20v35H78V37Z"/><circle fill="currentColor" cx="149" cy="95" r="6"/>
+    </symbol>
+    <symbol id="pages" viewBox="0 0 160 120">
+      <g fill="none" stroke="currentColor" stroke-width="5" stroke-linejoin="round" stroke-linecap="round">
+        <path d="M17 20h37c12 0 22 10 22 22v62c-6-8-13-12-24-12H17V20Zm126 0h-37c-12 0-22 10-22 22v62c6-8 13-12 24-12h35V20Z"/>
+        <path stroke-width="6" d="m31 43 12 30 12-30m48 30V43m0 10c0-7 4-11 10-11s10 4 10 11v20"/>
+      </g>
+    </symbol>
+    <symbol id="fold" viewBox="0 0 160 120"><path fill="currentColor" d="M13 25h14l20 57 20-57h14l-27 70H40L13 25Zm75 0h13l34 47V25h13v70h-12l-35-48v48H88V25Z"/></symbol>
+  </svg>
+  <main class="sheet">
+    <header><div class="brand">VN Reader<span>Vidurneeti’s post reader</span></div><div class="label">Logo explorations</div></header>
+    <section class="intro" aria-labelledby="page-title">
+      <h1 id="page-title">Three ways<br>to say vn.</h1>
+      <p>A familiar signature, connected pages, or a compact monogram. Each direction uses one color and scales from a browser icon to a welcome screen.</p>
+    </section>
+    <nav aria-label="Logo directions"><a href="#type-direction">Type</a><a href="#pages-direction">Open pages</a><a href="#fold-direction">Fold</a></nav>
+    <article id="type-direction" aria-labelledby="type-title">
+      <div class="direction-head"><div class="title-row"><span class="number">01</span><h2 id="type-title">Type</h2></div><p>Custom lowercase letterforms keep the familiar <strong>vn.</strong> signature and give the reader a clear editorial identity.</p></div>
+      <div class="samples"><div class="sample"><svg class="mark" role="img" aria-label="Type logo in dark ink"><use href="#type"/></svg><span class="caption">Light surface</span></div><div class="sample dark"><svg class="mark" role="img" aria-label="Type logo in light ink"><use href="#type"/></svg><span class="caption">Dark surface</span></div></div>
+      <div class="context"><div class="nav-context"><span class="tile"><svg class="mark" aria-hidden="true"><use href="#type"/></svg></span><span>VN Reader</span></div><span class="tiny"><svg class="mark" role="img" aria-label="Type at favicon size"><use href="#type"/></svg></span><span class="label">Actual interface sizes</span><a class="download" href="01-type.svg" download>Download SVG</a></div>
+    </article>
+    <article id="pages-direction" aria-labelledby="pages-title">
+      <div class="direction-head"><div class="title-row"><span class="number">02</span><h2 id="pages-title">Open pages</h2></div><p>Two connected pages frame the <strong>v</strong> and <strong>n</strong>, bringing long-form reading and the archive’s linked conversations into one mark.</p></div>
+      <div class="samples"><div class="sample"><svg class="mark" role="img" aria-label="Open pages logo in dark ink"><use href="#pages"/></svg><span class="caption">Light surface</span></div><div class="sample dark"><svg class="mark" role="img" aria-label="Open pages logo in light ink"><use href="#pages"/></svg><span class="caption">Dark surface</span></div></div>
+      <div class="context"><div class="nav-context"><span class="tile"><svg class="mark" aria-hidden="true"><use href="#pages"/></svg></span><span>VN Reader</span></div><span class="tiny"><svg class="mark" role="img" aria-label="Open pages at favicon size"><use href="#pages"/></svg></span><span class="label">Actual interface sizes</span><a class="download" href="02-pages.svg" download>Download SVG</a></div>
+    </article>
+    <article id="fold-direction" aria-labelledby="fold-title">
+      <div class="direction-head"><div class="title-row"><span class="number">03</span><h2 id="fold-title">Fold</h2></div><p>A geometric <strong>VN</strong> monogram uses sharp folds and solid strokes for a compact, confident navigation tile or app icon.</p></div>
+      <div class="samples"><div class="sample"><svg class="mark" role="img" aria-label="Fold logo in dark ink"><use href="#fold"/></svg><span class="caption">Light surface</span></div><div class="sample dark"><svg class="mark" role="img" aria-label="Fold logo in light ink"><use href="#fold"/></svg><span class="caption">Dark surface</span></div></div>
+      <div class="context"><div class="nav-context"><span class="tile"><svg class="mark" aria-hidden="true"><use href="#fold"/></svg></span><span>VN Reader</span></div><span class="tiny"><svg class="mark" role="img" aria-label="Fold at favicon size"><use href="#fold"/></svg></span><span class="label">Actual interface sizes</span><a class="download" href="03-monogram.svg" download>Download SVG</a></div>
+    </article>
+    <footer><span>Original vector proposals for VN Reader. No direction has been applied to the product.</span><span>Transparent SVG · One-color ink · Theme adaptable</span></footer>
+  </main>
+</body>
+</html>

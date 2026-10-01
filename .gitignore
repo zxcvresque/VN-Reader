@@ -21,3 +21,7 @@ data/
 *.sqlite3-shm
 
 deploy/secrets/
+
+# TypeScript output generated from vite.config.ts
+vite.config.js
+vite.config.d.ts
