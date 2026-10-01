@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { THEMES, type ThemeId } from "../lib/preferences";
 import type { ArchiveManifest, MessageRecord } from "../types";
+import SignupCapacity from "./SignupCapacity";
+import type { SignupCapacity as Capacity } from "../lib/admin";
 import TelegramRichText from "./TelegramRichText";
+import BrandLogo from "./BrandLogo";
 import "./welcome.css";
 
 export const WELCOME_SLIDES = [
@@ -68,11 +71,15 @@ export interface WelcomePageProps {
   onThemeChange: (theme: ThemeId) => void;
   onGuest: () => void;
   onSignIn: () => void;
+  onSignUp?: () => void;
+  capacity?: Capacity | null;
+  capacityError?: string;
+  onRefreshCapacity?: () => void;
   messages: MessageRecord[];
   manifest: ArchiveManifest | null;
 }
 
-export default function WelcomePage({ theme, onThemeChange, onGuest, onSignIn, messages, manifest }: WelcomePageProps) {
+export default function WelcomePage({ theme, onThemeChange, onGuest, onSignIn, onSignUp, capacity=null, capacityError, onRefreshCapacity=()=>{}, messages, manifest }: WelcomePageProps) {
   const [learnMore, setLearnMore] = useState(false);
   // A real archive passage, not invented marketing copy or a simulated reader.
   const preview = messages.find(m => m.text.length > 240 && !/rules|guidelines/i.test(m.text.slice(0, 100)));
@@ -82,11 +89,12 @@ export default function WelcomePage({ theme, onThemeChange, onGuest, onSignIn, m
   const year = (date: string | null | undefined) => date ? new Date(date).getFullYear() : null;
   return <div className="welcome-page">
     <div className="welcome-wrap">
-      <header className="welcome-header"><div className="welcome-brand"><span className="welcome-mark" aria-hidden="true">vn<span>.</span></span><span>VN Reader</span></div><span className="welcome-for">For readers of Vidurneeti</span></header>
+      <header className="welcome-header"><div className="welcome-brand"><span className="welcome-mark" aria-hidden="true"><BrandLogo /></span><span>VN</span></div><span className="welcome-for">For readers of Vidurneeti</span></header>
       <main>
         <section className="welcome-hero" aria-labelledby="welcome-title">
           <div className="welcome-copy"><h1 id="welcome-title">Read Vidurneeti.<br />At your own pace.</h1><p>A dedicated reader for Vidurneeti’s posts. Follow the context, save what matters, and always find your way back.</p>
-            <div className="welcome-entry-actions"><button type="button" className="welcome-primary" aria-describedby="welcome-guest-storage" onClick={onGuest}>Continue as guest <span aria-hidden="true">→</span></button><button type="button" className="welcome-signin" aria-describedby="welcome-account-storage" onClick={onSignIn}>Sign in</button></div>
+            <div className="welcome-entry-actions"><button type="button" className="welcome-primary" aria-describedby="welcome-guest-storage" onClick={onGuest}>Continue as guest <span aria-hidden="true">→</span></button><button type="button" className="welcome-signin" aria-describedby="welcome-account-storage" onClick={onSignUp??onSignIn} disabled={capacity?.configured===false||capacity?.remaining===0}>Create an account</button><button type="button" className="welcome-signin welcome-login" aria-describedby="welcome-account-storage" onClick={onSignIn}>Sign in</button></div>
+            <SignupCapacity capacity={capacity} error={capacityError} onRetry={onRefreshCapacity}/>
             <p className="welcome-entry-note">Guest reading stays in this browser and can be exported. Sign in to sync across devices.</p>
           </div>
           <aside className="welcome-archive" aria-label="A passage from the Vidurneeti archive">

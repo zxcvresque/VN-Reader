@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { ViewName } from "./CommandPalette";
+import BrandLogo from "./BrandLogo";
 
 interface TopBarProps {
   channelTitle: string;
@@ -88,7 +89,7 @@ export default function TopBar({ channelTitle, channelMeta, anchorLabel, progres
 
   return <header ref={shell} className={`top-bar ${compact ? "is-compact" : "is-expanded"} ${mobileNavOpen ? "is-mobile-open" : ""}`}>
     <div className="top-bar-channel" title={channelTitle}>
-      <span className="top-bar-mark" aria-hidden="true">vn<span /></span>
+      <span className="top-bar-mark" aria-hidden="true"><BrandLogo monochrome width={30} /></span>
       <span className="top-bar-channel-copy">
         <span className="top-bar-channel-name">{channelTitle}</span>
         <span className="top-bar-channel-meta">{channelMeta}</span>

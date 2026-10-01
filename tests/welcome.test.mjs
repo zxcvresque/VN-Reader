@@ -15,8 +15,10 @@ const compile = (path, dependencies = {}) => {
 };
 const preferences = compile('../src/lib/preferences.ts');
 const entry = compile('../src/lib/entry.ts');
+const {default: Capacity} = compile('../src/components/SignupCapacity.tsx');
+const {default: BrandLogo} = compile('../src/components/BrandLogo.tsx');
 const { default: Welcome, WELCOME_SLIDES, FeatureWalkthrough } = compile('../src/components/WelcomePage.tsx', {
-  '../lib/preferences': preferences, './welcome.css': {},
+  '../lib/preferences': preferences, './welcome.css': {}, './SignupCapacity': {default:Capacity}, './BrandLogo': {default:BrandLogo},
   './TelegramRichText': { default: ({ text }) => React.createElement('p', null, text) }
 });
 function environment() {
@@ -92,8 +94,8 @@ async function appFixture({ cached = false, cacheFails = false, archiveFails = f
   const api = { fetchSiteArchive: async () => { if (archiveFails) throw Error('Archive network failed'); return { manifest, messages }; } };
   const account = { user: null, config: { accountsEnabled: false, archiveEnabled: true }, configReady: true, configError: '', status: 'guest', flush() {}, refreshConfig() {}, initialize() {} };
   const component = name => ({ default: props => React.createElement('div', { 'data-component': name }, props.children) });
-  const deps = { './lib/demo': demo, './lib/entry': entry, './lib/preferences': preferences, './lib/readingState': state, './lib/backup': backup, './lib/idb': idb, './lib/archive': { ...archive, getDirectoryPermission: async () => 'unsupported' }, './lib/api': api, './lib/useReaderAccount': { useReaderAccount: () => account }, './lib/media': { revokeAllMediaObjectUrls() {} }, './components/WelcomePage': { default: Welcome, FeatureWalkthrough } };
-  for (const name of ['ReaderSettings', 'ReaderGuide', 'ReaderAccount', 'ReadingLibrary', 'CommandPalette', 'MediaLightbox', 'MessageCard', 'ThreadRail', 'TopBar', 'PostTimeline', 'VirtualizedMessageList']) deps[`./components/${name}`] = component(name);
+  const deps = { './lib/demo': demo, './lib/entry': entry, './lib/preferences': preferences, './lib/readingState': state, './lib/backup': backup, './lib/idb': idb, './lib/archive': { ...archive, getDirectoryPermission: async () => 'unsupported' }, './lib/api': api, './lib/useReaderAccount': { useReaderAccount: () => account }, './lib/useSignupCapacity': {useSignupCapacity:()=>({capacity:null,error:'',refresh(){}})}, './lib/media': { revokeAllMediaObjectUrls() {} }, './components/WelcomePage': { default: Welcome, FeatureWalkthrough } };
+  for (const name of ['AdminDashboard', 'ReaderSettings', 'ReaderGuide', 'ReaderAccount', 'ReadingLibrary', 'CommandPalette', 'MediaLightbox', 'MessageCard', 'ThreadRail', 'TopBar', 'PostTimeline', 'VirtualizedMessageList']) deps[`./components/${name}`] = component(name);
   deps['./components/VirtualizedMessageList'] = { default: React.forwardRef((props, ref) => {
     React.useImperativeHandle(ref, () => ({ restorePosition: p => positions.push(p), scrollToIndex() {}, getPosition: () => null }), []);
     return React.createElement('div', { 'data-component': 'VirtualizedMessageList' });
@@ -159,4 +161,20 @@ test('first reader entry offers a tour; opening it dismisses the invitation and 
     act(() => findButton(f.root, 'Close').props.onClick());
     assert.equal(f.root.root.findAllByType(FeatureWalkthrough).length, 0);
   } finally { f.close(); }
+});
+
+test('welcome shows remaining email slots; a full allowance blocks new signup but leaves guest and password sign-in available', () => {
+  const env=environment();let root;
+  const capacity={configured:true,limit:300,used:299,remaining:1,resetsAt:'2026-10-02T00:00:00Z',timezone:'UTC',scope:'VN Reader email allowance'};
+  try {
+    act(()=>{root=Renderer.create(React.createElement(Welcome,{...props(),capacity}));});
+    assert.ok(root.root.findAllByType('span').some(node=>node.children.filter(c=>typeof c==='string').join('')==='1 email slot left today'));
+    assert.equal(findButton(root,'Create an account').props.disabled,false);
+    act(()=>root.update(React.createElement(Welcome,{...props(),capacity:{...capacity,used:300,remaining:0}})));
+    assert.match(JSON.stringify(root.toJSON()),/Email verification is full for today/);
+    assert.equal(findButton(root,'Create an account').props.disabled,true);
+    assert.notEqual(findButton(root,'Sign in').props.disabled,true);
+    assert.notEqual(findButton(root,'Continue as guest').props.disabled,true);
+    assert.ok(!JSON.stringify(root.toJSON()).includes('Brevo'));
+  } finally {if(root)act(()=>root.unmount());env.restore();}
 });

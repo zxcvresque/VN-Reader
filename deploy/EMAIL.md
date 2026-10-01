@@ -15,7 +15,7 @@ Self-hosting SMTP is possible, but first confirm Oracle will permit direct deliv
 ## Brevo setup for the initial launch
 
 1. Create a free account at [Brevo](https://www.brevo.com/). In **Settings → Senders, Domains, IPs → Domains**, add `vidurneeti.xyz`.
-2. Choose manual domain authentication and add the exact Brevo verification, DKIM and DMARC records to Cloudflare. Keep DKIM CNAMEs DNS only. If a DMARC record already exists, review/update that one instead of creating a duplicate. Follow [Brevo's domain guide](https://help.brevo.com/hc/en-us/articles/12163873383186-Authenticate-your-domain-with-Brevo-Brevo-code-DKIM-DMARC); its domain setup screens may vary.
+2. In the new guided flow, use `mail` for the optional branded subdomain (`mail.vidurneeti.xyz`) if that name is unused. The site owner chose to enable this; it can otherwise be skipped on the shared/free plan. Choose individual/manual DNS records in the setup method and add the exact records Brevo displays to **Cloudflare → vidurneeti.xyz → DNS → Records**. Keep email-related CNAMEs **DNS only**. If a DMARC record already exists, review/update that one instead of creating a duplicate. Keep the existing website/tunnel DNS record unchanged. Click **Authenticate domain** after adding the records. Follow [Brevo's current domain setup guide](https://help.brevo.com/hc/en-us/articles/35337929909778-Set-up-your-domain-in-Brevo).
 3. Add a transactional sender **VN Reader**, `noreply@vidurneeti.xyz`, using the authenticated domain. Complete any sender verification or transactional activation Brevo requires.
 4. Open **SMTP & API → SMTP**, copy the displayed SMTP login and generate an SMTP key for VN Reader. Use the SMTP key as password, not an API key or your Brevo account password. [Brevo SMTP guide](https://help.brevo.com/hc/en-us/articles/7924908994450-Send-transactional-emails-using-Brevo-SMTP).
 5. Follow the VPS steps below, using `VN_SMTP_HOST=smtp-relay.brevo.com`, port `587`, your displayed SMTP login and SMTP key. Better Auth supplies the code email text; you do not need Brevo automations or templates.
@@ -46,18 +46,33 @@ VN_SMTP_USERNAME=YOUR_SMTP_USERNAME
 VN_SMTP_PASSWORD='YOUR_SMTP_PASSWORD'
 VN_SMTP_FROM='VN Reader <noreply@vidurneeti.xyz>'
 VN_SMTP_SSL=false
+VN_ADMIN_EMAILS=YOUR_VERIFIED_ADMIN_EMAIL
+VN_EMAIL_DAILY_LIMIT=300
+VN_EMAIL_QUOTA_TIMEZONE=UTC
 ```
 
 Keep `VN_DOMAIN=vidurneeti.xyz` and your existing `BETTER_AUTH_SECRET` unchanged. Wrap values containing `$` or `#` in single quotes. Never commit `.env.production` or share screenshots containing credentials. Port 587 uses STARTTLS; `false` here means STARTTLS rather than implicit TLS, not unencrypted delivery.
 
 ```sh
 chmod 600 .env.production
+git pull --ff-only
+dc build accounts web
 dc up -d --force-recreate accounts
+dc up -d web
 dc ps
 curl -fsS https://vidurneeti.xyz/api/config
+curl -fsS https://vidurneeti.xyz/api/signup-capacity
 ```
 
 `accountsEnabled: true` means SMTP settings exist, not proof an inbox received email. Refresh the website, create an account with an email you control and a password of at least 12 characters, then enter the six-digit inbox code. The code expires in 10 minutes. In the SES sandbox, verify that recipient first. Check spam and provider sending status if it does not arrive.
+
+## Daily allowance and private administration
+
+The welcome page shows remaining daily email slots. Verification emails, resends and password resets share this allowance; password sign-in and guest reading remain available when it is full. Admission is enforced by the server, including concurrent signup requests. Definite delivery failures release the reservation; uncertain delivery retains it until the next daily reset.
+
+This counter tracks **VN Reader's own sends**, not your provider's account-wide balance. Sending marketing or other application email through the same provider consumes capacity outside this counter. Use an allowance that leaves room for such traffic and align the configured IANA timezone with your provider's reset policy. The default is a site day in UTC; confirm the provider's reset policy before treating the two limits as equivalent.
+
+Set `VN_ADMIN_EMAILS` privately to the owner email (or a comma-separated allowlist). After verifying and signing in with that email, open **Account → Open admin dashboard**. It shows registrations, successful sign-ins with email and time, and slots used/left. Daily activity can be filtered by date and account/event lists are paginated. Server authorization requires both a verified session and an allowlisted email. Existing users do not automatically become administrators. Keep the owner address and SMTP credentials out of the public repository.
 
 ## Verify sync with two devices
 

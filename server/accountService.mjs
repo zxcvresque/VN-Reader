@@ -27,6 +27,21 @@ export async function createAccountApp(settings=accountSettings(),sendEmail) {
   app.use(express.json({limit:"1mb"}));
   app.get("/api/config",(req,res)=>res.json({accountsEnabled:accounts.enabled,archiveEnabled:settings.archiveEnabled}));
   app.get("/api/health",(req,res)=>res.json({status:"ok",accountsEnabled:accounts.enabled}));
+  app.get("/api/signup-capacity",(req,res)=>res.json(accounts.admin.capacity(accounts.enabled)));
+  app.get("/api/admin/access",async(req,res)=>{
+    try {const session=accounts.enabled?await accounts.auth.api.getSession({headers:fromNodeHeaders(req.headers)}):null;res.json({allowed:accounts.admin.allowed(session?.user)});}
+    catch {res.json({allowed:false});}
+  });
+  app.get("/api/admin/dashboard",async(req,res)=>{
+    try {
+      const session=accounts.enabled?await accounts.auth.api.getSession({headers:fromNodeHeaders(req.headers)}):null;
+      if(!session?.user?.emailVerified)return res.status(401).json({detail:"Sign in with a verified email to view administration."});
+      if(!accounts.admin.allowed(session.user))return res.status(403).json({detail:"This account does not have administrator access."});
+      const day=req.query.day??accounts.admin.dayAt(),page=req.query.page??"1";
+      if(typeof day!=="string"||typeof page!=="string"||!/^\d+$/.test(page))return res.status(422).json({detail:"Invalid day or page."});
+      try {res.json(accounts.admin.dashboard(day,Number(page)));}catch {res.status(422).json({detail:"Invalid day or page. Use YYYY-MM-DD and a positive page number."});}
+    }catch {res.status(401).json({detail:"Your session has expired. Sign in again."});}
+  });
   app.use("/api/state",async(req,res,next)=>{
     if(!accounts.enabled)return res.status(503).json({detail:"Accounts are not configured."});
     try{const session=await accounts.auth.api.getSession({headers:fromNodeHeaders(req.headers)});if(!session?.user?.emailVerified)return res.status(401).json({detail:"Sign in with a verified email to sync your reading state."});req.readerUser=session.user;next();}catch{res.status(401).json({detail:"Your session has expired. Sign in again."});}

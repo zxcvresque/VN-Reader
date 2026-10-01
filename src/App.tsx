@@ -4,6 +4,8 @@ import { loadSampleArchive } from "./lib/demo";
 import { hasEnteredAsGuest, rememberGuestEntry, shouldOfferTour, rememberTourInvitation } from "./lib/entry";
 import ReaderSettings from "./components/ReaderSettings";
 import ReaderGuide from "./components/ReaderGuide";
+import AdminDashboard from "./components/AdminDashboard";
+import { useSignupCapacity } from "./lib/useSignupCapacity";
 import ReaderAccount from "./components/ReaderAccount";
 import { useReaderAccount } from "./lib/useReaderAccount";
 import { fetchSiteArchive } from "./lib/api";
@@ -121,6 +123,10 @@ export default function App() {
   const [forwardStack, setForwardStack] = useState<NavEntry[]>([]);
   const [preferences, setPreferences] = useState<ReaderPreferences>(loadPreferences);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [accountMode,setAccountMode] = useState<"login"|"register">("login");
+  const [adminOpen,setAdminOpen] = useState(false);
+  const signupCapacity=useSignupCapacity();
+  const openAccount=(mode:"login"|"register"="login")=>{setAccountMode(mode);setAccountOpen(true);};
   const accountActiveRef = useRef(false);
   const guestBackupRef = useRef<ReadingBackup | null>(null);
   const preferencesRef = useRef(preferences); preferencesRef.current = preferences;
@@ -214,7 +220,7 @@ export default function App() {
   useEffect(()=>{if(account.user){setEntered(true);setAccountOpen(false);}},[account.user]);
   const accountFlushRef=useRef(account.flush);accountFlushRef.current=account.flush;
   accountActiveRef.current=account.user!==null;
-  const accountDialog=accountOpen?<ReaderAccount account={account} onClose={()=>setAccountOpen(false)} onGuest={!entered?continueAsGuest:undefined}/>:null;
+  const accountDialog=accountOpen?<ReaderAccount account={account} onClose={()=>setAccountOpen(false)} onGuest={!entered?continueAsGuest:undefined} initialMode={accountMode} capacity={signupCapacity.capacity} capacityError={signupCapacity.error} onRefreshCapacity={signupCapacity.refresh} onOpenAdmin={()=>{setAccountOpen(false);setAdminOpen(true);}}/>:null;
   const deferredSearch = useDeferredValue(searchQuery.trim().toLowerCase());
 
   // -------- snapshot loading --------
@@ -1113,7 +1119,7 @@ export default function App() {
 
   // Entry is independent of archive availability, so fetching posts never flashes
   // an import screen or opens the reader before a visitor has chosen a mode.
-  if (!entered) return <><WelcomePage theme={preferences.theme} onThemeChange={theme=>changePreferences({...preferences,theme})} onGuest={continueAsGuest} onSignIn={()=>setAccountOpen(true)} messages={snapshot.messages} manifest={snapshot.manifest}/>{accountDialog}</>;
+  if (!entered) return <><WelcomePage theme={preferences.theme} onThemeChange={theme=>changePreferences({...preferences,theme})} onGuest={continueAsGuest} onSignIn={()=>openAccount()} onSignUp={()=>openAccount("register")} capacity={signupCapacity.capacity} capacityError={signupCapacity.error} onRefreshCapacity={signupCapacity.refresh} messages={snapshot.messages} manifest={snapshot.manifest}/>{accountDialog}</>;
   if (snapshot.messages.length === 0) {
     const loading=!localLoaded||!account.configReady||archiveLoading||(account.config?.archiveEnabled&&!archiveError);
     const problem=archiveError||account.configError||"The Vidurneeti archive is not connected yet. Please try again shortly.";
@@ -1162,7 +1168,7 @@ export default function App() {
         onOpenPalette={() => setPaletteOpen(true)}
         onOpenSettings={()=>setSettingsOpen(true)}
         onOpenGuide={openGuide}
-        onOpenAccount={()=>setAccountOpen(true)}
+        onOpenAccount={()=>openAccount()}
         accountLabel={account.user?"Your account":"Sign in or create account"}
         paletteOpen={paletteOpen}
         settingsOpen={settingsOpen}
@@ -1172,7 +1178,7 @@ export default function App() {
         onToggleFocus={()=>{if(!preferences.focusMode)setAppView("read");changePreferences({...preferences,focusMode:!preferences.focusMode});}}
       />
 
-      <div className="account-strip" data-tour="account-status"><button onClick={()=>setAccountOpen(true)}>{account.user?account.user.email:"Reading as a guest"}</button><span role="status">{account.user?({guest:"Browser only",loading:"Opening account…",saving:"Saving…",saved:"Saved across devices",offline:"Sync pending · device copy kept",conflict:"Sync needs attention"})[account.status]:"Progress saved in this browser"}</span>{account.user&&account.status==="offline"?<button onClick={()=>account.sync()}>Retry sync</button>:null}</div>
+      <div className="account-strip" data-tour="account-status"><button onClick={()=>openAccount()}>{account.user?account.user.email:"Reading as a guest"}</button><span role="status">{account.user?({guest:"Browser only",loading:"Opening account…",saving:"Saving…",saved:"Saved across devices",offline:"Sync pending · device copy kept",conflict:"Sync needs attention"})[account.status]:"Progress saved in this browser"}</span>{account.user&&account.status==="offline"?<button onClick={()=>account.sync()}>Retry sync</button>:null}</div>
       {tourInvitation && !guideOpen && <aside className="reader-tour-invitation" aria-label="Get started with VN Reader"><div><strong>Find your way around.</strong><p>Take a tour of the reading controls. You can reopen it anytime from Help & tours.</p></div><div className="reader-tour-invitation-actions"><button type="button" onClick={openGuide}>Take a quick tour <span aria-hidden="true">→</span></button><button type="button" className="btn-ghost" onClick={dismissTourInvitation}>Later</button></div></aside>}
       <div className="reading-tools" data-tour="reading-tools">
         <div className="reader-trail" aria-label="Reading trail">
@@ -1366,6 +1372,7 @@ export default function App() {
       />
 
       {guideDialog}
+      {adminOpen&&account.user&&<AdminDashboard onClose={()=>setAdminOpen(false)}/>}
       {featuresOpen && <FeatureWalkthrough onClose={()=>setFeaturesOpen(false)}/>}
       <MediaLightbox media={lightboxMedia} onClose={() => setLightboxMedia(null)} />
 

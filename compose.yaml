@@ -32,6 +32,9 @@ services:
       VN_SMTP_PASSWORD: ${VN_SMTP_PASSWORD:-}
       VN_SMTP_FROM: ${VN_SMTP_FROM:-}
       VN_SMTP_SSL: ${VN_SMTP_SSL:-false}
+      VN_ADMIN_EMAILS: ${VN_ADMIN_EMAILS:-}
+      VN_EMAIL_DAILY_LIMIT: ${VN_EMAIL_DAILY_LIMIT:-300}
+      VN_EMAIL_QUOTA_TIMEZONE: ${VN_EMAIL_QUOTA_TIMEZONE:-UTC}
     volumes: ["account-data:/data"]
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3005/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
