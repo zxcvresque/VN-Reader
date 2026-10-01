@@ -1,7 +1,7 @@
 FROM node:24-bookworm-slim AS dependencies
 WORKDIR /app
 RUN corepack enable
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN corepack pnpm install --frozen-lockfile
 
 FROM dependencies AS build
@@ -12,7 +12,7 @@ RUN corepack pnpm build
 FROM node:24-bookworm-slim AS accounts
 WORKDIR /app
 RUN corepack enable
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN corepack pnpm install --frozen-lockfile --prod
 COPY server/accounts.mjs server/accountService.mjs ./server/
 RUN mkdir -p /data && chown node:node /data
