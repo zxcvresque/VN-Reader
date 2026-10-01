@@ -89,6 +89,20 @@ Upgrading from an older reader preserves the archive, bookmarks, and reading pro
 
 The reader supports one channel at a time. Resetting local data clears the reader's imported archive and its saved reading state while retaining global appearance preferences. Keep the Telegram session and archive files private.
 
+## Docker deployment
+
+Docker Compose runs the hosted reader as separate services:
+
+- `web` serves the React reader.
+- `accounts` provides Better Auth email/password login and saved reading progress.
+- `archive` serves post metadata through the API and streams media from Telegram.
+- `mirror` listens for new posts and copies them into the private Telegram archive group.
+- `tunnel` runs cloudflared to connect `vidurneeti.xyz` to the reader.
+
+Telegram stores the posts and media. Docker persistent volumes store accounts, password hashes, reading progress, the archive index, mirror checkpoints, and Telegram sessions. Compose manages the service network and restart policies; with Docker enabled at boot, services restart after a reboot.
+
+For migration, build the images, restore the existing data into the persistent volumes, then start the services. See [deploy/README.md](deploy/README.md) for the full deployment and migration guide.
+
 ## Development
 
 - React 18, TypeScript, Vite, and cmdk.
