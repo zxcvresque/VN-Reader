@@ -1105,7 +1105,7 @@ export default function App() {
   const showRail = view === "read" && threadRailOpen && railMessages.length > 1;
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${showRail ? "has-thread-panel" : ""}`}>
       <TopBar
         channelTitle={channelTitle}
         channelMeta={channelMeta}
