@@ -51,7 +51,7 @@ function fixture() {
   state.collections = [{ id: "c1", title: "Questions", introduction: "A path through the ideas", items: [{ id: "i1", messageKey: "-100:1", passageId: "p1" }, { id: "i2", messageKey: "-100:3" }] }];
   state.media["-100:3"] = { time: 32, rate: 1.25 };
   const preferences = clone(DEFAULT_PREFERENCES);
-  preferences.theme = "niti";
+  preferences.theme = "editorial";
   preferences.presets = [{ id: "preset-1", name: "Evening", preferences: { ...preferences, presets: undefined, paper: "sepia", fontSize: 20 } }];
   const backup = clone(createBackup(snapshot, state, preferences));
   return { snapshot, state, preferences, backup };

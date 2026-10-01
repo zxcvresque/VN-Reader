@@ -1,5 +1,5 @@
 const ENTRY_KEY = "vn-reader-entry-v1";
-const TOUR_KEY = "vn-reader-tour-intro-v1";
+const TOUR_KEY = "vn-reader-basic-tour-v2";
 
 export function shouldOfferTour(): boolean {
   try { return localStorage.getItem(TOUR_KEY) !== "seen"; }

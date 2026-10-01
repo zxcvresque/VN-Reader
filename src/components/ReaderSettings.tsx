@@ -59,7 +59,7 @@ export default function ReaderSettings({ preferences, onChange, onClose, onExpor
       <div className="reader-settings-body">
         {onOpenGuide && <button type="button" className="reader-settings-guide" onClick={onOpenGuide}><span aria-hidden="true">?</span><span><strong>Find your way around</strong><small>Take a guided page tour or explore how every reading tool works.</small></span><span aria-hidden="true">↗</span></button>}
         <section className="reader-settings-section" data-tour="themes">
-          <div className="reader-settings-section-title"><h3>Choose an atmosphere</h3><span>Seven ways to settle in</span></div>
+          <div className="reader-settings-section-title"><h3>Choose an atmosphere</h3><span>Four ways to settle in</span></div>
           <div className="theme-grid" role="group" aria-label="Reader theme">
             {THEMES.map(theme => <button type="button" key={theme.id} className={`theme-option theme-option-${theme.id} ${preferences.theme === theme.id ? "is-selected" : ""}`} aria-pressed={preferences.theme === theme.id} onClick={() => update("theme", theme.id)}>
               <span className="theme-option-preview" style={{ backgroundColor: theme.colors[0], color: theme.colors[1] }} aria-hidden="true"><span className="theme-preview-nav"><i /><i /><i /></span><span className="theme-preview-heading">Aa</span><span className="theme-preview-lines"><i style={{ background: theme.colors[2] }} /><i style={{ background: theme.colors[2] }} /><i style={{ background: theme.colors[2] }} /></span><span className="theme-preview-dot" style={{ background: theme.colors[1] }} /></span>

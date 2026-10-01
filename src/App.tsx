@@ -1,8 +1,9 @@
 import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeftIcon, ArrowRightIcon, MixerHorizontalIcon, MagnifyingGlassIcon, ResetIcon, BookmarkIcon } from "@radix-ui/react-icons";
 import WelcomePage, { FeatureWalkthrough } from "./components/WelcomePage";
-import { loadSampleArchive } from "./lib/demo";
 import { hasEnteredAsGuest, rememberGuestEntry, shouldOfferTour, rememberTourInvitation } from "./lib/entry";
 import ReaderSettings from "./components/ReaderSettings";
+import ReadingWidth from "./components/ReadingWidth";
 import ReaderGuide from "./components/ReaderGuide";
 import AdminDashboard from "./components/AdminDashboard";
 import { useSignupCapacity } from "./lib/useSignupCapacity";
@@ -27,10 +28,8 @@ import VirtualizedMessageList, {
 } from "./components/VirtualizedMessageList";
 import {
   getDirectoryPermission,
-  importArchiveDirectory,
   parseTagInput,
-  pickArchiveDirectory,
-  reattachArchiveDirectory, recomputeThreadLinks, buildThreadRecords
+  recomputeThreadLinks, buildThreadRecords
 } from "./lib/archive";
 import {
   deleteBookmark,
@@ -39,7 +38,6 @@ import {
   putBookmark,
   putReadCursor,
   putReadOverride,
-  resetArchiveData,
   restoreLegacyReadingState,
   replaceAllMessages, replaceAllThreads, saveManifest, saveDirectoryHandle,
 } from "./lib/idb";
@@ -135,10 +133,11 @@ export default function App() {
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
   const [tourInvitation, setTourInvitation] = useState(shouldOfferTour);
+  const basicTourStarted = useRef(false);
   const [featuresOpen, setFeaturesOpen] = useState(false);
   const [guideTopic, setGuideTopic] = useState<GuideTopic | null>(null);
   const [guideStep, setGuideStep] = useState<TourStep | null>(null);
-  const guideReturnRef = useRef<{ entry: NavEntry; library: boolean; search: boolean; query: string; streamQuery: string; windowTop: number; readingPosition: ReadingPosition | null; settings: boolean; settingsScroll: number; reached: boolean; source: {message: MessageRecord; origin: MessageRecord} | null } | null>(null);
+  const guideReturnRef = useRef<{ entry: NavEntry; library: boolean; search: boolean; query: string; streamQuery: string; toolsOpen: boolean; windowTop: number; readingPosition: ReadingPosition | null; settings: boolean; settingsScroll: number; reached: boolean; source: {message: MessageRecord; origin: MessageRecord} | null } | null>(null);
   const guideActiveRef = useRef(false);
   const [readerSearchOpen, setReaderSearchOpen] = useState(false);
   const [readerSearch, setReaderSearch] = useState("");
@@ -621,63 +620,6 @@ export default function App() {
     void task.catch(e=>setError(e instanceof Error?e.message:"Could not save this change."));
   }
 
-  async function handleImportArchive(): Promise<void> {
-    setBusyLabel("Importing archive folder...");
-    setError(null);
-    setNotice(null);
-    try {
-      const handle = await pickArchiveDirectory();
-      const result = await importArchiveDirectory(handle);
-      await refreshSnapshot(
-        `Imported ${result.importedMessageCount} messages — total ${result.totalMessageCount} across ${result.totalThreadCount} threads.`
-      );
-      setView("read");
-      setSearchQuery("");
-    } catch (e) {
-      setBusyLabel(null);
-      setError(e instanceof Error ? e.message : "Import failed.");
-    }
-  }
-
-  async function handleReattachFolder(): Promise<void> {
-    setBusyLabel("Reattaching archive folder…");
-    setError(null);
-    setNotice(null);
-    try {
-      const handle = await pickArchiveDirectory();
-      await reattachArchiveDirectory(handle);
-      await refreshSnapshot("Archive folder reattached.");
-    } catch (e) {
-      setBusyLabel(null);
-      setError(e instanceof Error ? e.message : "Could not reattach folder.");
-    }
-  }
-
-  async function handleResetArchive(): Promise<void> {
-    if (!window.confirm("Clear the imported archive, bookmarks, and read state from this browser?")) {
-      return;
-    }
-    setBusyLabel("Clearing local archive…");
-    setError(null);
-    setNotice(null);
-    try {
-      if(positionTimerRef.current){window.clearTimeout(positionTimerRef.current);positionTimerRef.current=null;}
-      revokeAllMediaObjectUrls();
-      if (!accountActiveRef.current && personalRef.current.chatId !== null) commitPersonal(createReadingState(personalRef.current.chatId));
-      await resetArchiveData();
-      initialRestoreRef.current = null;
-      setPersonal(createReadingState(null)); personalRef.current = createReadingState(null);
-      lastPositionRef.current = null; pendingPositionRef.current = null;
-      setNavStack([]); setForwardStack([]); setSession(null);
-      await refreshSnapshot("Local archive cleared.");
-      setSelectedThreadKey(null);
-      setHighlightedMessageKey(null);
-    } catch (e) {
-      setBusyLabel(null);
-      setError(e instanceof Error ? e.message : "Could not reset.");
-    }
-  }
-
   function updateReadOverrides(next: MessageReadOverride): void {
     setSnapshot((c) => ({
       ...c,
@@ -981,7 +923,7 @@ export default function App() {
   }
   function openGuide(): void {
     dismissTourInvitation();
-    guideReturnRef.current = { entry: captureEntry(), library: libraryOpen, search: readerSearchOpen, query: readerSearch, streamQuery: searchQuery, windowTop: window.scrollY, settings: settingsOpen, settingsScroll: document.querySelector(".reader-settings-body")?.scrollTop ?? 0, reached: sessionReached, readingPosition: view === "read" ? timelineRef.current?.getPosition() ?? lastPositionRef.current : lastPositionRef.current, source: sourcePeek };
+    guideReturnRef.current = { entry: captureEntry(), library: libraryOpen, search: readerSearchOpen, query: readerSearch, streamQuery: searchQuery, toolsOpen: document.querySelector<HTMLDetailsElement>(".reader-tools-menu")?.open ?? false, windowTop: window.scrollY, settings: settingsOpen, settingsScroll: document.querySelector(".reader-settings-body")?.scrollTop ?? 0, reached: sessionReached, readingPosition: view === "read" ? timelineRef.current?.getPosition() ?? lastPositionRef.current : lastPositionRef.current, source: sourcePeek };
     guideActiveRef.current = true;
     if (positionTimerRef.current) { window.clearTimeout(positionTimerRef.current); positionTimerRef.current = null; }
     setSettingsOpen(false); setPaletteOpen(false); setSourcePeek(null);
@@ -989,6 +931,7 @@ export default function App() {
   }
   function closeGuide(): void {
     setGuideOpen(false); setGuideTopic(null); setGuideStep(null);
+    const tools=document.querySelector<HTMLDetailsElement>(".reader-tools-menu"); if(tools)tools.open=guideReturnRef.current?.toolsOpen??false;
     const origin = guideReturnRef.current;
     setSettingsOpen(origin?.settings ?? false);
     if (origin) {
@@ -1016,12 +959,13 @@ export default function App() {
     setGuideStep(step);
     document.documentElement.dataset.tourStep = step?.id ?? "";
     if (!step) return;
-    if(step.id.startsWith("account-"))window.scrollTo({top:0,behavior:"instant"});
+    if(step.id.startsWith("account-")||step.id==="basic-tools"||step.id==="basic-help")window.scrollTo({top:0,behavior:"instant"});
     const appearance = step.id.startsWith("appearance-");
     const search = step.id === "search-panel" || step.id === "search-context";
     setSettingsOpen(appearance); setReaderSearchOpen(search); setSourcePeek(null); setPaletteOpen(false);
     setView(step.id === "reading-timeline" ? "progress" : "read"); setSearchQuery("");
-    if (["reading-state", "reading-context", "library-save", "library-notes"].includes(step.id)) {
+    const tools=document.querySelector<HTMLDetailsElement>(".reader-tools-menu"); if(tools) tools.open=["basic-tools","reading-resume","reading-trail","reading-session"].includes(step.id);
+    if (["basic-actions", "reading-state", "reading-context", "library-save", "library-notes"].includes(step.id)) {
       const post = (step.id === "reading-context" ? snapshot.messages.find(m => m.is_quote_reply) : null)
         ?? snapshot.messages.find(m => m.text.length > 0 && m.text.length < 900) ?? snapshot.messages[0];
       if (post) {
@@ -1056,6 +1000,11 @@ export default function App() {
     return () => window.cancelAnimationFrame(frame);
   }, [guideStep]);
   const guideDialog = guideOpen ? <ReaderGuide topic={guideTopic} hasArchive={snapshot.messages.length > 0} onSelectTopic={topic => { setGuideTopic(topic); }} onClose={closeGuide} onStepChange={prepareTourStep} onLearnMore={()=>{closeGuide();setFeaturesOpen(true);}} /> : null;
+  useEffect(()=>{
+    if(!entered||!snapshot.messages.length||!tourInvitation||basicTourStarted.current||accountOpen)return;
+    basicTourStarted.current=true;
+    openGuide();setGuideTopic("basic");
+  },[entered,snapshot.messages.length,tourInvitation,accountOpen]);
   const settingsDialog = settingsOpen || (guideOpen && guideReturnRef.current?.settings) ? <div hidden={guideOpen && guideTopic !== "appearance"}><ReaderSettings preferences={preferences} onChange={changePreferences} onClose={() => setSettingsOpen(false)} onOpenGuide={openGuide} tourActive={guideOpen} onExportBackup={() => void exportBackup()} onImportBackup={importBackup} backupBusy={backupBusy} /></div> : null;
 
 
@@ -1130,7 +1079,6 @@ export default function App() {
           <p>{loading?"Preparing the posts and your saved reading place.":problem}</p>
           {loading?<div className="welcome-loading-lines" aria-hidden="true"><span/><span/><span/></div>:<button type="button" className="btn-primary" onClick={()=>{setArchiveAttempt(v=>v+1);account.refreshConfig();}}>Try again</button>}
           <button type="button" className="btn-ghost" onClick={()=>setEntered(false)}>Back to welcome</button>
-          {!loading&&account.config?.archiveEnabled!==true?<details><summary>Offline reading</summary><p>You can open a local exported archive while the hosted reader is unavailable.</p><button type="button" onClick={()=>void handleImportArchive()}>Import archive folder</button><button type="button" onClick={()=>{setBusyLabel("Opening sample archive…");void loadSampleArchive().then(()=>refreshSnapshot("Sample archive opened.")).catch(e=>{setBusyLabel(null);setError(String(e));});}}>Explore a sample archive</button></details>:null}
         </div>
         {accountDialog}
       </div>
@@ -1173,33 +1121,37 @@ export default function App() {
         paletteOpen={paletteOpen}
         settingsOpen={settingsOpen}
         guideOpen={guideOpen}
+        guideMenuOpen={Boolean(guideStep && (["basic-navigation","basic-help","reading-navigation","search-threads"].includes(guideStep.id) || guideStep.id.startsWith("account-")))}
         accountOpen={accountOpen}
         focusMode={preferences.focusMode}
         onToggleFocus={()=>{if(!preferences.focusMode)setAppView("read");changePreferences({...preferences,focusMode:!preferences.focusMode});}}
       />
 
-      <div className="account-strip" data-tour="account-status"><button onClick={()=>openAccount()}>{account.user?account.user.email:"Reading as a guest"}</button><span role="status">{account.user?({guest:"Browser only",loading:"Opening account…",saving:"Saving…",saved:"Saved across devices",offline:"Sync pending · device copy kept",conflict:"Sync needs attention"})[account.status]:"Progress saved in this browser"}</span>{account.user&&account.status==="offline"?<button onClick={()=>account.sync()}>Retry sync</button>:null}</div>
-      {tourInvitation && !guideOpen && <aside className="reader-tour-invitation" aria-label="Get started with VN Reader"><div><strong>Find your way around.</strong><p>Take a tour of the reading controls. You can reopen it anytime from Help & tours.</p></div><div className="reader-tour-invitation-actions"><button type="button" onClick={openGuide}>Take a quick tour <span aria-hidden="true">→</span></button><button type="button" className="btn-ghost" onClick={dismissTourInvitation}>Later</button></div></aside>}
+      {account.user && ["offline","conflict"].includes(account.status) ? <div className="account-strip" data-tour="account-status"><button onClick={()=>openAccount()}>{account.user?account.user.email:"Reading as a guest"}</button><span role="status">{account.user?({guest:"Browser only",loading:"Opening account…",saving:"Saving…",saved:"Saved across devices",offline:"Sync pending · device copy kept",conflict:"Sync needs attention"})[account.status]:"Progress saved in this browser"}</span>{account.user&&account.status==="offline"?<button onClick={()=>account.sync()}>Retry sync</button>:null}</div>:null}
+      {view==="read" ? <div className="reader-toolbar">{view==="read"?<h2>{deferredSearch?`${filteredMessages.length.toLocaleString()} matches`:"Your reading"}</h2>:null}
+      <details className="reader-tools-menu"><summary aria-label="Open reading tools"><MixerHorizontalIcon aria-hidden="true"/><span>Tools</span></summary><div className="reader-tools-content">
       <div className="reading-tools" data-tour="reading-tools">
         <div className="reader-trail" aria-label="Reading trail">
-          <button type="button" disabled={!navStack.length} onClick={handleNavigateBack} aria-label="Previous reading location">← Back</button>
-          <button type="button" disabled={!forwardStack.length} onClick={handleNavigateForward} aria-label="Next reading location">Forward →</button>
-          {navStack.length ? <span>Return to {navStack.at(-1)?.label}</span>: <span>Your reading trail starts here</span>}
+          <button type="button" disabled={!navStack.length} onClick={handleNavigateBack} aria-label="Previous reading location"><ArrowLeftIcon aria-hidden="true"/> Back</button>
+          <button type="button" disabled={!forwardStack.length} onClick={handleNavigateForward} aria-label="Next reading location">Forward <ArrowRightIcon aria-hidden="true"/></button>
+          {navStack.length ? <span>Return to {navStack.at(-1)?.label}</span>: null}
         </div>
         <div className="reader-tool-actions">
-          <button type="button" onClick={launchResume}>Resume your place</button>
-          <button type="button" aria-expanded={readerSearchOpen} onClick={toggleReaderSearch}>Search beside reading</button>
-          <button type="button" aria-expanded={libraryOpen} onClick={()=>{setReaderSearchOpen(false);setSourcePeek(null);setLibraryOpen(o=>!o);}}>My library · {personal.queue.length}</button>
+          <button type="button" onClick={launchResume}><ResetIcon aria-hidden="true"/> Resume your place</button>
+          <button type="button" aria-expanded={readerSearchOpen} onClick={toggleReaderSearch}><MagnifyingGlassIcon aria-hidden="true"/> Search beside reading</button>
+          <button type="button" aria-expanded={libraryOpen} onClick={()=>{setReaderSearchOpen(false);setSourcePeek(null);setLibraryOpen(o=>!o);}}><BookmarkIcon aria-hidden="true"/> My library{personal.queue.length?` · ${personal.queue.length}`:""}</button>
         </div>
       </div>
-      {preferences.focusMode?<button type="button" className="reader-focus-exit" onClick={()=>changePreferences({...preferences,focusMode:false})}>Exit focus · Settings</button>:null}
       {view==="read" ? <form className="session-controls" data-tour="session" onSubmit={e=>{e.preventDefault();startSession();}}>
-        <span className="eyebrow">A little at a time</span>
+        <span className="eyebrow">Session boundary</span>
         <label>Session target <select value={sessionMode} onChange={e=>{const mode=e.target.value as typeof sessionMode;setSessionMode(mode);setSessionValue(mode==="date"?(activeAnchorMessage?.date_utc?.slice(0,10)??new Date().toISOString().slice(0,10)):"5");}}><option value="posts">Posts</option><option value="minutes">Reading minutes</option><option value="date">Until date</option></select></label>
-        <input aria-label="Session target value" type={sessionMode==="date"?"date":"number"} min="1" max="500" value={sessionValue} onChange={e=>setSessionValue(e.target.value)}/>
+        <label className="session-value-label">{sessionMode==="date"?"End date":sessionMode==="minutes"?"Minutes":"Number of posts"}<input aria-label="Session target value" type={sessionMode==="date"?"date":"number"} min="1" max="500" value={sessionValue} onChange={e=>setSessionValue(e.target.value)}/></label>
         <button type="submit">Set boundary</button>
-        {session?<><span>{session.label} · ending at #{messageByKey.get(session.endKey)?.message_id}</span><button type="button" className="btn-ghost" onClick={()=>{const pos=timelineRef.current?.getPosition();setSession(null);setSessionReached(false);pendingPositionRef.current=pos??null;setNavigationVersion(v=>v+1);}}>Clear boundary</button></>:null}
+        {session?<><span className="session-boundary-status">{session.label} · ending at #{messageByKey.get(session.endKey)?.message_id}</span><button type="button" className="btn-ghost session-boundary-clear" onClick={()=>{const pos=timelineRef.current?.getPosition();setSession(null);setSessionReached(false);pendingPositionRef.current=pos??null;setNavigationVersion(v=>v+1);}}>Clear boundary</button></>:null}
       </form>:null}
+      </div></details>
+      {view==="read"?<><ReadingWidth value={preferences.readingWidth} onChange={readingWidth=>changePreferences({...preferences,readingWidth})}/><details className="stream-filter"><summary><MagnifyingGlassIcon aria-hidden="true"/><span>Filter</span></summary><div className="stream-filter-panel"><input type="search" value={searchQuery} onChange={e=>setSearchQuery(e.target.value)} aria-label="Filter reading stream" placeholder="Find words in this stream…"/></div></details></>:null}</div> : null}
+      {preferences.focusMode?<button type="button" className="reader-focus-exit" onClick={()=>changePreferences({...preferences,focusMode:false})}>Exit focus</button>:null}
       {libraryOpen?<aside hidden={guideOpen && guideTopic !== null} className="reader-side-panel" data-tour="library-panel" aria-label="Personal reading library"><header><h2>Your reading library</h2><button type="button" onClick={()=>setLibraryOpen(false)} aria-label="Close library">×</button></header><ReadingLibrary state={personal} onChange={commitPersonal} messages={snapshot.messages} onOpenMessage={key=>{setLibraryOpen(false);focusMessage(key);}} onReadAround={readAround}/></aside>:null}
       {guideOpen && guideStep && ["library-queue", "library-collections", "library-work"].includes(guideStep.id) ? <aside className="reader-side-panel" data-tour="library-panel" aria-label="Library tour preview"><header><h2>Your reading library</h2><span className="eyebrow">Tour preview</span></header><ReadingLibrary idPrefix="guide-" state={personal} onChange={() => {}} messages={snapshot.messages} onOpenMessage={() => {}} onReadAround={() => {}} /></aside> : null}
       {readerSearchOpen?<aside className="reader-side-panel reader-search-panel" data-tour="search-panel" aria-label="Search beside reading"><header><h2>Find a thought</h2><button type="button" onClick={toggleReaderSearch} aria-label="Close search and return to your place">×</button></header><input autoFocus type="search" aria-label="Search archive beside reading" placeholder="Search the archive…" value={readerSearch} onChange={e=>setReaderSearch(e.target.value)}/><p>Close to return to your original passage.</p>{readerSearch.trim()?snapshot.messages.filter(m=>m.search_text.includes(readerSearch.trim().toLowerCase())).slice(0,100).map(m=><article className="library-card" key={m.message_key}><p><strong>#{m.message_id}</strong> · {trimPreview(m.text,180)}</p><div className="library-actions"><button type="button" onClick={()=>focusMessage(m.message_key)}>Read post</button><button type="button" onClick={()=>readAround(m.message_key)}>Read around this</button></div></article>):<p>Search for a phrase, topic, or source.</p>}{readerSearch.trim()&&!snapshot.messages.some(m=>m.search_text.includes(readerSearch.trim().toLowerCase()))?<p>No posts match this phrase.</p>:null}</aside>:null}
@@ -1248,7 +1200,6 @@ export default function App() {
             setLightboxMedia({ url, kind, caption })
           }
           onOpenQuoteSource={handleOpenQuoteSource}
-          onReattachMedia={() => void handleReattachFolder()}
           onSaveBookmarkTags={(m, t) => runAction(handleSaveMessageBookmarkTags(m, t))}
           onToggleBookmark={(m) => runAction(handleToggleMessageBookmark(m))}
           onOpenThreadRail={(key) => {
@@ -1264,7 +1215,6 @@ export default function App() {
           threads={filteredThreads}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
-          onReattachMedia={()=>void handleReattachFolder()}
           selectedThread={selectedThread}
           selectedMessages={selectedThreadMessages}
           quoteHighlight={quoteHighlight}
@@ -1312,7 +1262,6 @@ export default function App() {
           readingState={personal}
           stats={stats}
           firstUnread={firstUnreadMessage}
-          importSessions={snapshot.importSessions}
         />
       ) : null}
 
@@ -1366,9 +1315,6 @@ export default function App() {
         onJumpToDate={handleJumpToDate}
         onJumpToThreadId={handleJumpToThreadId}
         onSetView={setAppView}
-        onImport={() => void handleImportArchive()}
-        onReattachMedia={() => void handleReattachFolder()}
-        onResetArchive={() => void handleResetArchive()}
       />
 
       {guideDialog}
@@ -1431,7 +1377,6 @@ interface ReadingViewProps {
   onMarkUnread: (m: MessageRecord) => void;
   onOpenMedia: (url: string, kind: string | null, caption?: string) => void;
   onOpenQuoteSource: (current: MessageRecord, replyToMsgId: number) => void;
-  onReattachMedia: () => void;
   onSaveBookmarkTags: (m: MessageRecord, tags: string[]) => void;
   onToggleBookmark: (m: MessageRecord) => void;
   onOpenThreadRail: (key: string) => void;
@@ -1466,7 +1411,6 @@ function ReadingView(props: ReadingViewProps) {
     onMarkUnread,
     onOpenMedia,
     onOpenQuoteSource,
-    onReattachMedia,
     onSaveBookmarkTags,
     onToggleBookmark,
     onOpenThreadRail
@@ -1477,48 +1421,21 @@ function ReadingView(props: ReadingViewProps) {
 
   return (
     <div className="reading-stage">
-      <div className="reading-header">
-        <p className="eyebrow">
-          {showLaunchpad ? "Begin" : deferredSearch ? "Search" : "Reading stream"}
-        </p>
-        <h2>
-          {deferredSearch
-            ? `${messages.length.toLocaleString()} matches for "${searchQuery.trim()}"`
-            : showLaunchpad
-              ? "Pick a way to start"
-              : `${messages.length.toLocaleString()} messages in stream`}
-        </h2>
-        <p>
-          Press <span className="kbd">⌘</span><span className="kbd">K</span> or{" "}
-          <span className="kbd">/</span> to jump, search, or switch views.
-        </p>
-        <input
-          type="search"
-          value={searchQuery}
-          onChange={(event) => onSearchChange(event.target.value)}
-          aria-label="Filter reading stream"
-          placeholder="Filter reading stream…"
-          style={{ marginTop: "0.5rem" }}
-        />
-      </div>
 
       {showLaunchpad ? (
         <div className="launchpad">
           <button type="button" className="launchpad-tile full" onClick={onLaunchFromStart}>
-            <span className="launchpad-tile-label">From zero</span>
-            <span className="launchpad-tile-title">Read from the very first message</span>
+            <span className="launchpad-tile-title">First post</span>
             <span className="launchpad-tile-detail">
               Walk through the archive front to back like a book
             </span>
           </button>
           <button type="button" className="launchpad-tile" onClick={onLaunchLatest}>
-            <span className="launchpad-tile-label">Latest</span>
-            <span className="launchpad-tile-title">Catch the newest post</span>
+            <span className="launchpad-tile-title">Latest post</span>
             <span className="launchpad-tile-detail">Jump straight to the end of the archive</span>
           </button>
           <button type="button" className="launchpad-tile" onClick={onLaunchRandom}>
-            <span className="launchpad-tile-label">Shuffle</span>
-            <span className="launchpad-tile-title">Open something random</span>
+            <span className="launchpad-tile-title">Surprise me</span>
             <span className="launchpad-tile-detail">Wander into an unexpected message</span>
           </button>
         </div>
@@ -1527,8 +1444,8 @@ function ReadingView(props: ReadingViewProps) {
       {hasReadCursor && !highlightedMessageKey && !deferredSearch ? (
         <div className="launchpad" style={{ marginBottom: "1.5rem" }}>
           <button type="button" className="launchpad-tile full" onClick={onLaunchResume}>
-            <span className="launchpad-tile-label">Resume</span>
-            <span className="launchpad-tile-title">Continue where you left off</span>
+
+            <span className="launchpad-tile-title">Resume reading</span>
             <span className="launchpad-tile-detail">Picks up at your saved reading anchor</span>
           </button>
         </div>
@@ -1550,7 +1467,7 @@ function ReadingView(props: ReadingViewProps) {
             !previous ||
             previous.date_utc?.slice(0, 10) !== message.date_utc?.slice(0, 10);
           const showResume = resumeNextMessage?.message_key === message.message_key;
-          const showUnread = firstUnreadMessage?.message_key === message.message_key;
+          const showUnread = hasReadCursor && firstUnreadMessage?.message_key === message.message_key;
           const showLatest = latestMessage?.message_key === message.message_key;
 
           return (
@@ -1595,7 +1512,6 @@ function ReadingView(props: ReadingViewProps) {
                 onOpenMedia={onOpenMedia}
                 onOpenQuoteSource={(replyTo) => onOpenQuoteSource(message, replyTo)}
                 onOpenThread={() => onOpenThreadRail(message.message_key)}
-                onReattachMedia={onReattachMedia}
                 onSaveBookmarkTags={onSaveBookmarkTags}
                 onToggleBookmark={onToggleBookmark}
                 threadMessageCount={(threadMessagesMap.get(message.thread_key) ?? []).length}
@@ -1617,7 +1533,6 @@ function ReadingView(props: ReadingViewProps) {
 
 interface ThreadsViewProps {
   cardExtras: CardExtras;
-  onReattachMedia:()=>void;
   threads: ThreadRecord[];
   searchQuery: string;
   onSearchChange: (next: string) => void;
@@ -1761,7 +1676,6 @@ function ThreadsView(props: ThreadsViewProps) {
                 onToggleBookmark={onToggleBookmark}
                 threadMessageCount={selectedMessages.length}
                 threadRootMissing={selectedThread.root_missing}
-                onReattachMedia={props.onReattachMedia}
                 viewMode="thread"
               />
             ))}
@@ -1888,10 +1802,9 @@ interface ProgressViewProps {
     bookmarksByTag: Array<{ tag: string; count: number }>;
   };
   firstUnread: MessageRecord | null;
-  importSessions: AppSnapshot["importSessions"];
 }
 
-function ProgressView({ messages,directoryHandle,onOpenMessage,readingState, stats, firstUnread, importSessions }: ProgressViewProps) {
+function ProgressView({ messages,directoryHandle,onOpenMessage,readingState, stats, firstUnread }: ProgressViewProps) {
   return (
     <div className="progress-stage">
       <div className="reading-header">
@@ -1947,23 +1860,7 @@ function ProgressView({ messages,directoryHandle,onOpenMessage,readingState, sta
           )}
         </section>
 
-        <section className="stat-panel">
-          <h3>Recent imports</h3>
-          {importSessions.length ? (
-            <ul>
-              {importSessions.slice(0, 8).map((session) => (
-                <li key={session.import_id}>
-                  <span>{formatDate(session.imported_at_utc)}</span>
-                  <strong>{session.imported_message_count.toLocaleString()}</strong>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <div className="empty-panel" style={{ padding: "1rem 0" }}>
-              No imports recorded
-            </div>
-          )}
-        </section>
+
       </div>
     </div>
   );

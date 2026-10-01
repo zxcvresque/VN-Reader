@@ -79,9 +79,6 @@ export interface CommandPaletteHandlers {
   onJumpToDate: (yyyyMmDd: string) => void;
   onJumpToThreadId: (id: number) => void;
   onSetView: (view: ViewName) => void;
-  onImport: () => void;
-  onReattachMedia: () => void;
-  onResetArchive: () => void;
 }
 
 interface CommandPaletteProps extends CommandPaletteHandlers {
@@ -139,9 +136,6 @@ export default function CommandPalette({
   onJumpToDate,
   onJumpToThreadId,
   onSetView,
-  onImport,
-  onReattachMedia,
-  onResetArchive,
 }: CommandPaletteProps) {
   const [search, setSearch] = useState("");
   const [inlineMode, setInlineMode] = useState<InlineMode>(null);
@@ -515,41 +509,7 @@ export default function CommandPalette({
                 </Command.Group>
               ) : null}
 
-              <Command.Group heading="Archive">
-                <Command.Item
-                  value="archive-import"
-                  keywords={["load", "open", "folder", "reimport"]}
-                  onSelect={onImport}
-                >
-                  <span className="cmd-item-icon">↺</span>
-                  <span className="cmd-item-body">
-                    <span>Import archive folder</span>
-                    <span className="cmd-item-detail">Re-import or load a different archive</span>
-                  </span>
-                </Command.Item>
-                <Command.Item
-                  value="archive-reattach"
-                  keywords={["media", "files", "permission", "folder"]}
-                  onSelect={onReattachMedia}
-                >
-                  <span className="cmd-item-icon">⚭</span>
-                  <span className="cmd-item-body">
-                    <span>Reattach media folder</span>
-                    <span className="cmd-item-detail">Restore local media access</span>
-                  </span>
-                </Command.Item>
-                <Command.Item
-                  value="archive-reset"
-                  keywords={["clear", "delete", "wipe", "erase"]}
-                  onSelect={onResetArchive}
-                >
-                  <span className="cmd-item-icon">⊗</span>
-                  <span className="cmd-item-body">
-                    <span>Reset local data</span>
-                    <span className="cmd-item-detail">Clear the imported archive from this browser</span>
-                  </span>
-                </Command.Item>
-              </Command.Group>
+
             </Command.List>
           ) : null}
         </Command>

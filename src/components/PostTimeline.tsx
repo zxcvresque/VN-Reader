@@ -75,6 +75,7 @@ export default function PostTimeline({messages,directoryHandle,onOpenMessage}:{m
   const [active,setActive]=useState<string|null>(null);
   const [keyboardIndex,setKeyboardIndex]=useState(0);
   const preview=showPosts&&activeWeek===null?points.find(p=>`${p.message.message_key}:${p.type}`===active):undefined;
+  const pinnedWeek=useRef<number|null>(null);
   const closeTimer=useRef<ReturnType<typeof setTimeout>|null>(null);
   const pointerType=useRef("mouse");
   const touches=useRef(new Map<number,number>());
@@ -154,15 +155,15 @@ export default function PostTimeline({messages,directoryHandle,onOpenMessage}:{m
   },[WIDTH,posts.length>0]);
   const pointNodes=useRef(new Map<string,SVGGElement>());
   const cancelClose=()=>{if(closeTimer.current)clearTimeout(closeTimer.current);};
-  const dismiss=()=>{cancelClose();closeTimer.current=setTimeout(()=>{setActive(null);setActiveWeek(null);},130);};
-  useEffect(()=>{setActive(null);setActiveWeek(null);setKeyboardIndex(0);},[month,scope,visible,selectedWeek]);
+  const dismiss=()=>{if(pinnedWeek.current!==null)return;cancelClose();closeTimer.current=setTimeout(()=>{setActive(null);setActiveWeek(null);},130);};
+  useEffect(()=>{pinnedWeek.current=null;setActive(null);setActiveWeek(null);setKeyboardIndex(0);},[month,scope,visible,selectedWeek]);
   useEffect(()=>()=>{if(closeTimer.current)clearTimeout(closeTimer.current);if(zoomFrame.current!==null)cancelAnimationFrame(zoomFrame.current);},[]);
   useEffect(()=>{
-    const outside=(event:PointerEvent)=>{if(!plotRef.current?.contains(event.target as Node)){cancelClose();setActive(null);setActiveWeek(null);}};
+    const outside=(event:PointerEvent)=>{if(!plotRef.current?.contains(event.target as Node)){pinnedWeek.current=null;cancelClose();setActive(null);setActiveWeek(null);}};
     document.addEventListener("pointerdown",outside);return()=>document.removeEventListener("pointerdown",outside);
   },[]);
   const explore=(event:ReactKeyboardEvent<SVGElement>,index?:number)=>{
-    if(event.key==="Escape"){cancelClose();setActive(null);setActiveWeek(null);return;}
+    if(event.key==="Escape"){pinnedWeek.current=null;cancelClose();setActive(null);setActiveWeek(null);return;}
     if(!showPosts){
       if(["ArrowRight","ArrowLeft","Home","End"].includes(event.key)){
         event.preventDefault();event.stopPropagation();cancelClose();
@@ -191,7 +192,7 @@ export default function PostTimeline({messages,directoryHandle,onOpenMessage}:{m
   const years=Array.from(new Set(months.map(m=>m.slice(0,4))));
   const shiftWeek=(direction:number)=>setWeekDate(new Date(Date.parse(selectedWeek+"T00:00:00Z")+direction*7*86400000).toISOString().slice(0,10));
   const shortDate=(time:number)=>new Intl.DateTimeFormat("en-IN",{timeZone:"Asia/Kolkata",day:"numeric",month:"short",year:"numeric"}).format(time);
-  const showWeek=(index:number)=>{if(gesture.current||mouseDrag.current)return;cancelClose();setActive(null);setActiveWeek(index);};
+  const showWeek=(index:number,pin=false)=>{if(gesture.current||mouseDrag.current)return;if(pin)pinnedWeek.current=index;else if(pinnedWeek.current!==null)return;cancelClose();setActive(null);setActiveWeek(index);};
   const readWeek=()=>{if(!selectedWeekData)return;setWeekDate(new Date(selectedWeekData.start+19800000).toISOString().slice(0,10));setScope("week");setShowPosts(true);setActiveWeek(null);};
   const weekPosition=(week:typeof weeks[number])=>Math.max(viewStart,Math.min(viewEnd,week.end));
   const boundary=(week:typeof weeks[number],type:ContentType)=>stackTypes.slice(0,stackTypes.indexOf(type)+1).reduce((sum,id)=>sum+week.cumulative[id],0);
@@ -233,7 +234,7 @@ export default function PostTimeline({messages,directoryHandle,onOpenMessage}:{m
         <g clipPath={`url(#${clipId})`}>
         {stackTypes.map(type=>{const meta=CONTENT_TYPES.find(item=>item.id===type)!;return <g key={type}><path className="post-timeline-area" fill={meta.color} d={areaPath(type)}/><path className="post-timeline-line" stroke={meta.color} d={`M${x(start)},${y(0)} `+weeks.map(week=>`L${x(Math.min(end,week.end))},${y(boundary(week,type))}`).join(" ")}/></g>;})}
         {visible.includes("link")?<path className="post-timeline-line post-timeline-links-line" stroke={CONTENT_TYPES.find(type=>type.id==="link")!.color} d={`M${x(start)},${y(0)} `+weeks.map(week=>`L${x(Math.min(end,week.end))},${y(week.cumulative.link)}`).join(" ")}/>:null}
-        {!showPosts?weeks.map((week,index)=>week.end>viewStart&&week.start<viewEnd?<rect key={week.start} className={`post-timeline-week-hit ${activeWeek===index?"is-active":""}`} x={x(Math.max(viewStart,week.start))} y={TOP} width={Math.max(1,x(Math.min(viewEnd,week.end))-x(Math.max(viewStart,week.start)))} height={HEIGHT-TOP-BOTTOM} fill="transparent" role="button" tabIndex={-1} aria-label={`Week of ${shortDate(week.start)}, ${week.total} posts. Preview week.`} onPointerEnter={()=>showWeek(index)} onPointerLeave={e=>{if(e.pointerType!=="touch")dismiss();}} onClick={()=>{if(suppressClick.current){suppressClick.current=false;return;}showWeek(index);}}/>:null):null}
+        {!showPosts?weeks.map((week,index)=>week.end>viewStart&&week.start<viewEnd?<rect key={week.start} className={`post-timeline-week-hit ${activeWeek===index?"is-active":""}`} x={x(Math.max(viewStart,week.start))} y={TOP} width={Math.max(1,x(Math.min(viewEnd,week.end))-x(Math.max(viewStart,week.start)))} height={HEIGHT-TOP-BOTTOM} fill="transparent" role="button" tabIndex={-1} aria-label={`Week of ${shortDate(week.start)}, ${week.total} posts. Preview week.`} onPointerEnter={()=>showWeek(index)} onPointerLeave={e=>{if(e.pointerType!=="touch")dismiss();}} onClick={()=>{if(suppressClick.current){suppressClick.current=false;return;}showWeek(index,true);}}/>:null):null}
         {selectedWeekData&&!showPosts?<line x1={x(weekPosition(selectedWeekData))} x2={x(weekPosition(selectedWeekData))} y1={TOP} y2={HEIGHT-BOTTOM} className="post-timeline-crosshair"/>:null}
         {showPosts?points.map((p,index)=>{const key=`${p.message.message_key}:${p.type}`;return <g key={key} ref={node=>{if(node)pointNodes.current.set(key,node);else pointNodes.current.delete(key);}} role="button" tabIndex={index===keyboardIndex?0:-1} aria-label={`${p.label}, post #${p.message.message_id}, ${dateFormat.format(p.time)} IST. ${WIDTH<600?"Preview":"Open"} post.`} aria-describedby={active===key?"post-timeline-preview":undefined} className={`post-timeline-point ${active===key?"is-active":""}`} style={{"--series-color":p.color} as CSSProperties}
           onPointerDown={e=>{pointerType.current=e.pointerType;}} onPointerEnter={()=>{if(!gesture.current&&!mouseDrag.current){cancelClose();setActiveWeek(null);setActive(key);}}} onPointerLeave={e=>{if(e.pointerType!=="touch")dismiss();}} onFocus={()=>{cancelClose();setKeyboardIndex(index);setActiveWeek(null);setActive(key);}} onBlur={()=>{if(pointerType.current!=="touch")dismiss();}} onClick={()=>{if(suppressClick.current){suppressClick.current=false;return;}if(pointerType.current==="touch"||WIDTH<600){cancelClose();setActiveWeek(null);setActive(key);setKeyboardIndex(index);}else choose(p.message.message_key);}} onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();e.stopPropagation();if(WIDTH<600){cancelClose();setActiveWeek(null);setActive(key);}else choose(p.message.message_key);}else explore(e,index);}}>
@@ -251,7 +252,7 @@ export default function PostTimeline({messages,directoryHandle,onOpenMessage}:{m
         <g clipPath={`url(#${clipId}-weekly)`}>{weeks.map((week,index)=>{
           if(week.end<=viewStart||week.start>=viewEnd)return null;
           const left=x(Math.max(viewStart,week.start)),right=x(Math.min(viewEnd,week.end)),width=Math.max(1,(right-left)*.7);let base=0;
-          return <g key={week.start} className={`post-timeline-week-bar ${activeWeek===index?"is-active":""}`} role="button" tabIndex={-1} aria-label={`Week of ${shortDate(week.start)}, ${week.total} posts. Preview week.`} onPointerEnter={()=>showWeek(index)} onPointerLeave={e=>{if(e.pointerType!=="touch")dismiss();}} onClick={()=>showWeek(index)}>
+          return <g key={week.start} className={`post-timeline-week-bar ${activeWeek===index?"is-active":""}`} role="button" tabIndex={-1} aria-label={`Week of ${shortDate(week.start)}, ${week.total} posts. Preview week.`} onPointerEnter={()=>showWeek(index)} onPointerLeave={e=>{if(e.pointerType!=="touch")dismiss();}} onClick={()=>showWeek(index,true)}>
             <rect x={left} y={0} width={Math.max(1,right-left)} height={barBottom} fill="transparent"/>
             {stackTypes.map(type=>{const count=week.counts[type],bottom=base;base+=count;return count?<rect key={type} x={left+(right-left-width)/2} y={barY(base)} width={width} height={barY(bottom)-barY(base)} fill={CONTENT_TYPES.find(item=>item.id===type)!.color} opacity={week.end>Date.now()?.4:.9}/>:null;})}
             {peak===week&&right-left>40?<text x={(left+right)/2} y={Math.max(12,barY(base)-6)} textAnchor="middle" className="post-timeline-peak">Peak · {week.total}</text>:null}
@@ -260,7 +261,7 @@ export default function PostTimeline({messages,directoryHandle,onOpenMessage}:{m
         {(WIDTH<600?[0,.5,1]:[0,.2,.4,.6,.8,1]).map(f=>{const time=viewStart+(viewEnd-viewStart-1)*f;return <text key={f} x={x(time)} y={barHeight-2} textAnchor={f===0?"start":f===1?"end":"middle"} className="post-timeline-axis">{axisDate(time)}</text>;})}
       </svg>
       {selectedWeekData?<div role="tooltip" className="post-timeline-preview post-timeline-week-preview" style={{left:`${Math.min(Math.max(0,(WIDTH-280)/WIDTH*100),Math.max(0,x(weekPosition(selectedWeekData))/WIDTH*100))}%`,top:"8%"}} onPointerEnter={cancelClose} onPointerLeave={e=>{if(e.pointerType!=="touch")dismiss();}} onFocus={cancelClose}>
-        <div className="post-timeline-preview-meta"><span>Week of {shortDate(selectedWeekData.start)}</span><button type="button" className="post-timeline-preview-close" aria-label="Dismiss week preview" onClick={()=>{cancelClose();setActiveWeek(null);}}><PreviewIcon close/></button></div>
+        <div className="post-timeline-preview-meta"><span>Week of {shortDate(selectedWeekData.start)}</span><button type="button" className="post-timeline-preview-close" aria-label="Dismiss week preview" onClick={()=>{pinnedWeek.current=null;cancelClose();setActiveWeek(null);}}><PreviewIcon close/></button></div>
         <strong className="post-timeline-week-total">{selectedWeekData.total.toLocaleString()} posts</strong>
         {STACK_TYPES.map(id=>{const type=CONTENT_TYPES.find(item=>item.id===id)!;return selectedWeekData.counts[id]?<div key={id} className="post-timeline-week-stat"><span><i style={{background:type.color}}/>{type.label}</span><span>{selectedWeekData.counts[id]} <small>· {selectedWeekData.cumulative[id]} total</small></span></div>:null;})}
         <p>{selectedWeekData.counts.link} contain links · Monday–Sunday</p>

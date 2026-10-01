@@ -12,6 +12,7 @@
     "test:accounts": "node --test tests/accounts.test.mjs"
   },
   "dependencies": {
+    "@radix-ui/react-icons": "^1.3.2",
     "better-auth": "^1.7.6",
     "cmdk": "^1.1.1",
     "dotenv": "^18.0.4",

@@ -1,10 +1,7 @@
 export const THEMES = [
   { id: "vercel", name: "Vercel", description: "Quiet monochrome · engineered clarity", colors: ["#0a0a0a", "#ededed", "#a1a1a1"] },
   { id: "editorial", name: "Editorial", description: "Amber ink · quiet editorial", colors: ["#11141b", "#e8b26b", "#e8e6e0"] },
-  { id: "aurora", name: "Aurora", description: "Violet glass · northern lights", colors: ["#17182e", "#bbb0ff", "#68d5c4"] },
-  { id: "niti", name: "Niti", description: "Warm paper · terracotta ink", colors: ["#f1e7d6", "#a23d27", "#352d26"] },
   { id: "cobalt", name: "Cobalt Index", description: "Precise grids · electric blue", colors: ["#edeee8", "#234bdb", "#15252e"] },
-  { id: "signal", name: "Signal", description: "Forest terminal · mint light", colors: ["#0a1410", "#a6f4b7", "#769c88"] },
   { id: "opal", name: "Liquid Opal", description: "Pearl surfaces · soft iridescence", colors: ["#e9e7f2", "#625b9f", "#7baba6"] }
 ] as const;
 
@@ -47,8 +44,9 @@ const choice = <T extends string>(value: unknown, values: readonly T[], fallback
 /** Validate persisted/imported preferences before they reach controls or CSS. */
 export function normalizePreferences(value: unknown, includePresets = true): ReaderPreferences {
   const candidate = value && typeof value === "object" ? value as Partial<ReaderPreferences> : {};
+  const legacyTheme = String(candidate.theme);
   return {
-    theme: choice(candidate.theme, THEMES.map(theme => theme.id), DEFAULT_PREFERENCES.theme),
+    theme: choice(candidate.theme, THEMES.map(theme => theme.id), ["aurora", "signal"].includes(legacyTheme) ? "vercel" : DEFAULT_PREFERENCES.theme),
     navPosition: choice(candidate.navPosition, NAV_POSITIONS.map(position => position.id), DEFAULT_PREFERENCES.navPosition),
     fontFamily: choice(candidate.fontFamily, ["serif", "sans", "mono"], DEFAULT_PREFERENCES.fontFamily),
     fontSize: clamp(candidate.fontSize, DEFAULT_PREFERENCES.fontSize, 14, 26),
@@ -91,6 +89,9 @@ export function applyPreferences(preferences: ReaderPreferences): void {
   const prefs = normalizePreferences(preferences);
   const root = document.documentElement;
   root.dataset.theme = prefs.theme;
+  const iconMode = ["vercel", "editorial"].includes(prefs.theme) ? "dark" : "light";
+  document.querySelector<HTMLLinkElement>("#reader-favicon")?.setAttribute("href", `/favicon-${iconMode}.svg`);
+  document.querySelector<HTMLLinkElement>("#reader-touch-icon")?.setAttribute("href", `/apple-touch-icon-${iconMode}.png`);
   root.dataset.navPosition = prefs.navPosition;
   root.dataset.paper = prefs.paper;
   root.dataset.focus = String(prefs.focusMode);
@@ -111,6 +112,7 @@ export function validatePreferences(value: unknown): ReaderPreferences {
   if ("navPosition" in candidate && !NAV_POSITIONS.some(position => position.id === candidate.navPosition)) throw new Error("Invalid navPosition in reading backup.");
   const enums: Record<string, readonly string[]> = { theme: THEMES.map(theme => theme.id), fontFamily: ["serif", "sans", "mono"], paper: ["theme", "warm", "sepia"], mediaMode: ["compact", "full", "collapsed"] };
   for (const [field, choices] of Object.entries(enums)) {
+    if (field === "theme" && ["aurora", "niti", "signal"].includes(String(candidate[field]))) continue;
     if (typeof candidate[field] !== "string" || !choices.includes(candidate[field] as string)) throw new Error(`Invalid ${field} in reading backup.`);
   }
   const limits: Record<string, [number, number]> = { fontSize: [14, 26], lineHeight: [1.3, 2.2], paragraphSpacing: [0.25, 2], readingWidth: [40, 120] };

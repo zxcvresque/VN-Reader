@@ -60,7 +60,7 @@ test("older reading backups and presets gain a top navigation without losing app
   const { navPosition: _position, ...legacy } = DEFAULT_PREFERENCES;
   const restored = validatePreferences({ ...legacy, theme: "niti", presets: [{ id: "old", name: "Old paper", preferences: { ...legacy, paper: "sepia" } }] });
   assert.equal(restored.navPosition, "top");
-  assert.equal(restored.theme, "niti");
+  assert.equal(restored.theme, "opal");
   assert.equal(restored.presets[0].preferences.navPosition, "top");
   assert.equal(restored.presets[0].preferences.paper, "sepia");
 });
@@ -76,13 +76,13 @@ test("invalid explicit placements are rejected by backup validation including in
 test("applying preferences updates navigation data alongside theme and typography", () => {
   const styles = new Map();
   const events = [];
-  globalThis.document = { documentElement: { dataset: {}, style: { setProperty: (key, value) => styles.set(key, value) } } };
+  globalThis.document = { querySelector: () => null, documentElement: { dataset: {}, style: { setProperty: (key, value) => styles.set(key, value) } } };
   globalThis.window = { dispatchEvent: event => events.push(event) };
   globalThis.CustomEvent = class { constructor(type, init) { this.type = type; this.detail = init.detail; } };
   try {
     applyPreferences({ ...DEFAULT_PREFERENCES, navPosition: "right", theme: "aurora", fontSize: 22 });
     assert.equal(document.documentElement.dataset.navPosition, "right");
-    assert.equal(document.documentElement.dataset.theme, "aurora");
+    assert.equal(document.documentElement.dataset.theme, "vercel");
     assert.equal(styles.get("--reader-font-size"), "22px");
     assert.equal(events[0].detail.navPosition, "right");
   } finally {
@@ -90,4 +90,12 @@ test("applying preferences updates navigation data alongside theme and typograph
     delete globalThis.window;
     delete globalThis.CustomEvent;
   }
+});
+
+test("removed themes migrate in backups and nested presets without discarding reading settings", () => {
+ assert.deepEqual(THEMES.map(t=>t.id),["vercel","editorial","cobalt","opal"]);
+ for(const [theme,replacement] of [["aurora","vercel"],["niti","opal"],["signal","vercel"]]){
+ const restored=validatePreferences({...DEFAULT_PREFERENCES,theme,fontSize:21,presets:[{id:"legacy",name:"Saved setup",preferences:{...DEFAULT_PREFERENCES,theme,readingWidth:90}}]});
+ assert.equal(restored.theme,replacement);assert.equal(restored.fontSize,21);assert.equal(restored.presets[0].preferences.theme,replacement);assert.equal(restored.presets[0].preferences.readingWidth,90);
+ }
 });

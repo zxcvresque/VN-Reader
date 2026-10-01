@@ -1,6 +1,8 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { GUIDE_TOPICS, HELP_SECTIONS, THEME_GUIDE, TOUR_STEPS, type GuideTopic, type TourStep } from "../lib/tours";
 
+import {useTouchLayout} from "../lib/useTouchLayout";
+
 interface ReaderGuideProps {
   topic: GuideTopic | null;
   onSelectTopic: (topic: GuideTopic) => void;
@@ -22,6 +24,7 @@ function visibleTarget(selector: string): Element | null {
 }
 
 export default function ReaderGuide({ topic, onSelectTopic, onClose, onStepChange, hasArchive = true, onLearnMore }: ReaderGuideProps) {
+  const touch = useTouchLayout();
   const dialog = useRef<HTMLDivElement>(null);
   const callbacks = useRef({ onClose, onStepChange });
   callbacks.current = { onClose, onStepChange };
@@ -132,10 +135,10 @@ export default function ReaderGuide({ topic, onSelectTopic, onClose, onStepChang
   if (step && topicInfo) return <div className="guide-tour-overlay">
     {rect && <div className="guide-spotlight" style={{ position: "fixed", ...rect, pointerEvents: "none" }} aria-hidden="true" />}
     <div className="guide-tour-card" ref={dialog} role="dialog" aria-modal="true" aria-labelledby={headingId} aria-describedby={bodyId} tabIndex={-1} style={{ position: "fixed", width, left, top, maxHeight: "calc(100dvh - 32px)", overflowY: "auto" }}>
-      <header className="guide-tour-header"><span className="guide-tour-topic">{topicInfo.title}</span><button type="button" className="btn-ghost guide-close" onClick={onClose} aria-label="Close tour">×</button></header>
+      <header className="guide-tour-header"><span className="guide-tour-topic">{topic==="basic"?"Basic tour":topicInfo.title}</span><button type="button" className="btn-ghost guide-close" onClick={onClose} aria-label="Close tour">×</button></header>
       <div className="guide-step-count">Step {index + 1} of {steps.length}</div>
       <div className="guide-tour-progress" role="progressbar" aria-label="Tour progress" aria-valuemin={0} aria-valuemax={steps.length} aria-valuenow={index + 1}><span style={{ width: `${((index + 1) / steps.length) * 100}%` }} /></div>
-      <div className="guide-tour-body" aria-live="polite" aria-atomic="true"><h2 id={headingId}>{step.title}</h2><p id={bodyId}>{step.body}</p>{step.tip && <p className="guide-tour-tip">{step.tip}</p>}</div>
+      <div className="guide-tour-body" aria-live="polite" aria-atomic="true"><h2 id={headingId}>{step.title}</h2><p id={bodyId}>{touch && step.mobileBody ? step.mobileBody : step.body}</p>{step.tip && <p className="guide-tour-tip">{step.tip}</p>}</div>
       {!rect && <p className="guide-target-note">This control appears when the matching page or post context is available.</p>}
       <footer className="guide-tour-footer"><button type="button" className="btn-ghost guide-tour-dismiss" onClick={onClose}>End tour</button><div className="guide-tour-buttons"><button type="button" className="btn-ghost" onClick={() => move(index - 1)} disabled={index === 0}>Back</button><button type="button" className="btn-primary" data-guide-next onClick={() => index === steps.length - 1 ? onClose() : move(index + 1)}>{index === steps.length - 1 ? "Finish tour" : step.actionLabel ?? "Next"}<span aria-hidden="true"> →</span></button></div></footer>
     </div>
@@ -147,7 +150,7 @@ export default function ReaderGuide({ topic, onSelectTopic, onClose, onStepChang
       {onLearnMore && <div className="guide-feature-intro"><button type="button" onClick={onLearnMore}>Why VN Reader? <span aria-hidden="true">↗</span></button><span>A quick introduction to its reading tools.</span></div>}
       <div className="guide-topic-grid">{GUIDE_TOPICS.map((item) => <button type="button" className="guide-topic" key={item.id} disabled={!hasArchive && item.id !== "appearance" && item.id !== "account"} onClick={() => { setProgress({ topic: item.id, index: 0 }); onSelectTopic(item.id); }}><span className="guide-topic-number" aria-hidden="true">{item.icon}</span><span className="guide-topic-copy"><strong>{item.title}</strong><span>{item.description}</span><small className="guide-topic-count">{TOUR_STEPS[item.id].length} steps <span aria-hidden="true">↗</span></small></span></button>)}</div>
       {!hasArchive && <p className="guide-archive-notice">Import an archive or open the sample to try the reading, library, and search tours. You can explore appearance and accounts now.</p>}
-      <section className="guide-theme-reference"><h3>Seven atmospheres. The same reading tools.</h3><p>The theme changes the character of your space. You choose its navigation position separately in Settings.</p><div className="guide-theme-grid">{THEME_GUIDE.map((theme) => <article className="guide-theme-item" key={theme.name}><h4>{theme.name}</h4><p>{theme.description}</p></article>)}</div></section>
+      <section className="guide-theme-reference"><h3>Four themes. Familiar reading tools.</h3><p>The theme changes the character of your space. You choose its navigation position separately in Settings.</p><div className="guide-theme-grid">{THEME_GUIDE.map((theme) => <article className="guide-theme-item" key={theme.name}><h4>{theme.name}</h4><p>{theme.description}</p></article>)}</div></section>
       <section className="guide-reference"><h3>How everything works</h3><p>Open a topic for the practical steps.</p>{HELP_SECTIONS.map((section) => <details className="guide-reference-section" key={section.title}><summary>{section.title}</summary>{section.paragraphs.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}</details>)}</section>
     </div>
   </div>;

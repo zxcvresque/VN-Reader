@@ -144,3 +144,18 @@ test('weekly bar tap previews and never navigates directly',()=>{
   act(()=>f.root.root.findByProps({'aria-label':'Dismiss week preview'}).props.onClick());assert.equal(f.root.root.findAllByProps({role:'tooltip'}).length,0);
  }finally{f.close();}
 });
+
+ test('clicked week stays open when the pointer leaves and crosses another week',async()=>{
+ const f=fixture(false);try{
+  const bars=()=>f.root.root.findAll(node=>node.props.className?.startsWith('post-timeline-week-bar'));
+  act(()=>bars()[0].props.onClick());
+  const title=f.root.root.findByProps({className:'post-timeline-preview-meta'}).findByType('span').children.join('');
+  act(()=>bars()[0].props.onPointerLeave({pointerType:'mouse'}));
+  await act(async()=>{await new Promise(resolve=>setTimeout(resolve,180));});
+  assert.equal(f.root.root.findAllByProps({role:'tooltip'}).length,1);
+  if(bars()[1])act(()=>bars()[1].props.onPointerEnter());
+  assert.equal(f.root.root.findByProps({className:'post-timeline-preview-meta'}).findByType('span').children.join(''),title);
+  act(()=>f.root.root.findByProps({className:'post-timeline-preview-action'}).props.onClick());
+  assert.equal(f.root.root.findByProps({'aria-label':'Time range'}).findAllByType('button').at(-1).props['aria-pressed'],true);
+ }finally{f.close();}
+});

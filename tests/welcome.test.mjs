@@ -14,6 +14,7 @@ const compile = (path, dependencies = {}) => {
   return module.exports;
 };
 const preferences = compile('../src/lib/preferences.ts');
+const touchLayout = compile('../src/lib/useTouchLayout.ts');
 const entry = compile('../src/lib/entry.ts');
 const {default: Capacity} = compile('../src/components/SignupCapacity.tsx');
 const {default: BrandLogo} = compile('../src/components/BrandLogo.tsx');
@@ -31,19 +32,24 @@ function environment() {
   return { storage, keys, restore() { for (const [key, value] of Object.entries(original)) if (value === undefined) delete globalThis[key]; else globalThis[key] = value; } };
 }
 const props = () => ({ theme: 'opal', messages: [], manifest: null, onThemeChange() {}, onGuest() {}, onSignIn() {} });
-const findButton = (root, text) => root.root.findAllByType('button').find(button => button.children.some(child => typeof child === 'string' && child.includes(text)));
+const textOf = node => typeof node==='string'?node:(node.children??[]).map(textOf).join('');
+const findButton = (root, text) => root.root.findAllByType('button').find(button => textOf(button).includes(text));
 test('welcome offers guest and sign in, and every theme uses the same selector', () => {
   const env = environment(), calls = [];
   let root;
   try {
     act(() => { root = Renderer.create(React.createElement(Welcome, { ...props(), onGuest: () => calls.push('guest'), onSignIn: () => calls.push('signin'), onThemeChange: theme => calls.push(theme) })); });
-    act(() => findButton(root, 'Continue as guest').props.onClick());
+    act(() => findButton(root, 'Read as guest').props.onClick());
     act(() => findButton(root, 'Sign in').props.onClick());
-    const themes = root.root.findAllByProps({ className: 'welcome-theme' });
-    assert.equal(themes.length, 7);
-    for (const theme of themes) act(() => theme.props.onClick());
+    for(const theme of preferences.THEMES){
+      act(()=>root.root.findByProps({'aria-label':'Change theme: Liquid Opal'}).props.onClick());
+      const options=root.root.findAllByProps({role:'option'});
+      assert.equal(options.length,4);
+      act(()=>options.find(option=>textOf(option)===theme.name).props.onClick());
+      assert.equal(root.root.findAllByProps({role:'listbox'}).length,0);
+    }
     assert.deepEqual(calls, ['guest', 'signin', ...preferences.THEMES.map(t => t.id)]);
-    assert.equal(root.root.findAllByType('h1')[0].children.filter(t => typeof t === 'string').join(''), 'Read Vidurneeti.At your own pace.');
+    assert.equal(root.root.findAllByType('h1')[0].children.filter(t => typeof t === 'string').join(''), 'A quieter way toread Vidurneeti.');
     assert.ok(!JSON.stringify(root.toJSON()).includes('Import archive'));
   } finally { if (root) act(() => root.unmount()); env.restore(); }
 });
@@ -51,7 +57,7 @@ test('feature walkthrough supports all slides, keyboard navigation, close, and b
   const env = environment(); let root;
   try {
     act(() => { root = Renderer.create(React.createElement(Welcome, props()), { createNodeMock: () => ({ focus() {}, querySelectorAll: () => [] }) }); });
-    act(() => findButton(root, 'Learn more').props.onClick());
+    act(() => findButton(root, 'Why vn reader').props.onClick());
     assert.equal(root.root.findAllByProps({ role: 'dialog' }).length, 1);
     assert.equal(document.body.style.overflow, 'hidden');
     for (let i = 0; i < WELCOME_SLIDES.length; i++) {
@@ -94,8 +100,8 @@ async function appFixture({ cached = false, cacheFails = false, archiveFails = f
   const api = { fetchSiteArchive: async () => { if (archiveFails) throw Error('Archive network failed'); return { manifest, messages }; } };
   const account = { user: null, config: { accountsEnabled: false, archiveEnabled: true }, configReady: true, configError: '', status: 'guest', flush() {}, refreshConfig() {}, initialize() {} };
   const component = name => ({ default: props => React.createElement('div', { 'data-component': name }, props.children) });
-  const deps = { './lib/demo': demo, './lib/entry': entry, './lib/preferences': preferences, './lib/readingState': state, './lib/backup': backup, './lib/idb': idb, './lib/archive': { ...archive, getDirectoryPermission: async () => 'unsupported' }, './lib/api': api, './lib/useReaderAccount': { useReaderAccount: () => account }, './lib/useSignupCapacity': {useSignupCapacity:()=>({capacity:null,error:'',refresh(){}})}, './lib/media': { revokeAllMediaObjectUrls() {} }, './components/WelcomePage': { default: Welcome, FeatureWalkthrough } };
-  for (const name of ['AdminDashboard', 'ReaderSettings', 'ReaderGuide', 'ReaderAccount', 'ReadingLibrary', 'CommandPalette', 'MediaLightbox', 'MessageCard', 'ThreadRail', 'TopBar', 'PostTimeline', 'VirtualizedMessageList']) deps[`./components/${name}`] = component(name);
+  const deps = { './lib/useTouchLayout': touchLayout, './lib/demo': demo, './lib/entry': entry, './lib/preferences': preferences, './lib/readingState': state, './lib/backup': backup, './lib/idb': idb, './lib/archive': { ...archive, getDirectoryPermission: async () => 'unsupported' }, './lib/api': api, './lib/useReaderAccount': { useReaderAccount: () => account }, './lib/useSignupCapacity': {useSignupCapacity:()=>({capacity:null,error:'',refresh(){}})}, './lib/media': { revokeAllMediaObjectUrls() {} }, './components/WelcomePage': { default: Welcome, FeatureWalkthrough } };
+  for (const name of ['AdminDashboard', 'ReaderSettings', 'ReadingWidth', 'ReaderGuide', 'ReaderAccount', 'ReadingLibrary', 'CommandPalette', 'MediaLightbox', 'MessageCard', 'ThreadRail', 'TopBar', 'PostTimeline', 'VirtualizedMessageList']) deps[`./components/${name}`] = component(name);
   deps['./components/VirtualizedMessageList'] = { default: React.forwardRef((props, ref) => {
     React.useImperativeHandle(ref, () => ({ restorePosition: p => positions.push(p), scrollToIndex() {}, getPosition: () => null }), []);
     return React.createElement('div', { 'data-component': 'VirtualizedMessageList' });
@@ -103,7 +109,7 @@ async function appFixture({ cached = false, cacheFails = false, archiveFails = f
   const { default: App } = compile('../src/App.tsx', deps);
   let root;
   await act(async () => { root = Renderer.create(React.createElement(App)); });
-  return { root, account, positions, async guest() { await act(async () => findButton(root, 'Continue as guest').props.onClick()); }, async rerender() { await act(async () => root.update(React.createElement(App))); }, close() { act(() => root.unmount()); env.restore(); } };
+  return { root, account, positions, async guest() { await act(async () => findButton(root, 'Read as guest').props.onClick()); }, async rerender() { await act(async () => root.update(React.createElement(App))); }, close() { act(() => root.unmount()); env.restore(); } };
 }
 test('cached and hosted archives both wait for a deliberate guest choice', async () => {
   for (const cached of [false, true]) {
@@ -147,12 +153,11 @@ test('guest entry restores the saved paragraph after the reader mounts', async (
   finally { f.close(); }
 });
 
-test('first reader entry offers a tour; opening it dismisses the invitation and help can replay the feature slides', async () => {
+test('first reader entry automatically starts the basic tour once and help can replay the feature slides', async () => {
   const f = await appFixture();
   try {
     await f.guest();
-    assert.equal(f.root.root.findAllByProps({ 'aria-label': 'Get started with VN Reader' }).length, 1);
-    act(() => findButton(f.root, 'Take a quick tour').props.onClick());
+    assert.equal(f.root.root.findByProps({ 'data-component': 'ReaderGuide' }).parent.props.topic, 'basic');
     assert.equal(entry.shouldOfferTour(), false);
     assert.equal(f.root.root.findAllByProps({ 'aria-label': 'Get started with VN Reader' }).length, 0);
     const guide = f.root.root.findByProps({ 'data-component': 'ReaderGuide' });
@@ -174,7 +179,7 @@ test('welcome shows remaining email slots; a full allowance blocks new signup bu
     assert.match(JSON.stringify(root.toJSON()),/Email verification is full for today/);
     assert.equal(findButton(root,'Create an account').props.disabled,true);
     assert.notEqual(findButton(root,'Sign in').props.disabled,true);
-    assert.notEqual(findButton(root,'Continue as guest').props.disabled,true);
+    assert.notEqual(findButton(root,'Read as guest').props.disabled,true);
     assert.ok(!JSON.stringify(root.toJSON()).includes('Brevo'));
   } finally {if(root)act(()=>root.unmount());env.restore();}
 });

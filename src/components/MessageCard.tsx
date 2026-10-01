@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type SyntheticEvent } from "react";
+import { createPortal } from "react-dom";
+import {BookmarkIcon,BookmarkFilledIcon,CheckIcon,DotsHorizontalIcon} from "@radix-ui/react-icons";
 import { getMediaObjectUrl } from "../lib/media";
 import type { BookmarkRecord, MessageRecord } from "../types";
 import TelegramRichText, { extractMessageEntities } from "./TelegramRichText";
@@ -36,7 +38,6 @@ interface MessageCardProps {
   onOpenMedia?: (url: string, kind: string | null, caption?: string) => void;
   onOpenQuoteSource?: (replyToMsgId: number) => void;
   onOpenThread: (threadKey: string) => void;
-  onReattachMedia?: () => void;
   onSaveBookmarkTags: (message: MessageRecord, tags: string[]) => void;
   onToggleBookmark: (message: MessageRecord) => void;
   threadMessageCount: number;
@@ -83,7 +84,6 @@ function buildRelatedLinks(message: MessageRecord): string[] {
 function MediaPreview({
   directoryHandle,
   message,
-  onReattachMedia,
   onOpenMedia,
   mediaMode = "compact",
   mediaPlayback,
@@ -94,7 +94,6 @@ function MediaPreview({
   mediaMode?: "compact" | "full" | "collapsed";
   mediaPlayback?: { time: number; rate: number } | null;
   onSaveMediaPlayback?: (message: MessageRecord, playback: { time: number; rate: number }) => void;
-  onReattachMedia?: () => void;
   onOpenMedia?: (url: string, kind: string | null, caption?: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -194,15 +193,7 @@ function MediaPreview({
           <p className="reader-media-kicker">{message.media_kind ?? "Media"}</p>
           <strong>{message.media_path?.startsWith("/api/media/") ? "Media temporarily unavailable" : message.media_path ?? "Metadata only"}</strong>
           {error?<button type="button" className="reader-inline-button" onClick={()=>setAttempt(v=>v+1)}>Retry media</button>:null}
-          {!directoryHandle && !message.media_path?.startsWith("/api/media/") && onReattachMedia ? (
-            <button
-              type="button"
-              className="reader-media-reattach"
-              onClick={onReattachMedia}
-            >
-              Connect archive folder to show media
-            </button>
-          ) : null}
+
         </div>
         {error ? <small>{error}</small> : null}
       </div>
@@ -274,7 +265,6 @@ export default function MessageCard({
   onOpenMedia,
   onOpenQuoteSource,
   onOpenThread,
-  onReattachMedia,
   onSaveBookmarkTags,
   onToggleBookmark,
   threadMessageCount,
@@ -286,8 +276,45 @@ export default function MessageCard({
   const [noteOpen, setNoteOpen] = useState(false);
   const [labelsOpen, setLabelsOpen] = useState(false);
   const actionsRef = useRef<HTMLDetailsElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const [panelPosition, setPanelPosition] = useState({ left: 12, top: 12, width: 260, maxHeight: 320 });
   const closeActions = () => { if(actionsRef.current){actionsRef.current.open=false;actionsRef.current.querySelector<HTMLElement>("summary")?.focus();} };
-  useEffect(()=>{const outside=(event:PointerEvent)=>{if(actionsRef.current?.open&&!actionsRef.current.contains(event.target as Node))actionsRef.current.open=false;};const key=(event:KeyboardEvent)=>{if(event.key==="Escape"&&actionsRef.current?.open){event.preventDefault();closeActions();}};document.addEventListener("pointerdown",outside);document.addEventListener("keydown",key);return()=>{document.removeEventListener("pointerdown",outside);document.removeEventListener("keydown",key);};},[]);
+  useEffect(() => {
+    if (!actionsOpen) return;
+    const placePanel = () => {
+      const trigger = actionsRef.current?.getBoundingClientRect();
+      if (!trigger) return;
+      const margin = 12;
+      const width = Math.min(280, window.innerWidth - margin * 2);
+      const above = trigger.top - margin - 8;
+      const below = window.innerHeight - trigger.bottom - margin - 8;
+      const upwards = above > below;
+      const maxHeight = Math.max(44, Math.min(460, upwards ? above : below));
+      const height = Math.min(panelRef.current?.scrollHeight ?? maxHeight, maxHeight);
+      setPanelPosition({ width, maxHeight, left: Math.max(margin, Math.min(trigger.left, window.innerWidth - width - margin)), top: upwards ? Math.max(margin, trigger.top - height - 8) : trigger.bottom + 8 });
+    };
+    placePanel();
+    const outside = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (!actionsRef.current?.contains(target) && !panelRef.current?.contains(target) && actionsRef.current) actionsRef.current.open = false;
+    };
+    const key = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); closeActions(); }
+    };
+    document.addEventListener("pointerdown", outside);
+    document.addEventListener("keydown", key);
+    window.addEventListener("resize", placePanel);
+    window.addEventListener("scroll", placePanel, true);
+    const frame = requestAnimationFrame(() => { placePanel(); panelRef.current?.querySelector<HTMLElement>("select, button, a")?.focus({ preventScroll: true }); });
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener("pointerdown", outside);
+      document.removeEventListener("keydown", key);
+      window.removeEventListener("resize", placePanel);
+      window.removeEventListener("scroll", placePanel, true);
+    };
+  }, [actionsOpen]);
   const [noteDraft, setNoteDraft] = useState(note);
   const [selectedPassage, setSelectedPassage] = useState("");
   const bodyRef = useRef<HTMLDivElement | null>(null);
@@ -364,9 +391,6 @@ export default function MessageCard({
         </div>
 
         <div className="reader-message-badges">
-          <span className={`reader-pill ${isRead ? "reader-pill-read" : "reader-pill-unread"}`}>
-            {isRead ? "Seen" : "Unseen"}
-          </span>
           {readingStatus ? <span className={`reader-pill reader-pill-${readingStatus}`}>{readingStatus === "in-progress" ? "In progress" : readingStatus === "finished" ? "Finished" : "Revisit"}</span> : null}
           {queued ? <span className="reader-pill reader-pill-queued">Read later</span> : null}
           {message.is_quote_reply ? <span className="reader-pill reader-pill-quote">Quote</span> : null}
@@ -379,7 +403,7 @@ export default function MessageCard({
         </div>
       </header>
 
-      <div className="reader-message-context" data-tour="source-context">
+      {threadMessageCount > 1 || message.reply_to_msg_id || threadRootMissing ? <div className="reader-message-context" data-tour="source-context">
         <div className="reader-message-threadline">
           <span>
             {message.thread_root_id === message.message_id
@@ -404,7 +428,7 @@ export default function MessageCard({
             This conversation still exists, but the original root post is missing from the source archive.
           </div>
         ) : null}
-      </div>
+      </div> : null}
 
       {message.quote_text ? (
         <blockquote
@@ -462,7 +486,6 @@ export default function MessageCard({
         directoryHandle={directoryHandle}
         message={message}
         onOpenMedia={onOpenMedia}
-        onReattachMedia={onReattachMedia}
         mediaMode={mediaMode}
         mediaPlayback={mediaPlayback}
         onSaveMediaPlayback={onSaveMediaPlayback}
@@ -470,26 +493,21 @@ export default function MessageCard({
 
       <footer className="reader-message-footer">
         <div className="reader-study-controls reader-compact-controls" data-tour="reading-state">
-          {onSetReadingStatus ? <label className="reader-status-control"><span className="sr-only">Reading state</span>
-            <select aria-label={`Reading state for post ${message.message_id}`} value={readingStatus ?? ""} onChange={(event) => onSetReadingStatus(message, event.target.value ? event.target.value as "in-progress" | "finished" | "revisit" : null)}>
-              <option value="">Not started</option><option value="in-progress">In progress</option><option value="finished">Finished</option><option value="revisit">Revisit</option>
-            </select>
-          </label> : null}
           <div className="reader-compact-buttons">
-            {onToggleQueue ? <button type="button" aria-label={queued?"Remove from queue":"Read later"} title={queued?"Remove from queue":"Read later"} aria-pressed={queued} className={`post-icon-button ${queued?"is-saved":""}`} onClick={() => onToggleQueue(message)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><circle cx="10" cy="10" r="7"/><path d="M10 6v4l3 2"/></svg></button>:null}
-            <button type="button" className={`post-icon-button ${bookmark?"is-saved":""}`} aria-label={bookmark?"Remove bookmark":"Save post"} title={bookmark?"Remove bookmark":"Save post"} aria-pressed={!!bookmark} onClick={()=>onToggleBookmark(message)}><svg viewBox="0 0 20 20" fill={bookmark?"currentColor":"none"} stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M5 3h10v14l-5-3-5 3V3Z"/></svg></button>
-            <details ref={actionsRef} className="post-more-actions"><summary aria-label={`More actions for post ${message.message_id}`} title="More actions"><svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><circle cx="4" cy="10" r="1.5"/><circle cx="10" cy="10" r="1.5"/><circle cx="16" cy="10" r="1.5"/></svg></summary>
-              <div className="post-more-panel" role="group" aria-label={`Additional actions for post ${message.message_id}`}>
+            <button type="button" className={`post-icon-button ${bookmark?"is-saved":""}`} aria-label={bookmark?"Remove bookmark":"Save post"} title={bookmark?"Remove bookmark":"Save post"} aria-pressed={!!bookmark} onClick={()=>onToggleBookmark(message)}>{bookmark?<BookmarkFilledIcon aria-hidden/>:<BookmarkIcon aria-hidden/>}<span>{bookmark?"Saved":"Save"}</span></button>
+            <button type="button" className={`post-icon-button ${isRead?"is-saved":""}`} aria-label={isRead?"Mark unseen":"Mark seen"} title={isRead?"Mark unseen":"Mark seen"} aria-pressed={isRead} onClick={()=>isRead?onMarkUnread(message):onMarkRead(message)}><CheckIcon aria-hidden/><span>{isRead?"Seen":"Mark seen"}</span></button>
+            <details ref={actionsRef} className="post-more-actions" onToggle={event=>setActionsOpen(event.currentTarget.open)}><summary aria-label={`More actions for post ${message.message_id}`} aria-expanded={actionsOpen} aria-controls={`post-actions-${message.message_key}`} title="More actions"><DotsHorizontalIcon aria-hidden/><span>More</span></summary>
+              {actionsOpen && createPortal(<div ref={panelRef} id={`post-actions-${message.message_key}`} className="post-more-panel post-more-portal" style={panelPosition} role="group" aria-label={`Additional actions for post ${message.message_id}`}>
+                {onSetReadingStatus&&<label className="reader-status-control">Reading state<select aria-label={`Reading state for post ${message.message_id}`} value={readingStatus??""} onChange={e=>onSetReadingStatus(message,e.target.value?e.target.value as "in-progress"|"finished"|"revisit":null)}><option value="">Not started</option><option value="in-progress">In progress</option><option value="finished">Finished</option><option value="revisit">Revisit</option></select></label>}
+                {onToggleQueue&&<button type="button" onClick={()=>{onToggleQueue(message);closeActions();}}>{queued?"Remove from queue":"Read later"}</button>}
                 {onSaveNote?<button type="button" onClick={()=>{setNoteOpen(o=>!o);closeActions();}}>{note?"Edit note":"Add note"}</button>:null}
-                {onReadAround?<button type="button" onClick={()=>{closeActions();onReadAround(message);}}>Read around this</button>:null}
-                <button type="button" onClick={()=>{closeActions();onMarkReadTillHere(message);}}>Seen till here</button>
-                <button type="button" onClick={()=>{closeActions();onMarkRead(message);}}>Mark seen</button>
-                <button type="button" onClick={()=>{closeActions();onMarkUnread(message);}}>Mark unseen</button>
-                {hasManualReadOverride?<button type="button" onClick={()=>{closeActions();onClearReadOverride(message.message_key);}}>Clear override</button>:null}
+                {onReadAround?<button type="button" onClick={()=>{closeActions();onReadAround(message);}}>Read nearby posts</button>:null}
+                <button type="button" onClick={()=>{closeActions();onMarkReadTillHere(message);}}>Mark everything up to here seen</button>
+                {hasManualReadOverride?<button type="button" onClick={()=>{closeActions();onClearReadOverride(message.message_key);}}>Use normal seen status</button>:null}
                 {bookmark?<button type="button" onClick={()=>{setLabelsOpen(o=>!o);closeActions();}}>Edit bookmark labels</button>:null}
-                {allSources.length?<button type="button" onClick={()=>{setSourcesOpen(o=>!o);closeActions();}}>{allSources.length===1?"Source":`Sources (${allSources.length})`}</button>:null}
+                {allSources.length?<button type="button" onClick={()=>{setSourcesOpen(o=>!o);closeActions();}}>{allSources.length===1?"Reference":`References (${allSources.length})`}</button>:null}
                 {message.permalink?<a href={message.permalink} target="_blank" rel="noreferrer" onClick={closeActions}>Open in Telegram ↗</a>:null}
-              </div>
+              </div>, document.body)}
             </details>
           </div>
         </div>
@@ -508,7 +526,7 @@ export default function MessageCard({
             <p className="reader-sources-label">
               {hiddenSources.length === allSources.length
                 ? "Linked from anchor words above"
-                : "External sources from this message"}
+                : "References from this post"}
             </p>
             <ul>
               {allSources.map((url) => (
@@ -530,7 +548,7 @@ export default function MessageCard({
                 type="text"
                 value={tagInput}
                 onChange={(event) => setTagInput(event.target.value)}
-                placeholder="save for later, important thread, revisit source"
+                placeholder="save for later, important thread, revisit reference"
               />
             </label>
             <button type="button" onClick={() => onSaveBookmarkTags(message, tagInput.split(","))}>
