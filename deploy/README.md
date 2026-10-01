@@ -121,10 +121,11 @@ read -r -s -p 'Cloudflare tunnel token: ' VN_TUNNEL_TOKEN
 printf '\n'
 printf '%s' "$VN_TUNNEL_TOKEN" > deploy/secrets/cloudflare-tunnel-token
 unset VN_TUNNEL_TOKEN
-chmod 600 deploy/secrets/cloudflare-tunnel-token
+sudo chown root:root deploy/secrets/cloudflare-tunnel-token
+sudo chmod 0400 deploy/secrets/cloudflare-tunnel-token
 ```
 
-The tunnel container reads this file as a read-only Compose secret. Its process arguments contain the file path, not the token. Its root UID is used to read this owner-private secret file; it has no published host ports.
+The tunnel container reads this file as a read-only Compose secret. Its process arguments contain the file path, not the token. The file must belong to root because the container runs as root with all Linux capabilities dropped. An Ubuntu-owned file with mode 600 will cause `permission denied`. Root ownership with mode 0400 keeps the token private without expanding container capabilities. The container has no published host ports.
 
 ## 6. Build and restore the completed archive
 
