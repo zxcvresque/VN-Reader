@@ -89,7 +89,7 @@ export default function WelcomePage({ theme, onThemeChange, onGuest, onSignIn, o
   const year = (date: string | null | undefined) => date ? new Date(date).getFullYear() : null;
   return <div className="welcome-page">
     <div className="welcome-wrap">
-      <header className="welcome-header"><div className="welcome-brand"><span className="welcome-mark" aria-hidden="true"><BrandLogo /></span><span>VN</span></div><span className="welcome-for">For readers of Vidurneeti</span></header>
+      <header className="welcome-header"><div className="welcome-brand"><span className="welcome-mark" aria-hidden="true"><BrandLogo /></span></div><span className="welcome-for">For readers of Vidurneeti</span></header>
       <main>
         <section className="welcome-hero" aria-labelledby="welcome-title">
           <div className="welcome-copy"><h1 id="welcome-title">Read Vidurneeti.<br />At your own pace.</h1><p>A dedicated reader for Vidurneeti’s posts. Follow the context, save what matters, and always find your way back.</p>
