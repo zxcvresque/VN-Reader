@@ -83,6 +83,8 @@ Normal resume skips already archived message IDs; it does not refresh edits to t
 
 ## Local storage
 
+First-time visitors choose **Continue as guest** or **Sign in** on a welcome page for Vidurneeti’s posts. Its theme selector carries into the reader. **Learn more** opens a six-slide walkthrough of reading, quoted sources and search, the personal library, the timeline, appearance controls, and guest/account saving. A first-entry invitation offers a tour of actual controls. Help & page tours reopens every tour and the feature slides through **Why VN Reader?**. Guest entry is remembered on that browser; a returning authenticated session opens the reader automatically. The hosted archive loads in the background, with a retry screen if it is unavailable. Folder import remains available through the reader’s command menu and the offline fallback, rather than being the public website’s entry screen.
+
 IndexedDB database `vn-reader`, schema version 4, stores the imported messages, thread index, bookmarks, read overrides, reading cursor, import history, manifest, and folder handle. Appearance and presets live in localStorage; personal reading data is stored in validated localStorage records scoped to the channel ID. Guest preferences and progress are local to this browser. Signed-in readers use a separate account cache and revisioned server sync for preferences, exact positions, notes, passages, collections, queue, media state and bookmarks. SMTP must be configured before live account signup is enabled.
 
 Upgrading from an older reader preserves the archive, bookmarks, and reading progress. Media stays in the archive folder; use **Reattach media folder** if browser access expires.
@@ -112,3 +114,5 @@ For migration, build the images, restore the existing data into the persistent v
 - `npm run preview`: preview the production build.
 
 The Python exporter and browser reader are separate programs. Reader use stays local; running the exporter contacts Telegram.
+
+Email/password delivery setup and the live two-device sync checklist are in [deploy/EMAIL.md](deploy/EMAIL.md).

@@ -15,13 +15,13 @@ const merge=await compile('../src/lib/cloudMerge.ts');
 const blank=(chat=-100)=>({format:'vn-reader-reading-state',version:1,exportedAt:'2000-01-01T00:00:00.000Z',chatId:chat,preferences:{theme:'vercel'},readingState:{version:1,chatId:chat,positions:{},statuses:{},queue:[],notes:{},passages:[],collections:[],media:{}},bookmarks:[],readOverrides:[],readCursor:null});
 const withNote=(value,chat=-100)=>{const d=blank(chat);d.readingState.notes.post=value;return d;};
 const deferred=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b;});return {promise,resolve,reject};};
-async function fixture({guest=withNote('guest'),cached,remote={revision:1,data:withNote('server')},load,save}={}){
+async function fixture({guest=withNote('guest'),cached,remote={revision:1,data:withNote('server')},load,save,configApi=async()=>({accountsEnabled:true,archiveEnabled:true})}={}){
  const storage=new Map();if(cached)storage.set('vn-reader:account:u:-100',JSON.stringify(cached));
  const oldWindow=globalThis.window,oldStorage=globalThis.localStorage;
  globalThis.localStorage={getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,v)};
  const timers=new Map();let next=0;globalThis.window={setTimeout:fn=>{timers.set(++next,fn);return next;},clearTimeout:id=>timers.delete(id),setInterval:()=>++next,clearInterval:()=>{},addEventListener:()=>{},removeEventListener:()=>{},document:{visibilityState:'visible',addEventListener:()=>{},removeEventListener:()=>{}}};
  let logouts=0,control,doc,update;const applied=[];let currentRemote=remote;
- const apiModule={api:async path=>path==='/config'?{accountsEnabled:true,archiveEnabled:true}:null,ApiError:class extends Error{},authRequest:async()=>{logouts++;},loadCloudState:load??(async()=>currentRemote),saveCloudState:save??(async(chat,data,revision)=>({revision:revision+1,data}))};
+ const apiModule={api:async path=>path==='/config'?configApi():null,ApiError:class extends Error{},authRequest:async()=>{logouts++;},loadCloudState:load??(async()=>currentRemote),saveCloudState:save??(async(chat,data,revision)=>({revision:revision+1,data}))};
  const {useReaderAccount}=await compile('../src/lib/useReaderAccount.ts',{'./api':apiModule,'./cloudMerge':merge});
  function Harness(){const [document,setDocument]=React.useState(guest);doc=document;update=setDocument;control=useReaderAccount(document,(d,restore)=>{applied.push({d,restore});setDocument(d);},()=>{},value=>{if(value.chatId!==document.chatId)throw Error('Wrong archive');return structuredClone(value);});return null;}
  let root;await act(async()=>{root=Renderer.create(React.createElement(Harness));});
@@ -50,4 +50,12 @@ test('conflict resolution preserves edits made while the save is in flight',asyn
 });
 test('initial cloud progress requests position restoration after account hydration',async()=>{
  const cloud=blank();cloud.readingState.positions.post={offset:250,updatedAt:'2026-09-30T00:00:00Z'};const f=await fixture({remote:{revision:1,data:cloud}});try{assert.equal(f.applied.at(-1).restore,true);assert.equal(f.doc.readingState.positions.post.offset,250);}finally{f.close();}
+});
+test('site configuration errors are visible and retry recovers without discarding the account',async()=>{
+ let attempts=0;const f=await fixture({configApi:async()=>{if(++attempts===1)throw Error('Temporary connection failure');return {accountsEnabled:false,archiveEnabled:true};}});
+ try{
+  assert.equal(f.control.configReady,true);assert.equal(f.control.configError,'Temporary connection failure');
+  await act(async()=>f.control.refreshConfig());
+  assert.deepEqual(f.control.config,{accountsEnabled:false,archiveEnabled:true});assert.equal(f.control.configError,'');assert.equal(f.control.user.id,'u');
+ }finally{f.close();}
 });

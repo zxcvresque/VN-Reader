@@ -7,6 +7,9 @@ export type SyncStatus = "guest" | "loading" | "saving" | "saved" | "offline" | 
 export function useReaderAccount(document: ReadingBackup, onApply: (data: ReadingBackup, restorePosition?: boolean) => void, onGuest: () => void, validate: (data: unknown) => ReadingBackup) {
   const [user, setUser] = useState<AccountUser | null>(null);
   const [config, setConfig] = useState<SiteConfig | null>(null);
+  const [configError, setConfigError] = useState("");
+  const [configReady, setConfigReady] = useState(false);
+  const [configAttempt, setConfigAttempt] = useState(0);
   const [status, setStatus] = useState<SyncStatus>("guest");
   const [message, setMessage] = useState("");
   const [conflicts, setConflicts] = useState<string[]>([]);
@@ -27,10 +30,13 @@ export function useReaderAccount(document: ReadingBackup, onApply: (data: Readin
     setUser(account); setReady(false); setStatus("loading"); setMessage(""); setTrigger(v=>v+1);
   },[]);
   useEffect(()=>{ let active=true;
-    void api<SiteConfig>("/config").then(c=>{if(active)setConfig(c);}).catch(()=>{});
     void api<{user:AccountUser|null}|null>("/auth/get-session").then(result=>{if(active&&result?.user)void initialize(result.user);}).catch(()=>{});
     return()=>{active=false;state.current.generation++;};
   },[initialize]);
+  useEffect(()=>{let active=true;setConfigReady(false);setConfigError("");
+    void api<SiteConfig>("/config").then(c=>{if(active)setConfig(c);}).catch(error=>{if(active)setConfigError(error instanceof Error?error.message:"Could not connect to the reader.");}).finally(()=>{if(active)setConfigReady(true);});
+    return()=>{active=false;};
+  },[configAttempt]);
 
   useEffect(()=>{
     const s=state.current, chat=document.chatId;
@@ -113,5 +119,5 @@ export function useReaderAccount(document: ReadingBackup, onApply: (data: Readin
     try{localStorage.setItem(cacheKey(s.user.id,s.chat),JSON.stringify({base:s.base,data:copy,revision:s.revision}));}catch{/* Normal saving surfaces storage errors. */}
     if(!s.running&&!s.conflictRemote&&JSON.stringify(copy).length<60000)void saveCloudState(s.chat,copy,s.revision,true).catch(()=>{});
   };
-  return {user,config,status,message,ready,conflicts,guestImport,initialize,logout,flush,sync:()=>{if(!state.current.base)setTrigger(v=>v+1);else void sync();},resolve,importGuest:()=>{if(guestImport){apply(guestImport);setGuestImport(null);}}};
+  return {user,config,configError,configReady,refreshConfig:()=>setConfigAttempt(v=>v+1),status,message,ready,conflicts,guestImport,initialize,logout,flush,sync:()=>{if(!state.current.base)setTrigger(v=>v+1);else void sync();},resolve,importGuest:()=>{if(guestImport){apply(guestImport);setGuestImport(null);}}};
 }

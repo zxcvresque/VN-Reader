@@ -38,3 +38,23 @@ test('HTTP endpoints truthfully report disabled accounts and preserve guest acce
   assert.equal((await f.request('/api/state/-100')).status,503);
  }finally{await f.close();}
 });
+
+test('two password sessions for one verified account share progress through HTTP while another account stays separate', async () => {
+ const f = await fixture();
+ try {
+  const phone = await f.signup('sync@example.com');
+  const login = await f.request('/api/auth/sign-in/email', { method:'POST', body:{email:'sync@example.com',password:'strong-test-password-123'} });
+  assert.equal(login.status,200);
+  const desktop = login.headers.getSetCookie().map(s=>s.split(';')[0]).join('; ');
+  assert.notEqual(phone,desktop);
+  const other = await f.signup('private@example.com');
+  const doc = {format:'vn-reader-reading-state',version:1,chatId:-100,preferences:{theme:'vercel'},bookmarks:[{message_key:'post'}],readingState:{chatId:-100,positions:{post:{offset:137,updatedAt:'2026-10-01T10:00:00Z'}},notes:{post:'My thought'},queue:['post'],collections:[{id:'c',name:'Ideas'}]}};
+  const saved = await f.request('/api/state/-100', {method:'PUT',cookie:phone,body:{data:doc},headers:{'if-match':'"0"'}});
+  assert.equal(saved.status,200);
+  assert.deepEqual(await (await f.request('/api/state/-100',{cookie:desktop})).json(),{revision:1,data:doc});
+  const edited = {...doc,readingState:{...doc.readingState,notes:{post:'Updated on desktop'}}};
+  assert.equal((await f.request('/api/state/-100',{method:'PUT',cookie:desktop,body:{data:edited},headers:{'if-match':'"1"'}})).status,200);
+  assert.deepEqual(await (await f.request('/api/state/-100',{cookie:phone})).json(),{revision:2,data:edited});
+  assert.deepEqual(await (await f.request('/api/state/-100',{cookie:other})).json(),{revision:0,data:null});
+ } finally { await f.close(); }
+});

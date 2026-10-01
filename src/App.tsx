@@ -1,5 +1,7 @@
 import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import WelcomePage, { FeatureWalkthrough } from "./components/WelcomePage";
 import { loadSampleArchive } from "./lib/demo";
+import { hasEnteredAsGuest, rememberGuestEntry, shouldOfferTour, rememberTourInvitation } from "./lib/entry";
 import ReaderSettings from "./components/ReaderSettings";
 import ReaderGuide from "./components/ReaderGuide";
 import ReaderAccount from "./components/ReaderAccount";
@@ -101,6 +103,11 @@ function bookmarkId(targetType: "message" | "thread", targetKey: string): string
 
 export default function App() {
   const [snapshot, setSnapshot] = useState<AppSnapshot>(EMPTY_SNAPSHOT);
+  const [entered, setEntered] = useState(hasEnteredAsGuest);
+  const [localLoaded, setLocalLoaded] = useState(false);
+  const [archiveLoading, setArchiveLoading] = useState(false);
+  const [archiveError, setArchiveError] = useState("");
+  const [archiveAttempt, setArchiveAttempt] = useState(0);
   const [busyLabel, setBusyLabel] = useState<string | null>("Loading local archive…");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -121,6 +128,8 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
+  const [tourInvitation, setTourInvitation] = useState(shouldOfferTour);
+  const [featuresOpen, setFeaturesOpen] = useState(false);
   const [guideTopic, setGuideTopic] = useState<GuideTopic | null>(null);
   const [guideStep, setGuideStep] = useState<TourStep | null>(null);
   const guideReturnRef = useRef<{ entry: NavEntry; library: boolean; search: boolean; query: string; streamQuery: string; windowTop: number; readingPosition: ReadingPosition | null; settings: boolean; settingsScroll: number; reached: boolean; source: {message: MessageRecord; origin: MessageRecord} | null } | null>(null);
@@ -201,9 +210,11 @@ export default function App() {
   },[]);
   const accountDocument=useMemo(()=>({...createBackup(snapshot,personal,preferences),exportedAt:"2000-01-01T00:00:00.000Z"}),[snapshot,personal,preferences]);
   const account=useReaderAccount(accountDocument,applyAccountDocument,restoreGuest,(data)=>parseBackup(data,snapshotRef.current));
+  const continueAsGuest=useCallback(()=>{rememberGuestEntry();setEntered(true);setAccountOpen(false);},[]);
+  useEffect(()=>{if(account.user){setEntered(true);setAccountOpen(false);}},[account.user]);
   const accountFlushRef=useRef(account.flush);accountFlushRef.current=account.flush;
   accountActiveRef.current=account.user!==null;
-  const accountDialog=accountOpen?<ReaderAccount account={account} onClose={()=>setAccountOpen(false)}/>:null;
+  const accountDialog=accountOpen?<ReaderAccount account={account} onClose={()=>setAccountOpen(false)} onGuest={!entered?continueAsGuest:undefined}/>:null;
   const deferredSearch = useDeferredValue(searchQuery.trim().toLowerCase());
 
   // -------- snapshot loading --------
@@ -221,31 +232,34 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    void refreshSnapshot().catch((e) => { setBusyLabel(null); setError(e instanceof Error ? e.message : "Could not load archive."); });
+    void refreshSnapshot().catch((e) => { setBusyLabel(null); setError(e instanceof Error ? e.message : "Could not load archive."); }).finally(()=>setLocalLoaded(true));
   }, [refreshSnapshot]);
 
   useEffect(() => {
-    if(!account.config?.archiveEnabled)return;
+    if(!account.config?.archiveEnabled||!localLoaded)return;
     let stopped=false;let running=false;
     const update=async()=>{
-      if(running)return;running=true;
+      if(running)return;running=true;setArchiveLoading(true);setArchiveError("");
       try{
         const data=await fetchSiteArchive();if(stopped)return;
         const messages=recomputeThreadLinks(data.messages);const threads=buildThreadRecords(messages);
-        if(!messages.length)return;
-        await replaceAllMessages(messages);await replaceAllThreads(threads);await saveManifest(data.manifest);await saveDirectoryHandle(null);
+        if(!messages.length)throw new Error("The Vidurneeti archive is being prepared. Please try again shortly.");
         if(stopped)return;
         setSnapshot(current=>({...current,manifest:data.manifest,messages,threads,directoryHandle:null,
           bookmarks:current.bookmarks.filter(b=>b.chat_id===data.manifest.source.chat_id),
           readOverrides:current.readOverrides.filter(r=>r.message_key.startsWith(`${data.manifest.source.chat_id}:`)),
           readCursor:current.readCursor?.chat_id===data.manifest.source.chat_id?current.readCursor:null}));
         setBusyLabel(null);
-      }catch(e){if(snapshotRef.current.messages.length===0)setError(e instanceof Error?e.message:"The archive could not be reached.");}
-      finally{running=false;}
+        // Display server posts before writing the offline cache. A storage restriction
+        // must not prevent a visitor from reading the public archive.
+        try{await replaceAllMessages(messages);await replaceAllThreads(threads);await saveManifest(data.manifest);await saveDirectoryHandle(null);}
+        catch{if(!stopped)setNotice("Posts are available, but this browser could not cache the archive for offline use.");}
+      }catch(e){if(!stopped)setArchiveError(e instanceof Error?e.message:"The archive could not be reached.");}
+      finally{running=false;if(!stopped)setArchiveLoading(false);}
     };
     void update();const timer=window.setInterval(()=>{if(document.visibilityState==="visible")void update();},60000);
     return()=>{stopped=true;window.clearInterval(timer);};
-  },[account.config?.archiveEnabled]);
+  },[account.config?.archiveEnabled,localLoaded,archiveAttempt]);
 
   useEffect(() => {
     let cancelled = false;
@@ -311,7 +325,7 @@ export default function App() {
   // ⌘K listener
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
-      if (guideOpen) return;
+      if (guideOpen || !entered || accountOpen || snapshot.messages.length===0) return;
       const isModK =
         (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k";
       if (isModK) {
@@ -326,7 +340,7 @@ export default function App() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [paletteOpen, guideOpen]);
+  }, [paletteOpen, guideOpen, entered, accountOpen, snapshot.messages.length]);
 
   // -------- derived collections --------
 
@@ -510,7 +524,7 @@ export default function App() {
     if (pending) {timelineRef.current.restorePosition(pending);pendingPositionRef.current=null;}
     else timelineRef.current.scrollToIndex(index,"start");
     appliedNavigationRef.current=navigationVersion;
-  }, [view, navigationVersion, filteredMessages, highlightedMessageKey]);
+  }, [view, navigationVersion, filteredMessages, highlightedMessageKey, entered]);
 
   // Stats
   const stats = useMemo(() => {
@@ -956,7 +970,11 @@ export default function App() {
     }catch(e){setError(e instanceof Error?e.message:"Could not restore backup.");}
     finally{restoringBackupRef.current=false;setBackupBusy(false);}
   }
+  function dismissTourInvitation(): void {
+    rememberTourInvitation(); setTourInvitation(false);
+  }
   function openGuide(): void {
+    dismissTourInvitation();
     guideReturnRef.current = { entry: captureEntry(), library: libraryOpen, search: readerSearchOpen, query: readerSearch, streamQuery: searchQuery, windowTop: window.scrollY, settings: settingsOpen, settingsScroll: document.querySelector(".reader-settings-body")?.scrollTop ?? 0, reached: sessionReached, readingPosition: view === "read" ? timelineRef.current?.getPosition() ?? lastPositionRef.current : lastPositionRef.current, source: sourcePeek };
     guideActiveRef.current = true;
     if (positionTimerRef.current) { window.clearTimeout(positionTimerRef.current); positionTimerRef.current = null; }
@@ -1031,7 +1049,7 @@ export default function App() {
     frame = window.requestAnimationFrame(reveal);
     return () => window.cancelAnimationFrame(frame);
   }, [guideStep]);
-  const guideDialog = guideOpen ? <ReaderGuide topic={guideTopic} hasArchive={snapshot.messages.length > 0} onSelectTopic={topic => { setGuideTopic(topic); }} onClose={closeGuide} onStepChange={prepareTourStep} /> : null;
+  const guideDialog = guideOpen ? <ReaderGuide topic={guideTopic} hasArchive={snapshot.messages.length > 0} onSelectTopic={topic => { setGuideTopic(topic); }} onClose={closeGuide} onStepChange={prepareTourStep} onLearnMore={()=>{closeGuide();setFeaturesOpen(true);}} /> : null;
   const settingsDialog = settingsOpen || (guideOpen && guideReturnRef.current?.settings) ? <div hidden={guideOpen && guideTopic !== "appearance"}><ReaderSettings preferences={preferences} onChange={changePreferences} onClose={() => setSettingsOpen(false)} onOpenGuide={openGuide} tourActive={guideOpen} onExportBackup={() => void exportBackup()} onImportBackup={importBackup} backupBusy={backupBusy} /></div> : null;
 
 
@@ -1093,45 +1111,22 @@ export default function App() {
     [snapshot.threads, focusThread]
   );
 
-  // -------- landing (no archive) --------
-
-  if (snapshot.messages.length === 0 && !busyLabel) {
+  // Entry is independent of archive availability, so fetching posts never flashes
+  // an import screen or opens the reader before a visitor has chosen a mode.
+  if (!entered) return <><WelcomePage theme={preferences.theme} onThemeChange={theme=>changePreferences({...preferences,theme})} onGuest={continueAsGuest} onSignIn={()=>setAccountOpen(true)} messages={snapshot.messages} manifest={snapshot.manifest}/>{accountDialog}</>;
+  if (snapshot.messages.length === 0) {
+    const loading=!localLoaded||!account.configReady||archiveLoading||(account.config?.archiveEnabled&&!archiveError);
+    const problem=archiveError||account.configError||"The Vidurneeti archive is not connected yet. Please try again shortly.";
     return (
-      <div className="landing-shell">
-        <div className="landing-card">
-          <p className="eyebrow">VN Reader</p>
-          <h1>Read your channel archive like a long-form book.</h1>
-          <p className="landing-summary">
-            A quiet place for the VN archive. Read without an account, or sign in to keep your place across devices. You can also import an archive folder. Use ⌘K to navigate.
-          </p>
-          <div className="landing-actions"><button type="button" data-tour="account-status" className="btn-ghost" onClick={()=>setAccountOpen(true)}>{account.user?"Your account":"Sign in · Create account"}</button>
-            <button type="button" className="btn-ghost" onClick={()=>setSettingsOpen(true)}>Appearance & settings</button>
-            <button type="button" className="btn-ghost" onClick={openGuide}>How VN Reader works</button>
-            <button type="button" onClick={() => void handleImportArchive()}>
-              Import archive folder
-            </button>
-            <button type="button" className="btn-ghost" onClick={()=>{setBusyLabel("Opening sample archive…");void loadSampleArchive().then(()=>refreshSnapshot("Sample archive opened. Import your own archive from the command menu.")).catch(e=>{setBusyLabel(null);setError(String(e));});}}>Explore a sample archive</button>
-          </div>
-          <div className="landing-notes">
-            <p>Select an archive folder produced by the exporter</p>
-            <p>Guest progress stays in this browser. Accounts sync your reading across devices.</p>
-          </div>
+      <div className="welcome-reader-loading">
+        <div role={loading?"status":"alert"}>
+          <h1>{loading?"Opening Vidurneeti…":"The archive couldn’t be opened."}</h1>
+          <p>{loading?"Preparing the posts and your saved reading place.":problem}</p>
+          {loading?<div className="welcome-loading-lines" aria-hidden="true"><span/><span/><span/></div>:<button type="button" className="btn-primary" onClick={()=>{setArchiveAttempt(v=>v+1);account.refreshConfig();}}>Try again</button>}
+          <button type="button" className="btn-ghost" onClick={()=>setEntered(false)}>Back to welcome</button>
+          {!loading&&account.config?.archiveEnabled!==true?<details><summary>Offline reading</summary><p>You can open a local exported archive while the hosted reader is unavailable.</p><button type="button" onClick={()=>void handleImportArchive()}>Import archive folder</button><button type="button" onClick={()=>{setBusyLabel("Opening sample archive…");void loadSampleArchive().then(()=>refreshSnapshot("Sample archive opened.")).catch(e=>{setBusyLabel(null);setError(String(e));});}}>Explore a sample archive</button></details>:null}
         </div>
         {accountDialog}
-        {settingsDialog}
-        {guideDialog}
-        {error ? <div role="alert" className="status-banner status-error">{error}</div> : null}
-      </div>
-    );
-  }
-
-  if (snapshot.messages.length === 0) {
-    return (
-      <div className="landing-shell">
-        <div className="landing-card">
-          <p className="eyebrow">VN Reader</p>
-          <h1>Loading local archive…</h1>
-        </div>
       </div>
     );
   }
@@ -1178,6 +1173,7 @@ export default function App() {
       />
 
       <div className="account-strip" data-tour="account-status"><button onClick={()=>setAccountOpen(true)}>{account.user?account.user.email:"Reading as a guest"}</button><span role="status">{account.user?({guest:"Browser only",loading:"Opening account…",saving:"Saving…",saved:"Saved across devices",offline:"Sync pending · device copy kept",conflict:"Sync needs attention"})[account.status]:"Progress saved in this browser"}</span>{account.user&&account.status==="offline"?<button onClick={()=>account.sync()}>Retry sync</button>:null}</div>
+      {tourInvitation && !guideOpen && <aside className="reader-tour-invitation" aria-label="Get started with VN Reader"><div><strong>Find your way around.</strong><p>Take a tour of the reading controls. You can reopen it anytime from Help & tours.</p></div><div className="reader-tour-invitation-actions"><button type="button" onClick={openGuide}>Take a quick tour <span aria-hidden="true">→</span></button><button type="button" className="btn-ghost" onClick={dismissTourInvitation}>Later</button></div></aside>}
       <div className="reading-tools" data-tour="reading-tools">
         <div className="reader-trail" aria-label="Reading trail">
           <button type="button" disabled={!navStack.length} onClick={handleNavigateBack} aria-label="Previous reading location">← Back</button>
@@ -1370,6 +1366,7 @@ export default function App() {
       />
 
       {guideDialog}
+      {featuresOpen && <FeatureWalkthrough onClose={()=>setFeaturesOpen(false)}/>}
       <MediaLightbox media={lightboxMedia} onClose={() => setLightboxMedia(null)} />
 
 

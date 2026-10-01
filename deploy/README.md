@@ -70,6 +70,8 @@ The private `.env.production` stays on the VPS and is excluded from Git and Dock
 
 ## 4. Set production authentication and SMTP
 
+See [EMAIL.md](EMAIL.md) for email-provider selection, Amazon SES setup, DNS records, and the two-device sync check.
+
 Edit the transferred environment file:
 
 ```sh

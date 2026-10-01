@@ -2648,7 +2648,7 @@ body { isolation: isolate; background-attachment: fixed; }
 .account-overlay { position:fixed; inset:0; z-index:160; display:grid; place-items:center; padding:24px; background:var(--overlay); backdrop-filter:blur(8px); }
 .account-panel { width:min(100%,480px); max-height:calc(100dvh - 48px); overflow:auto; padding:32px; border-radius:var(--radius-lg); background:var(--bg-1); color:var(--text); box-shadow:var(--shadow-pop); }
 .account-panel header { display:flex; justify-content:space-between; align-items:center; gap:16px; margin-bottom:24px; }
-.account-panel header button { padding:4px 12px; font-size:22px; color:var(--text-muted); background:transparent; }
+.account-panel header button { display:inline-grid; place-items:center; flex-shrink:0; width:44px; height:44px; padding:0; line-height:1; font-size:22px; color:var(--text-muted); background:transparent; }
 .account-panel h2 { font-family:var(--display); font-size:32px; letter-spacing:-1.28px; line-height:1.2; font-weight:600; margin:0 0 16px; }
 .account-panel h3 { font-size:14px; font-weight:500; margin:0 0 8px; }
 .account-panel p { color:var(--text-muted); font-size:14px; line-height:1.6; }
@@ -2660,8 +2660,9 @@ body { isolation: isolate; background-attachment: fixed; }
 .account-panel .account-primary { min-height:44px; background:var(--text); color:var(--bg-0); font-weight:500; border-radius:6px; }
 .account-panel .account-otp { font-family:var(--mono); font-size:24px; letter-spacing:8px; }
 .account-links,.account-actions { display:flex; justify-content:space-between; gap:12px; margin:16px 0; flex-wrap:wrap; }
-.account-links button { font-size:13px; padding:4px 0; background:transparent; color:var(--accent); }
-.account-guest { width:100%; margin-top:12px; }
+.account-panel .account-links button { display:inline-flex; align-items:center; justify-content:center; font-size:13px; line-height:1.4; min-height:44px; padding:10px 14px; background:transparent; color:var(--accent); }
+.account-guest { width:100%; min-height:44px; padding:10px 16px; line-height:1.5; margin-top:12px; }
+.account-panel .account-actions button, .account-import button, .account-conflict button { min-height:44px; padding:10px 14px; line-height:1.4; }
 .account-panel .account-error { color:var(--danger); }
 .account-panel .account-notice { color:var(--text); }
 .account-service-note,.account-import,.account-conflict { padding:16px; background:var(--bg-2); border-radius:8px; margin:20px 0; }
@@ -2868,3 +2869,20 @@ body { isolation: isolate; background-attachment: fixed; }
 }
 
 @media (prefers-reduced-motion: reduce) { .post-timeline *, .post-timeline *::before { transition: none !important; animation: none !important; } }
+
+/* Labeled actions have room around text; icon and swatch controls keep their layouts. */
+.reader-tour-invitation { max-width:1120px; margin:0 auto 20px; padding:18px 20px; display:flex; align-items:center; justify-content:space-between; gap:24px; background:var(--bg-1); border:1px solid var(--border-strong); border-radius:var(--radius); }
+.reader-tour-invitation strong { font-size:14px; font-weight:600; }
+.reader-tour-invitation p { font-size:13px; color:var(--text-muted); line-height:1.6; margin:6px 0 0; }
+.reader-tour-invitation-actions { display:flex; flex-shrink:0; align-items:center; gap:12px; }
+.reader-tour-invitation-actions button, .guide-feature-intro button { display:inline-flex; align-items:center; justify-content:center; gap:16px; min-height:44px; padding:10px 16px; font-size:13px; line-height:1.4; }
+.guide-feature-intro { display:flex; align-items:center; gap:16px; flex-wrap:wrap; margin:24px 32px 0; }
+.guide-feature-intro > span { font-size:13px; color:var(--text-muted); }
+:root .guide-close { display:inline-grid; place-items:center; min-width:44px; width:44px; height:44px; padding:0; }
+:root .guide-tour-footer button { min-height:44px; padding:10px 14px; line-height:1.4; }
+:root[data-focus="true"] .reader-tour-invitation { position:fixed; left:16px; right:16px; bottom:74px; z-index:110; box-shadow:var(--shadow-pop); }
+@media(max-width:720px) {
+ .reader-tour-invitation { align-items:flex-start; flex-direction:column; gap:16px; padding:16px; }
+ .reader-tour-invitation-actions { width:100%; flex-wrap:wrap; }
+ .guide-feature-intro { margin:20px 18px 0; gap:12px; }
+}

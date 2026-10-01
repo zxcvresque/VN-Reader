@@ -7,6 +7,7 @@ interface ReaderGuideProps {
   onClose: () => void;
   onStepChange: (step: TourStep | null) => void;
   hasArchive?: boolean;
+  onLearnMore?: () => void;
 }
 
 interface TargetRect { top: number; left: number; width: number; height: number }
@@ -20,7 +21,7 @@ function visibleTarget(selector: string): Element | null {
   }) ?? null;
 }
 
-export default function ReaderGuide({ topic, onSelectTopic, onClose, onStepChange, hasArchive = true }: ReaderGuideProps) {
+export default function ReaderGuide({ topic, onSelectTopic, onClose, onStepChange, hasArchive = true, onLearnMore }: ReaderGuideProps) {
   const dialog = useRef<HTMLDivElement>(null);
   const callbacks = useRef({ onClose, onStepChange });
   callbacks.current = { onClose, onStepChange };
@@ -143,9 +144,10 @@ export default function ReaderGuide({ topic, onSelectTopic, onClose, onStepChang
   return <div className="guide-overlay" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}>
     <div className="reader-guide" ref={dialog} role="dialog" aria-modal="true" aria-labelledby={headingId} aria-describedby={bodyId} tabIndex={-1}>
       <header className="guide-header"><div><p className="eyebrow">A reader's companion</p><h2 id={headingId}>A little guidance, a better read.</h2><p id={bodyId} className="guide-intro">Follow a tour of the actual controls, or keep this guide close as a reference. Every tour works with every theme and navigation position.</p></div><button type="button" className="btn-ghost guide-close" onClick={onClose} aria-label="Close reader guide">×</button></header>
+      {onLearnMore && <div className="guide-feature-intro"><button type="button" onClick={onLearnMore}>Why VN Reader? <span aria-hidden="true">↗</span></button><span>A quick introduction to its reading tools.</span></div>}
       <div className="guide-topic-grid">{GUIDE_TOPICS.map((item) => <button type="button" className="guide-topic" key={item.id} disabled={!hasArchive && item.id !== "appearance" && item.id !== "account"} onClick={() => { setProgress({ topic: item.id, index: 0 }); onSelectTopic(item.id); }}><span className="guide-topic-number" aria-hidden="true">{item.icon}</span><span className="guide-topic-copy"><strong>{item.title}</strong><span>{item.description}</span><small className="guide-topic-count">{TOUR_STEPS[item.id].length} steps <span aria-hidden="true">↗</span></small></span></button>)}</div>
       {!hasArchive && <p className="guide-archive-notice">Import an archive or open the sample to try the reading, library, and search tours. You can explore appearance and accounts now.</p>}
-      <section className="guide-theme-reference"><h3>Six atmospheres. The same reading tools.</h3><p>The theme changes the character of your space. You choose its navigation position separately in Settings.</p><div className="guide-theme-grid">{THEME_GUIDE.map((theme) => <article className="guide-theme-item" key={theme.name}><h4>{theme.name}</h4><p>{theme.description}</p></article>)}</div></section>
+      <section className="guide-theme-reference"><h3>Seven atmospheres. The same reading tools.</h3><p>The theme changes the character of your space. You choose its navigation position separately in Settings.</p><div className="guide-theme-grid">{THEME_GUIDE.map((theme) => <article className="guide-theme-item" key={theme.name}><h4>{theme.name}</h4><p>{theme.description}</p></article>)}</div></section>
       <section className="guide-reference"><h3>How everything works</h3><p>Open a topic for the practical steps.</p>{HELP_SECTIONS.map((section) => <details className="guide-reference-section" key={section.title}><summary>{section.title}</summary>{section.paragraphs.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}</details>)}</section>
     </div>
   </div>;
