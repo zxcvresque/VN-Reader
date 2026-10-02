@@ -131,3 +131,27 @@ class MediaAPITests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(response.status_code,200)
                 await asyncio.sleep(0)
                 notification.assert_awaited_once_with("Account service startup failed","Error",cooldown=300,severity="critical")
+
+    async def test_invalid_stream_auth_resumes_with_the_replacement_client(self):
+        from server.streaming import telegram_chunks
+        class AuthKeyDuplicatedError(Exception): pass
+        class Client:
+            def __init__(self, broken): self.broken=broken;self.offsets=[]
+            def iter_download(self, media, **kwargs):
+                self.offsets.append(kwargs["offset"])
+                async def chunks():
+                    if self.broken:
+                        yield b"abcd"
+                        raise AuthKeyDuplicatedError()
+                    yield b"efgh"
+                return chunks()
+        old, new = Client(True), Client(False)
+        current = [old]
+        message = SimpleNamespace(media="photo", file=SimpleNamespace(size=8))
+        async def refresh():
+            current[0] = new
+            return message
+        data = b"".join([part async for part in telegram_chunks(old,message,0,7,refresh=refresh,get_client=lambda:current[0])])
+        self.assertEqual(data,b"abcdefgh")
+        self.assertEqual(old.offsets,[0])
+        self.assertEqual(new.offsets,[4])

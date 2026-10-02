@@ -79,7 +79,10 @@ General. User accounts, passwords and progress belong in SQLite, not group topic
 
 A Telegram **user session** is needed to enumerate public channel history. The bot
 retrieves known public message IDs and writes the private copies; a separate bot
-session streams those copies. Authorize the reader session interactively once:
+session streams those copies. Bot sessions are kept in memory and authorized from the
+configured bot token on each start. Local and VPS instances never share a bot auth key;
+legacy bot `.session` files are ignored. The user reader session remains persistent
+and must only run in one location. Authorize the reader session interactively once:
 
 ```sh
 .venv/bin/python -m server.mirror login
@@ -160,3 +163,16 @@ Account tests inject an in-memory mailer and test the real Better Auth handler w
 sending mail. Telegram tests exercise restart mappings, failures, quoted replies,
 albums, edits, external references and bounded streaming. Live email delivery must be
 verified after SMTP is configured.
+
+## Archive readiness and recovery
+
+`GET /api/archive-health` returns HTTP 200 only when the stored archive and Telegram
+media connection are ready. Otherwise it returns HTTP 503 with `archiveReady`,
+`mediaReady`, and a sanitized symbolic error. Docker uses this endpoint for readiness.
+The durable `/api/archive` remains readable during a Telegram connection outage.
+
+Startup connections are bounded, and the archive retries unavailable connections
+automatically with a delay capped at 60 seconds. Invalidated bot authorization is
+recreated with a fresh in-memory session, including `AuthKeyDuplicatedError` during
+media lookup. Critical connection failures notify the configured owner; recovery
+and routine events go to the existing Logs topic. No Telegram keys are logged.

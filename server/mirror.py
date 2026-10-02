@@ -544,8 +544,10 @@ async def _run(command, state):
         if not getattr(entity, "broadcast", False) or not getattr(entity, "username", None):
             raise RuntimeError("TELEGRAM_SOURCE must resolve to a public channel")
         if getattr(entity, "noforwards", False): raise RuntimeError("Source disallows saving or forwarding content")
-        Path(config["mirror_bot_session"]).parent.mkdir(parents=True, exist_ok=True)
-        bot = TelegramClient(config["mirror_bot_session"], config["api_id"], config["api_hash"], flood_sleep_threshold=0)
+        from telethon.sessions import MemorySession
+        # Each writer gets its own auth key; copied disk sessions can be invalidated
+        # when a local instance and VPS connect from different IP addresses.
+        bot = TelegramClient(MemorySession(), config["api_id"], config["api_hash"], flood_sleep_threshold=0)
         await bot.start(bot_token=config["bot_token"])
         if not (await bot.get_me()).bot: raise RuntimeError("Mirror writer must be the configured bot")
         bot_source = await bot.get_entity(config["source"])

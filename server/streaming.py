@@ -56,7 +56,7 @@ def media_headers(size, start, end, partial, mime, name):
     return headers
 
 
-async def telegram_chunks(client, message, start, end, disconnected=None, refresh=None):
+async def telegram_chunks(client, message, start, end, disconnected=None, refresh=None, *, get_client=None):
     """Yield bounded exact bytes, release sender on disconnect and refresh stale references."""
     position, refresh_count, connection_retries = start, 0, 0
     while position <= end:
@@ -78,7 +78,7 @@ async def telegram_chunks(client, message, start, end, disconnected=None, refres
                 raise IOError("Telegram media ended before the requested range")
         except Exception as exc:
             stale_reference = exc.__class__.__name__ in {"FileReferenceExpiredError", "FilerefUpgradeNeededError"}
-            connection_failure = isinstance(exc, (ConnectionError, asyncio.TimeoutError))
+            connection_failure = isinstance(exc, (ConnectionError, asyncio.TimeoutError)) or exc.__class__.__name__ in {"AuthKeyDuplicatedError", "AuthKeyUnregisteredError", "SessionRevokedError", "SessionExpiredError"}
             if not refresh or not (stale_reference or connection_failure):
                 raise
             if stale_reference:
@@ -92,6 +92,10 @@ async def telegram_chunks(client, message, start, end, disconnected=None, refres
             message = await refresh()
             if not message or not message.media:
                 raise IOError("Stored media no longer available") from exc
+            if get_client is not None:
+                client = get_client()
+                if client is None:
+                    raise ConnectionError("Telegram connection is recovering") from exc
         finally:
             close = getattr(iterator, "close", None) or getattr(iterator, "aclose", None)
             if close:

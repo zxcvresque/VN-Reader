@@ -30,7 +30,10 @@ cd "/Users/vr/Code-space/VN Reader"
 python3 scripts/prepare-vps-migration.py --env-file server/.env --output data/vps-migration.tar.gz
 ```
 
-This creates a private bundle containing the existing archive mapping/checkpoint database, authorized reader session, available bot sessions and any existing account database. Credentials and the environment file are **not** included. Migrating this database preserves the completed backfill and reply mappings; do not start a fresh backfill.
+This creates a private bundle containing the existing archive mapping/checkpoint database, authorized reader session, legacy bot session files and any existing account database.
+Bot session files are ignored by the services: each bot connection authorizes a fresh
+in-memory session from the configured token, preventing shared auth keys between
+local and VPS instances. Credentials and the environment file are **not** included. Migrating this database preserves the completed backfill and reply mappings; do not start a fresh backfill.
 
 Existing browser-only guest progress remains in the original browser. Users can export a reading-state backup and import it on the deployed site, then sign in to sync it.
 

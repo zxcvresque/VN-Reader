@@ -1,6 +1,7 @@
 """Telegram archive/media ASGI service. Better Auth runs in accountService.mjs."""
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from starlette.responses import JSONResponse
 from . import telegram
 
 @asynccontextmanager
@@ -15,5 +16,6 @@ app = FastAPI(title="VN Reader archive", lifespan=lifespan, docs_url=None, redoc
 app.include_router(telegram.router)
 
 @app.get("/api/archive-health")
-def health():
-    return {"status": "ok", "archiveEnabled": telegram.archive_enabled()}
+async def health():
+    status = telegram.archive_status()
+    return JSONResponse(status, status_code=200 if status["status"] == "ok" else 503)
