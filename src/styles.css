@@ -3270,3 +3270,17 @@ body { isolation: isolate; background-attachment: fixed; }
 /* A bottom dock reserves bottom space only. The reading page starts near the top. */
 :root:not([data-focus="true"])[data-nav-position="bottom"]{--nav-top:16px;--nav-bottom:104px}
 :root:not([data-focus="true"])[data-nav-position="bottom"] .app-shell{padding-top:16px;padding-bottom:104px}
+
+/* Keep Help support and dismissal together, with comfortable touch targets. */
+:root .guide-header > div:first-child { min-width:0; }
+:root .guide-header-actions { display:flex; align-items:center; flex-shrink:0; gap:8px; }
+:root .guide-support { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:44px; padding:10px 14px; box-sizing:border-box; border:1px solid var(--border-strong); border-radius:var(--radius-sm); background:var(--bg-1); color:var(--text); text-decoration:none; font:500 13px/20px var(--sans); white-space:nowrap; transition:background-color 160ms ease,border-color 160ms ease; }
+:root .guide-support svg { width:18px; height:18px; flex-shrink:0; color:var(--accent); }
+:root .guide-support:hover { background:var(--bg-2); border-color:var(--accent); }
+:root .guide-support:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+@media (max-width:600px) {
+  :root .guide-header { flex-wrap:wrap; gap:12px; }
+  :root .guide-header > div:first-child { flex-basis:100%; }
+  :root .guide-header-actions { order:-1; margin-left:auto; }
+}
+@media (prefers-reduced-motion:reduce) { :root .guide-support { transition:none; } }
