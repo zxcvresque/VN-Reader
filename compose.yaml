@@ -64,6 +64,7 @@ services:
       TELEGRAM_ARCHIVE_TOPIC_ID: ${TELEGRAM_ARCHIVE_TOPIC_ID:-}
       TELEGRAM_LOG_TOPIC_ID: ${TELEGRAM_LOG_TOPIC_ID:-4523}
       TELEGRAM_OWNER_ID: ${TELEGRAM_OWNER_ID:-5988446905}
+      TELEGRAM_BOT_SESSION_DIRECTORY: /data/bot-auth
     volumes: ["telegram-data:/data"]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/archive-health',timeout=5)"]

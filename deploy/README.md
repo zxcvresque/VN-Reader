@@ -31,9 +31,12 @@ python3 scripts/prepare-vps-migration.py --env-file server/.env --output data/vp
 ```
 
 This creates a private bundle containing the existing archive mapping/checkpoint database, authorized reader session, legacy bot session files and any existing account database.
-Bot session files are ignored by the services: each bot connection authorizes a fresh
-in-memory session from the configured token, preventing shared auth keys between
-local and VPS instances. Credentials and the environment file are **not** included. Migrating this database preserves the completed backfill and reply mappings; do not start a fresh backfill.
+Legacy bot session files are ignored by the services. Production creates separate
+API and writer credentials under `/data/bot-auth` and reuses them across restarts;
+local instances default to in-memory bot credentials. Do not copy active production
+bot sessions to another running host. Credentials and the environment file are
+**not** included. Migrating this database preserves the completed backfill and reply
+mappings; do not start a fresh backfill.
 
 Existing browser-only guest progress remains in the original browser. Users can export a reading-state backup and import it on the deployed site, then sign in to sync it.
 

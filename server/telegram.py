@@ -2,7 +2,9 @@
 from __future__ import annotations
 import asyncio
 import logging
+import math
 import os
+import time
 from fastapi import APIRouter, HTTPException, Request
 from starlette.responses import Response, StreamingResponse
 from .mirror import MirrorStore, configuration, error_label
@@ -22,6 +24,9 @@ _config = None
 _recovery_task = None
 _last_error = None
 _closing = False
+_pending_client = None
+_retry_not_before = 0.0
+_reset_session = False
 _CONNECT_TIMEOUT = 20
 _RETRY_DELAY = 5
 
@@ -36,7 +41,12 @@ def archive_status():
     media_ready = bool(archive_enabled())
     return {"status": "ok" if archive_ready and media_ready else "degraded" if archive_ready else "unavailable",
             "archiveEnabled": _store is not None, "archiveReady": archive_ready,
-            "mediaReady": media_ready, "error": _last_error}
+            "mediaReady": media_ready, "error": _last_error,
+            "retryAfter": _retry_remaining()}
+
+
+def _retry_remaining():
+    return max(0, math.ceil(_retry_not_before - time.monotonic()))
 
 
 async def _disconnect(client):
@@ -48,20 +58,27 @@ async def _disconnect(client):
 
 
 async def _connect_client():
-    global _client, _destination, _last_error
+    global _client, _destination, _last_error, _pending_client, _retry_not_before, _reset_session
     async with _reconnect_lock:
         if _closing or not _config or archive_enabled():
             return bool(archive_enabled())
-        client = None
+        # Telegram's cooldown applies to authorization too. Calls from media
+        # recovery must not start another login before the supervisor's deadline.
+        if _retry_remaining():
+            return False
+        client = _pending_client
         try:
             from telethon import TelegramClient
-            from telethon.sessions import MemorySession
-            # Never reuse a disk auth key copied between local and VPS instances.
-            await _disconnect(_client)
-            _client, _destination = None, None
-            client = TelegramClient(MemorySession(), _config["api_id"], _config["api_hash"],
-                                    flood_sleep_threshold=0, connection_retries=2,
-                                    request_retries=2, retry_delay=1, timeout=10)
+            from .bot_sessions import create_bot_session
+            # Persistent keys are isolated by API/writer role and explicitly
+            # enabled only on the production host. Local defaults stay in memory.
+            if client is None:
+                await _disconnect(_client)
+                _client, _destination = None, None
+                client = TelegramClient(create_bot_session("api",reset=_reset_session), _config["api_id"], _config["api_hash"],
+                                        flood_sleep_threshold=0, connection_retries=2,
+                                        request_retries=2, retry_delay=1, timeout=10)
+                _reset_session = False
             async def initialize():
                 await client.start(bot_token=_config["bot_token"])
                 me = await client.get_me()
@@ -70,15 +87,33 @@ async def _connect_client():
                 return await client.get_input_entity(_config["destination"])
             destination = await asyncio.wait_for(initialize(), timeout=_CONNECT_TIMEOUT)
         except asyncio.CancelledError:
+            _pending_client = None
+            _retry_not_before = 0.0
             await _disconnect(client)
             raise
         except Exception as exc:
+            if exc.__class__.__name__ == "FloodWaitError":
+                # Keep this process's auth key and any completed authorization.
+                # Creating fresh MemorySessions on every retry makes a bot login
+                # flood wait worse; a routine cooldown is not a critical failure.
+                seconds = max(1, int(exc.seconds)) + 1
+                _pending_client = client
+                _retry_not_before = time.monotonic() + seconds
+                _last_error = error_label(exc)
+                log.warning("Telegram media connection rate limited; retrying the same session in %ss", seconds)
+                return False
+            _pending_client = None
+            _retry_not_before = 0.0
+            if exc.__class__.__name__ in {"AuthKeyDuplicatedError", "AuthKeyUnregisteredError", "SessionRevokedError", "SessionExpiredError"}:
+                _reset_session = True
             await _disconnect(client)
             _last_error = error_label(exc)
             log.error("Telegram media unavailable (%s); automatic recovery will retry", _last_error)
             await notify("Archive connection failed", _last_error, severity="critical")
             return False
         recovered = _last_error is not None
+        _pending_client = None
+        _retry_not_before = 0.0
         _client, _destination, _last_error = client, destination, None
         log.info("Telegram media connection ready")
         asyncio.create_task(notify("Archive connection recovered" if recovered else "Archive service started"))
@@ -88,7 +123,7 @@ async def _connect_client():
 async def _supervise():
     delay = _RETRY_DELAY
     while not _closing:
-        await asyncio.sleep(delay)
+        await asyncio.sleep(max(delay, _retry_remaining()))
         if archive_enabled():
             delay = _RETRY_DELAY
             continue
@@ -135,7 +170,7 @@ async def start_telegram():
 
 
 async def stop_telegram():
-    global _client, _store, _destination, _config, _recovery_task, _closing
+    global _client, _store, _destination, _config, _recovery_task, _closing, _pending_client, _retry_not_before, _reset_session
     _closing = True
     if _recovery_task is not None:
         _recovery_task.cancel()
@@ -145,9 +180,13 @@ async def stop_telegram():
             pass
         _recovery_task = None
     await _disconnect(_client)
+    if _pending_client is not _client:
+        await _disconnect(_pending_client)
     if _store:
         _store.close()
     _client, _store, _destination, _config = None, None, None, None
+    _pending_client, _retry_not_before = None, 0.0
+    _reset_session = False
 
 
 @router.get("/api/archive")
@@ -164,7 +203,7 @@ async def archive():
 async def media(source_id: int, request: Request):
     if source_id <= 0: raise HTTPException(404, "Media not found")
     if _store is None or _client is None or _destination is None:
-        raise HTTPException(503, "Media connection is recovering", headers={"Retry-After": "5"})
+        raise HTTPException(503, "Media connection is recovering", headers={"Retry-After": str(_retry_remaining() or 5)})
     row = _store.row(source_id)
     if not row or row["status"] != "copied" or not row["destination_id"]:
         raise HTTPException(404, "Media not found")
@@ -176,7 +215,7 @@ async def media(source_id: int, request: Request):
     handed_off = False
     try:
         async def fetch():
-            global _client, _destination, _last_error
+            global _client, _destination, _last_error, _reset_session
             client, destination = _client, _destination
             # Preview images are saved as real attachments separately from the
             # original post, whose ID must remain stable for replies/quotes.
@@ -193,6 +232,7 @@ async def media(source_id: int, request: Request):
                             await _disconnect(client)
                             _client, _destination = None, None
                             _last_error = error_label(exc)
+                            _reset_session = True
                     if not await _connect_client():
                         raise ConnectionError("Telegram authorization is recovering") from exc
                 elif isinstance(exc, (ConnectionError, asyncio.TimeoutError)):

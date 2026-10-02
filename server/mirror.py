@@ -242,7 +242,8 @@ class TerminalProgress:
     async def wait(self, seconds, label="RATE LIMIT"):
         remaining = max(1, int(seconds))
         while remaining:
-            self.notice(label, f"Resuming in {remaining}s · checkpoint #{self.store.meta('checkpoint', 0)} saved")
+            status = f"checkpoint #{self.store.meta('checkpoint', 0)} saved" if self.store else "startup paused safely"
+            self.notice(label, f"Resuming in {remaining}s · {status}")
             interval = min(5, remaining)
             await asyncio.sleep(interval)
             remaining -= interval
@@ -755,34 +756,47 @@ async def _run(command, state):
         return
     bot = None
     store = None
+    progress = TerminalProgress(None)
+    async def startup(operation, timeout=30):
+        return await telegram_operation(operation, timeout=timeout, flood_waiter=progress.wait)
     try:
-        await reader.connect()
-        if not await reader.is_user_authorized(): raise RuntimeError("Run python -m server.mirror login first")
-        entity = await reader.get_entity(config["source"])
+        await startup(reader.connect)
+        if not await startup(reader.is_user_authorized): raise RuntimeError("Run python -m server.mirror login first")
+        entity = await startup(lambda:reader.get_entity(config["source"]))
         if not getattr(entity, "broadcast", False) or not getattr(entity, "username", None):
             raise RuntimeError("TELEGRAM_SOURCE must resolve to a public channel")
         if getattr(entity, "noforwards", False): raise RuntimeError("Source disallows saving or forwarding content")
-        from telethon.sessions import MemorySession
-        # Each writer gets its own auth key; copied disk sessions can be invalidated
-        # when a local instance and VPS connect from different IP addresses.
-        bot = TelegramClient(MemorySession(), config["api_id"], config["api_hash"], flood_sleep_threshold=0)
-        await bot.start(bot_token=config["bot_token"])
-        if not (await bot.get_me()).bot: raise RuntimeError("Mirror writer must be the configured bot")
-        bot_source = await bot.get_entity(config["source"])
-        destination = await bot.get_entity(config["destination"])
+        from .bot_sessions import create_bot_session
+        # The VPS reuses its own writer key; local previews use MemorySession.
+        # API and writer roles never share a session or reuse legacy copied keys.
+        bot = TelegramClient(create_bot_session("writer"), config["api_id"], config["api_hash"], flood_sleep_threshold=0)
+        for attempt in range(2):
+            try:
+                await startup(lambda:bot.start(bot_token=config["bot_token"]))
+                if not (await startup(bot.get_me)).bot: raise RuntimeError("Mirror writer must be the configured bot")
+                break
+            except Exception as exc:
+                if attempt or exc.__class__.__name__ not in {"AuthKeyDuplicatedError", "AuthKeyUnregisteredError", "SessionRevokedError", "SessionExpiredError"}:
+                    raise
+                await bot.disconnect()
+                bot = TelegramClient(create_bot_session("writer", reset=True), config["api_id"], config["api_hash"], flood_sleep_threshold=0)
+        bot_source = await startup(lambda:bot.get_entity(config["source"]))
+        destination = await startup(lambda:bot.get_entity(config["destination"]))
         if not getattr(destination, "megagroup", False) or getattr(destination, "username", None):
             raise RuntimeError("TELEGRAM_DESTINATION must be your private supergroup")
-        peer = await bot.get_input_entity(destination)
+        peer = await startup(lambda:bot.get_input_entity(destination))
         source = {"chat_id": utils.get_peer_id(entity), "chat_title": entity.title, "chat_username": entity.username}
         store = MirrorStore(config["database"])
         store.bind(source, config["destination"])
+        progress.store = store
         topic_id = config["topic_id"] if config["topic_id"] is not None else store.meta("archive_topic_id")
         if command=="repair-media" and getattr(destination,"forum",False) and topic_id is None:
             raise RuntimeError("Configure the existing archive topic before media repair")
         if getattr(destination, "forum", False) and topic_id is None:
             try:
-                result = await bot(functions.messages.CreateForumTopicRequest(peer=peer, title="VidurNeeti archive",
-                    random_id=int.from_bytes(hashlib.sha256(f'vn-topic:{config["destination"]}'.encode()).digest()[:8], "big") & ((1 << 63) - 1)))
+                request = functions.messages.CreateForumTopicRequest(peer=peer, title="VidurNeeti archive",
+                    random_id=int.from_bytes(hashlib.sha256(f'vn-topic:{config["destination"]}'.encode()).digest()[:8], "big") & ((1 << 63) - 1))
+                result = await startup(lambda:bot(request))
                 topic_id = next((update.message.id for update in result.updates
                     if isinstance(update, types.UpdateNewChannelMessage) and isinstance(getattr(update.message, "action", None), types.MessageActionTopicCreate)), None)
                 if topic_id is None: raise RuntimeError("Could not obtain the archive topic ID")
@@ -794,7 +808,6 @@ async def _run(command, state):
             store.set_meta("archive_topic_id", topic_id)
         elif topic_id:
             store.set_meta("archive_topic_id", topic_id)
-        progress = TerminalProgress(store)
         writer=TelegramWriter(bot,peer,topic_id,bot_source,store,reader=reader)
         if command=="repair-media":
             state["started"]=True
@@ -812,7 +825,7 @@ async def _run(command, state):
             wake.set()
         reader.add_event_handler(new_message, events.NewMessage(chats=entity))
         reader.add_event_handler(edited, events.MessageEdited(chats=entity))
-        await reader.catch_up()
+        await startup(reader.catch_up)
         last_total_refresh = 0
         last_notified_checkpoint = store.meta("checkpoint", 0)
         was_paused = False

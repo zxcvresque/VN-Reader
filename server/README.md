@@ -79,9 +79,10 @@ General. User accounts, passwords and progress belong in SQLite, not group topic
 
 A Telegram **user session** is needed to enumerate public channel history. The bot
 retrieves known public message IDs and writes the private copies; a separate bot
-session streams those copies. Bot sessions are kept in memory and authorized from the
-configured bot token on each start. Local and VPS instances never share a bot auth key;
-legacy bot `.session` files are ignored. The user reader session remains persistent
+session streams those copies. The production Compose deployment persists separate
+API and writer bot sessions under `/data/bot-auth`, so restarts reuse authorization.
+Local instances use in-memory bot sessions by default. Legacy migrated bot `.session`
+files are ignored; never copy active production bot keys to another host. The user reader session remains persistent
 and must only run in one location. Authorize the reader session interactively once:
 
 ```sh
@@ -168,13 +169,17 @@ verified after SMTP is configured.
 
 `GET /api/archive-health` returns HTTP 200 only when the stored archive and Telegram
 media connection are ready. Otherwise it returns HTTP 503 with `archiveReady`,
-`mediaReady`, and a sanitized symbolic error. Docker uses this endpoint for readiness.
+`mediaReady`, a sanitized symbolic error, and `retryAfter` during a login cooldown.
+Docker uses this endpoint for readiness.
 The durable `/api/archive` remains readable during a Telegram connection outage.
 
 Startup connections are bounded, and the archive retries unavailable connections
-automatically with a delay capped at 60 seconds. Invalidated bot authorization is
-recreated with a fresh in-memory session, including `AuthKeyDuplicatedError` during
-media lookup. Critical connection failures notify the configured owner; recovery
+automatically with a delay capped at 60 seconds for connection failures. Telegram
+FloodWait intervals override that delay: the existing client pauses for the full
+requested interval and resumes without new login attempts or critical DMs. Mirror
+startup also waits in place instead of exiting into Docker's restart loop. Invalidated
+bot authorization replaces only the affected role's key, including
+`AuthKeyDuplicatedError` during media lookup. Critical connection failures notify the configured owner; recovery
 and routine events go to the existing Logs topic. No Telegram keys are logged.
 
 Photo streaming selects an explicit Telegram size variant and uses that same
