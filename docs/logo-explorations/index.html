@@ -20,6 +20,11 @@
     .intro { padding:72px 0 60px; display:grid; grid-template-columns:1.4fr 1fr; align-items:end; gap:48px; }
     h1 { margin:0; max-width:12ch; font-size:clamp(42px,6vw,70px); line-height:1.04; letter-spacing:-.065em; font-weight:540; }
     .intro p { color:var(--muted); max-width:38ch; margin:0 0 4px; font-size:17px; line-height:1.6; }
+    .overview { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); margin:0 0 28px; border-block:1px solid var(--line); }
+    .overview a { display:grid; justify-items:center; gap:14px; padding:24px 12px; text-decoration:none; font-size:14px; }
+    .overview a + a { border-left:1px solid var(--line); }
+    .overview .mark { width:110px; max-width:90%; height:84px; }
+    .overview a:hover { background:color-mix(in srgb,var(--ink) 4%,transparent); }
     nav { display:flex; gap:26px; padding-bottom:26px; }
     nav a { font-size:14px; text-decoration:none; text-underline-offset:6px; }
     nav a:hover { text-decoration:underline; }
@@ -36,7 +41,8 @@
     .caption { position:absolute; left:20px; bottom:18px; font-size:11px; opacity:.55; letter-spacing:.08em; text-transform:uppercase; }
     .context { display:flex; flex-wrap:wrap; align-items:center; gap:28px; margin-top:18px; }
     .nav-context { display:flex; align-items:center; gap:10px; font-size:15px; font-weight:600; }
-    .tile { display:grid; place-items:center; width:40px; height:40px; border:1px solid var(--line); border-radius:9px; background:#fff; }
+    .tile { display:grid; place-items:center; width:40px; height:40px; border:1px solid var(--line); border-radius:9px; background:#fff; --logo-surface:#fff; }
+    .mono { --logo-teal:currentColor; --logo-gold:var(--logo-surface,#fff); --logo-indigo:currentColor; }
     .tile .mark { width:30px; height:24px; }
     .tiny { width:24px; height:24px; display:grid; place-items:center; background:var(--ink); color:var(--paper); border-radius:5px; }
     .tiny .mark { width:21px; height:18px; }
@@ -47,7 +53,7 @@
     .defs { position:absolute; width:0; height:0; overflow:hidden; }
     @media (prefers-color-scheme:dark) {
       :root { color-scheme:dark; --paper:#1b1e1b; --ink:#f0f1eb; --muted:#a5aea0; --line:#3a4238; }
-      .tile { background:#272d26; }
+      .tile { background:#272d26; --logo-surface:#272d26; }
       .download:hover { background:#2e392e; border-color:#7b9577; }
     }
     @media (max-width:680px) {
@@ -59,6 +65,8 @@
       .intro p { font-size:15px; max-width:42ch; }
       nav { gap:22px; padding-bottom:20px; }
       nav a { font-size:13px; }
+      .overview a { padding:20px 4px; font-size:11px; }
+      .overview .mark { width:78px; height:64px; }
       article { padding:26px 0 32px; }
       .direction-head { grid-template-columns:1fr; gap:12px; margin-bottom:20px; }
       .direction-head p { font-size:14px; }
@@ -80,40 +88,47 @@
 </head>
 <body>
   <svg class="defs" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
-    <symbol id="type" viewBox="0 21 160 96">
-      <path fill="currentColor" d="M13 37h13l16 48 16-48h13L47 101H36L13 37Zm65 0h12v9c5-7 12-11 21-11 16 0 24 10 24 27v39h-12V63c0-11-5-17-14-17-10 0-18 8-18 20v35H78V37Z"/><circle fill="currentColor" cx="149" cy="95" r="6"/>
+    <symbol id="type" viewBox="0 0 160 120">
+      <g fill="none" stroke="var(--logo-ink,currentColor)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"><path d="M18 47h31c13 0 24 7 31 17 7-10 18-17 31-17h31v48h-31c-13 0-24 5-31 13-7-8-18-13-31-13H18V47Z"/><path d="M80 64v44"/></g>
+      <path fill="none" d="M88 85c0-18 8-35 19-48" stroke="var(--logo-teal,#307a73)" stroke-width="5" stroke-linecap="round"/>
+      <g transform="rotate(32 112 28)"><ellipse cx="112" cy="28" rx="14" ry="23" fill="var(--logo-teal,#307a73)"/><ellipse cx="112" cy="26" rx="8" ry="12" fill="var(--logo-gold,#b99048)"/><ellipse cx="112" cy="25" rx="5" ry="8" fill="var(--logo-indigo,#373e72)"/></g>
     </symbol>
     <symbol id="pages" viewBox="0 0 160 120">
-      <g fill="none" stroke="currentColor" stroke-width="5" stroke-linejoin="round" stroke-linecap="round">
-        <path d="M17 20h37c12 0 22 10 22 22v62c-6-8-13-12-24-12H17V20Zm126 0h-37c-12 0-22 10-22 22v62c6-8 13-12 24-12h35V20Z"/>
-        <path stroke-width="6" d="m31 43 12 30 12-30m48 30V43m0 10c0-7 4-11 10-11s10 4 10 11v20"/>
-      </g>
+      <path d="M80 12c-20 12-31 26-31 42 0 17 11 28 31 28s31-11 31-28c0-16-11-30-31-42Z" fill="var(--logo-teal,#307a73)"/>
+      <path d="M80 30c-10 7-16 15-16 24 0 9 6 15 16 15s16-6 16-15c0-9-6-17-16-24Z" fill="var(--logo-gold,#b99048)"/>
+      <ellipse cx="80" cy="53" rx="9" ry="12" fill="var(--logo-indigo,#373e72)"/>
+      <path fill="none" d="M80 79v28m-48-8h23c10 0 18 3 25 8 7-5 15-8 25-8h23m-91-12h20m46 0h20" stroke="var(--logo-ink,currentColor)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
     </symbol>
-    <symbol id="fold" viewBox="0 0 160 120"><path fill="currentColor" d="M13 25h14l20 57 20-57h14l-27 70H40L13 25Zm75 0h13l34 47V25h13v70h-12l-35-48v48H88V25Z"/></symbol>
+    <symbol id="fold" viewBox="0 0 180 120"><path d="M10 41h13l16 48 16-48h13L44 105H33L10 41Zm65 0h12v9c5-7 12-11 21-11 16 0 24 10 24 27v39h-12V67c0-11-5-17-14-17-10 0-18 8-18 20v35H75V41Z" fill="var(--logo-ink,currentColor)"/><path fill="none" d="M146 103c-1-24 4-47 14-68" stroke="var(--logo-teal,#307a73)" stroke-width="5" stroke-linecap="round"/><g transform="rotate(18 160 30)"><ellipse cx="160" cy="30" rx="13" ry="22" fill="var(--logo-teal,#307a73)"/><ellipse cx="160" cy="28" rx="7" ry="11" fill="var(--logo-gold,#b99048)"/><ellipse cx="160" cy="27" rx="4" ry="7" fill="var(--logo-indigo,#373e72)"/></g></symbol>
   </svg>
   <main class="sheet">
     <header><div class="brand">VN Reader<span>Vidurneeti’s post reader</span></div><div class="label">Logo explorations</div></header>
     <section class="intro" aria-labelledby="page-title">
-      <h1 id="page-title">Three ways<br>to say vn.</h1>
-      <p>A familiar signature, connected pages, or a compact monogram. Each direction uses one color and scales from a browser icon to a welcome screen.</p>
+      <h1 id="page-title">Counsel, in<br>one mark.</h1>
+      <p>Three understated directions for VN Reader, bringing your peacock-feather / Gita idea together with an interpretation of Vidur’s counsel through reading and manuscript forms.</p>
     </section>
-    <nav aria-label="Logo directions"><a href="#type-direction">Type</a><a href="#pages-direction">Open pages</a><a href="#fold-direction">Fold</a></nav>
+    <div class="overview" aria-label="Compare the three logos">
+      <a href="#type-direction"><svg class="mark" role="img" aria-label="Peacock folio"><use href="#type"/></svg><span>Peacock folio</span></a>
+      <a href="#pages-direction"><svg class="mark" role="img" aria-label="Counsel seal"><use href="#pages"/></svg><span>Counsel seal</span></a>
+      <a href="#fold-direction"><svg class="mark" role="img" aria-label="VN quill"><use href="#fold"/></svg><span>VN quill</span></a>
+    </div>
+    <nav aria-label="Logo directions"><a href="#type-direction">Peacock folio</a><a href="#pages-direction">Counsel seal</a><a href="#fold-direction">VN quill</a></nav>
     <article id="type-direction" aria-labelledby="type-title">
-      <div class="direction-head"><div class="title-row"><span class="number">01</span><h2 id="type-title">Type</h2></div><p>Custom lowercase letterforms keep the familiar <strong>vn.</strong> signature and give the reader a clear editorial identity.</p></div>
-      <div class="samples"><div class="sample"><svg class="mark" role="img" aria-label="Type logo in dark ink"><use href="#type"/></svg><span class="caption">Light surface</span></div><div class="sample dark"><svg class="mark" role="img" aria-label="Type logo in light ink"><use href="#type"/></svg><span class="caption">Dark surface</span></div></div>
-      <div class="context"><div class="nav-context"><span class="tile"><svg class="mark" aria-hidden="true"><use href="#type"/></svg></span><span>VN Reader</span></div><span class="tiny"><svg class="mark" role="img" aria-label="Type at favicon size"><use href="#type"/></svg></span><span class="label">Actual interface sizes</span><a class="download" href="01-type.svg" download>Download SVG</a></div>
+      <div class="direction-head"><div class="title-row"><span class="number">01</span><h2 id="type-title">Peacock folio</h2></div><p>An open page supports a rising feather. Reading and counsel stay central; the feather adds your subtle Krishna / Gita hint.</p></div>
+      <div class="samples"><div class="sample"><svg class="mark" role="img" aria-label="Peacock folio on light surface"><use href="#type"/></svg><span class="caption">Light surface</span></div><div class="sample dark"><svg class="mark" role="img" aria-label="Peacock folio on dark surface"><use href="#type"/></svg><span class="caption">Dark surface</span></div></div>
+      <div class="context"><div class="nav-context"><span class="tile"><svg class="mark mono" aria-hidden="true"><use href="#type"/></svg></span><span>VN Reader</span></div><span class="tiny"><svg class="mark" role="img" aria-label="Peacock folio at favicon size"><use href="#type"/></svg></span><span class="label">Monochrome · 24px color</span><a class="download" href="01-peacock-folio.svg" download>Download SVG</a></div>
     </article>
     <article id="pages-direction" aria-labelledby="pages-title">
-      <div class="direction-head"><div class="title-row"><span class="number">02</span><h2 id="pages-title">Open pages</h2></div><p>Two connected pages frame the <strong>v</strong> and <strong>n</strong>, bringing long-form reading and the archive’s linked conversations into one mark.</p></div>
-      <div class="samples"><div class="sample"><svg class="mark" role="img" aria-label="Open pages logo in dark ink"><use href="#pages"/></svg><span class="caption">Light surface</span></div><div class="sample dark"><svg class="mark" role="img" aria-label="Open pages logo in light ink"><use href="#pages"/></svg><span class="caption">Dark surface</span></div></div>
-      <div class="context"><div class="nav-context"><span class="tile"><svg class="mark" aria-hidden="true"><use href="#pages"/></svg></span><span>VN Reader</span></div><span class="tiny"><svg class="mark" role="img" aria-label="Open pages at favicon size"><use href="#pages"/></svg></span><span class="label">Actual interface sizes</span><a class="download" href="02-pages.svg" download>Download SVG</a></div>
+      <div class="direction-head"><div class="title-row"><span class="number">02</span><h2 id="pages-title">Counsel seal</h2></div><p>A balanced feather eye sits above manuscript lines: a compact interpretation of considered reading and Vidur’s counsel.</p></div>
+      <div class="samples"><div class="sample"><svg class="mark" role="img" aria-label="Counsel seal on light surface"><use href="#pages"/></svg><span class="caption">Light surface</span></div><div class="sample dark"><svg class="mark" role="img" aria-label="Counsel seal on dark surface"><use href="#pages"/></svg><span class="caption">Dark surface</span></div></div>
+      <div class="context"><div class="nav-context"><span class="tile"><svg class="mark mono" aria-hidden="true"><use href="#pages"/></svg></span><span>VN Reader</span></div><span class="tiny"><svg class="mark" role="img" aria-label="Counsel seal at favicon size"><use href="#pages"/></svg></span><span class="label">Monochrome · 24px color</span><a class="download" href="02-counsel-seal.svg" download>Download SVG</a></div>
     </article>
     <article id="fold-direction" aria-labelledby="fold-title">
-      <div class="direction-head"><div class="title-row"><span class="number">03</span><h2 id="fold-title">Fold</h2></div><p>A geometric <strong>VN</strong> monogram uses sharp folds and solid strokes for a compact, confident navigation tile or app icon.</p></div>
-      <div class="samples"><div class="sample"><svg class="mark" role="img" aria-label="Fold logo in dark ink"><use href="#fold"/></svg><span class="caption">Light surface</span></div><div class="sample dark"><svg class="mark" role="img" aria-label="Fold logo in light ink"><use href="#fold"/></svg><span class="caption">Dark surface</span></div></div>
-      <div class="context"><div class="nav-context"><span class="tile"><svg class="mark" aria-hidden="true"><use href="#fold"/></svg></span><span>VN Reader</span></div><span class="tiny"><svg class="mark" role="img" aria-label="Fold at favicon size"><use href="#fold"/></svg></span><span class="label">Actual interface sizes</span><a class="download" href="03-monogram.svg" download>Download SVG</a></div>
+      <div class="direction-head"><div class="title-row"><span class="number">03</span><h2 id="fold-title">VN quill</h2></div><p>The familiar lowercase <strong>vn</strong> keeps the name clear, while a single peacock feather turns the signature into a quiet reading mark.</p></div>
+      <div class="samples"><div class="sample"><svg class="mark" role="img" aria-label="VN quill on light surface"><use href="#fold"/></svg><span class="caption">Light surface</span></div><div class="sample dark"><svg class="mark" role="img" aria-label="VN quill on dark surface"><use href="#fold"/></svg><span class="caption">Dark surface</span></div></div>
+      <div class="context"><div class="nav-context"><span class="tile"><svg class="mark mono" aria-hidden="true"><use href="#fold"/></svg></span><span>VN Reader</span></div><span class="tiny"><svg class="mark" role="img" aria-label="VN quill at favicon size"><use href="#fold"/></svg></span><span class="label">Monochrome · 24px color</span><a class="download" href="03-vn-quill.svg" download>Download SVG</a></div>
     </article>
-    <footer><span>Original vector proposals for VN Reader. No direction has been applied to the product.</span><span>Transparent SVG · One-color ink · Theme adaptable</span></footer>
+    <footer><span>Original interpretations, not historical emblems of Vidur. No direction has been applied to the product.</span><span>Transparent SVG · Monochrome adaptable · No external fonts</span></footer>
   </main>
 </body>
 </html>

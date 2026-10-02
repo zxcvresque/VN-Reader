@@ -1,6 +1,7 @@
 """Bounded Telegram -> HTTP streaming; no file is downloaded to disk."""
 from __future__ import annotations
 import inspect
+import asyncio
 import re
 from urllib.parse import quote
 
@@ -57,7 +58,7 @@ def media_headers(size, start, end, partial, mime, name):
 
 async def telegram_chunks(client, message, start, end, disconnected=None, refresh=None):
     """Yield bounded exact bytes, release sender on disconnect and refresh stale references."""
-    position, refresh_count = start, 0
+    position, refresh_count, connection_retries = start, 0, 0
     while position <= end:
         iterator = client.iter_download(message.media, offset=position,
                                         request_size=CHUNK_SIZE, chunk_size=CHUNK_SIZE,
@@ -76,9 +77,18 @@ async def telegram_chunks(client, message, start, end, disconnected=None, refres
             if position <= end:
                 raise IOError("Telegram media ended before the requested range")
         except Exception as exc:
-            if exc.__class__.__name__ not in {"FileReferenceExpiredError", "FilerefUpgradeNeededError"} or not refresh or refresh_count >= 2:
+            stale_reference = exc.__class__.__name__ in {"FileReferenceExpiredError", "FilerefUpgradeNeededError"}
+            connection_failure = isinstance(exc, (ConnectionError, asyncio.TimeoutError))
+            if not refresh or not (stale_reference or connection_failure):
                 raise
-            refresh_count += 1
+            if stale_reference:
+                if refresh_count >= 2: raise
+                refresh_count += 1
+            else:
+                if connection_retries >= 2: raise
+                connection_retries += 1
+            # Resume from the last byte emitted, rather than duplicating a partial download.
+            # The relay's refresh callback also repairs a disconnected main sender.
             message = await refresh()
             if not message or not message.media:
                 raise IOError("Stored media no longer available") from exc

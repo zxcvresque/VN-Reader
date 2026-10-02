@@ -66,6 +66,7 @@ test("invalid signup releases admission and dashboard pagination bounds user dat
   const f=await fixture({emailDailyLimit:1,emailQuotaTimezone:"Asia/Kolkata"});try {
     assert.equal((await f.request("sign-up/email",{name:"Reader",email:"invalid@example.com",password:"short"})).status,400);assert.equal(f.admin.capacity(true).used,0);
     assert.equal((await f.signup("valid@example.com")).status,200);
+    f.database.prepare("UPDATE user SET createdAt=? WHERE email=?").run("2026-09-01T00:00:00.000Z","valid@example.com");
     const insert=f.database.prepare("INSERT INTO user (id,name,email,emailVerified,createdAt,updatedAt) VALUES (?,?,?,?,?,?)");
     for(let i=0;i<104;i++)insert.run(`reader-${i}`,"Reader",`p${i}@example.com`,1,"2026-10-01T20:00:00.000Z","2026-10-01T20:00:00.000Z");
     const page1=f.admin.dashboard("2026-10-02",1),page2=f.admin.dashboard("2026-10-02",2);assert.equal(page1.users.length,100);assert.equal(page2.users.length,5);assert.equal(page1.summary.registrations,104);assert.equal(page1.pagination.totalUsers,105);assert.equal(new Set([...page1.users,...page2.users].map(u=>u.id)).size,105);assert.throws(()=>f.admin.dashboard("2026-10-01",0));

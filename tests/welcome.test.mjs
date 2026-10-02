@@ -13,6 +13,7 @@ const compile = (path, dependencies = {}) => {
   new Function('require', 'module', 'exports', js)(name => name in dependencies ? dependencies[name] : require(name), module, module.exports);
   return module.exports;
 };
+const customSelect = compile('../src/components/CustomSelect.tsx', { 'react-dom': { createPortal: content => content } });
 const preferences = compile('../src/lib/preferences.ts');
 const touchLayout = compile('../src/lib/useTouchLayout.ts');
 const entry = compile('../src/lib/entry.ts');
@@ -100,7 +101,7 @@ async function appFixture({ cached = false, cacheFails = false, archiveFails = f
   const api = { fetchSiteArchive: async () => { if (archiveFails) throw Error('Archive network failed'); return { manifest, messages }; } };
   const account = { user: null, config: { accountsEnabled: false, archiveEnabled: true }, configReady: true, configError: '', status: 'guest', flush() {}, refreshConfig() {}, initialize() {} };
   const component = name => ({ default: props => React.createElement('div', { 'data-component': name }, props.children) });
-  const deps = { './lib/useTouchLayout': touchLayout, './lib/demo': demo, './lib/entry': entry, './lib/preferences': preferences, './lib/readingState': state, './lib/backup': backup, './lib/idb': idb, './lib/archive': { ...archive, getDirectoryPermission: async () => 'unsupported' }, './lib/api': api, './lib/useReaderAccount': { useReaderAccount: () => account }, './lib/useSignupCapacity': {useSignupCapacity:()=>({capacity:null,error:'',refresh(){}})}, './lib/media': { revokeAllMediaObjectUrls() {} }, './components/WelcomePage': { default: Welcome, FeatureWalkthrough } };
+  const deps = { './components/CustomSelect': customSelect, './lib/customFont': {restoreCustomFont:async()=>''}, './lib/useTouchLayout': touchLayout, './lib/demo': demo, './lib/entry': entry, './lib/preferences': preferences, './lib/readingState': state, './lib/backup': backup, './lib/idb': idb, './lib/archive': { ...archive, getDirectoryPermission: async () => 'unsupported' }, './lib/api': api, './lib/useReaderAccount': { useReaderAccount: () => account }, './lib/useSignupCapacity': {useSignupCapacity:()=>({capacity:null,error:'',refresh(){}})}, './lib/media': { revokeAllMediaObjectUrls() {} }, './components/WelcomePage': { default: Welcome, FeatureWalkthrough } };
   for (const name of ['AdminDashboard', 'ReaderSettings', 'ReadingWidth', 'ReaderGuide', 'ReaderAccount', 'ReadingLibrary', 'CommandPalette', 'MediaLightbox', 'MessageCard', 'ThreadRail', 'TopBar', 'PostTimeline', 'VirtualizedMessageList']) deps[`./components/${name}`] = component(name);
   deps['./components/VirtualizedMessageList'] = { default: React.forwardRef((props, ref) => {
     React.useImperativeHandle(ref, () => ({ restorePosition: p => positions.push(p), scrollToIndex() {}, getPosition: () => null }), []);

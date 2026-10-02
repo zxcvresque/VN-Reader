@@ -1,5 +1,7 @@
+import CustomSelect from "./components/CustomSelect";
+import {restoreCustomFont} from "./lib/customFont";
 import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeftIcon, ArrowRightIcon, MixerHorizontalIcon, MagnifyingGlassIcon, ResetIcon, BookmarkIcon } from "@radix-ui/react-icons";
+import { ArrowLeftIcon, ArrowRightIcon, MixerHorizontalIcon, MagnifyingGlassIcon, ResetIcon, BookmarkIcon, CounterClockwiseClockIcon, TimerIcon } from "@radix-ui/react-icons";
 import WelcomePage, { FeatureWalkthrough } from "./components/WelcomePage";
 import { hasEnteredAsGuest, rememberGuestEntry, shouldOfferTour, rememberTourInvitation } from "./lib/entry";
 import ReaderSettings from "./components/ReaderSettings";
@@ -120,6 +122,7 @@ export default function App() {
   const [navStack, setNavStack] = useState<NavEntry[]>([]);
   const [forwardStack, setForwardStack] = useState<NavEntry[]>([]);
   const [preferences, setPreferences] = useState<ReaderPreferences>(loadPreferences);
+  useEffect(()=>{void restoreCustomFont().catch(()=>{});},[]);
   const [accountOpen, setAccountOpen] = useState(false);
   const [accountMode,setAccountMode] = useState<"login"|"register">("login");
   const [adminOpen,setAdminOpen] = useState(false);
@@ -137,9 +140,18 @@ export default function App() {
   const [featuresOpen, setFeaturesOpen] = useState(false);
   const [guideTopic, setGuideTopic] = useState<GuideTopic | null>(null);
   const [guideStep, setGuideStep] = useState<TourStep | null>(null);
-  const guideReturnRef = useRef<{ entry: NavEntry; library: boolean; search: boolean; query: string; streamQuery: string; toolsOpen: boolean; windowTop: number; readingPosition: ReadingPosition | null; settings: boolean; settingsScroll: number; reached: boolean; source: {message: MessageRecord; origin: MessageRecord} | null } | null>(null);
+  const guideReturnRef = useRef<{ entry: NavEntry; library: boolean; search: boolean; searchMode: "results"|"stream"; query: string; streamQuery: string; toolsOpen: boolean; sessionOpen: boolean; windowTop: number; readingPosition: ReadingPosition | null; settings: boolean; settingsScroll: number; reached: boolean; source: {message: MessageRecord; origin: MessageRecord} | null } | null>(null);
   const guideActiveRef = useRef(false);
   const [readerSearchOpen, setReaderSearchOpen] = useState(false);
+  const [readerSearchMode,setReaderSearchMode]=useState<"results"|"stream">("results");
+  useEffect(()=>{
+    const menus=()=>[...document.querySelectorAll<HTMLDetailsElement>(".reader-navigation-menu,.reader-session-menu")];
+    const outside=(event:PointerEvent)=>{for(const menu of menus())if(menu.open&&!menu.contains(event.target as Node))menu.open=false;};
+    const key=(event:KeyboardEvent)=>{if(event.key!=="Escape")return;for(const menu of menus())if(menu.open){menu.open=false;menu.querySelector("summary")?.focus();}};
+    const toggle=(event:Event)=>{const selected=event.target as HTMLDetailsElement;if(!selected.matches?.(".reader-navigation-menu,.reader-session-menu")||!selected.open)return;for(const menu of menus())if(menu!==selected)menu.open=false;};
+    document.addEventListener("pointerdown",outside);document.addEventListener("keydown",key);document.addEventListener("toggle",toggle,true);
+    return()=>{document.removeEventListener("pointerdown",outside);document.removeEventListener("keydown",key);document.removeEventListener("toggle",toggle,true);};
+  },[]);
   const [readerSearch, setReaderSearch] = useState("");
   const [sourcePeek, setSourcePeek] = useState<{message: MessageRecord; origin: MessageRecord} | null>(null);
   const [personal, setPersonal] = useState<ReadingState>(() => createReadingState(null));
@@ -758,7 +770,7 @@ export default function App() {
     if (!target) {setError(`Message ${messageKey} not in archive.`);return;}
     if (!options?.skipTrail) recordNavigation();
     setSession(null);setSessionReached(false);
-    setSearchQuery(""); setView("read"); setHighlightedMessageKey(target.message_key);
+    setSearchQuery(""); setReaderSearchMode("results"); setView("read"); setHighlightedMessageKey(target.message_key);
     setSelectedThreadKey(target.thread_key);
     pendingPositionRef.current = options?.position ?? null;
     setNavigationVersion(v => v+1);
@@ -870,8 +882,8 @@ export default function App() {
     setNotice("Showing this post in its surrounding chronological context.");
   }
   function toggleReaderSearch():void {
-    if(readerSearchOpen){setReaderSearchOpen(false);if(searchReturnRef.current){restoreEntry(searchReturnRef.current);searchReturnRef.current=null;}}
-    else{setLibraryOpen(false);setSourcePeek(null);searchReturnRef.current=captureEntry();setReaderSearchOpen(true);}
+    if(readerSearchOpen){setReaderSearchOpen(false);if(readerSearchMode!=="stream"&&searchReturnRef.current){restoreEntry(searchReturnRef.current);searchReturnRef.current=null;}}
+    else{setLibraryOpen(false);setSourcePeek(null);searchReturnRef.current??=captureEntry();setReaderSearchOpen(true);}
   }
   function startSession():void {
     const position=timelineRef.current?.getPosition()??lastPositionRef.current;
@@ -923,7 +935,7 @@ export default function App() {
   }
   function openGuide(): void {
     dismissTourInvitation();
-    guideReturnRef.current = { entry: captureEntry(), library: libraryOpen, search: readerSearchOpen, query: readerSearch, streamQuery: searchQuery, toolsOpen: document.querySelector<HTMLDetailsElement>(".reader-tools-menu")?.open ?? false, windowTop: window.scrollY, settings: settingsOpen, settingsScroll: document.querySelector(".reader-settings-body")?.scrollTop ?? 0, reached: sessionReached, readingPosition: view === "read" ? timelineRef.current?.getPosition() ?? lastPositionRef.current : lastPositionRef.current, source: sourcePeek };
+    guideReturnRef.current = { entry: captureEntry(), library: libraryOpen, search: readerSearchOpen, searchMode: readerSearchMode, sessionOpen: document.querySelector<HTMLDetailsElement>(".reader-session-menu")?.open??false, query: readerSearch, streamQuery: searchQuery, toolsOpen: document.querySelector<HTMLDetailsElement>(".reader-tools-menu")?.open ?? false, windowTop: window.scrollY, settings: settingsOpen, settingsScroll: document.querySelector(".reader-settings-body")?.scrollTop ?? 0, reached: sessionReached, readingPosition: view === "read" ? timelineRef.current?.getPosition() ?? lastPositionRef.current : lastPositionRef.current, source: sourcePeek };
     guideActiveRef.current = true;
     if (positionTimerRef.current) { window.clearTimeout(positionTimerRef.current); positionTimerRef.current = null; }
     setSettingsOpen(false); setPaletteOpen(false); setSourcePeek(null);
@@ -932,12 +944,13 @@ export default function App() {
   function closeGuide(): void {
     setGuideOpen(false); setGuideTopic(null); setGuideStep(null);
     const tools=document.querySelector<HTMLDetailsElement>(".reader-tools-menu"); if(tools)tools.open=guideReturnRef.current?.toolsOpen??false;
+    const sessionMenu=document.querySelector<HTMLDetailsElement>(".reader-session-menu");if(sessionMenu)sessionMenu.open=guideReturnRef.current?.sessionOpen??false;
     const origin = guideReturnRef.current;
     setSettingsOpen(origin?.settings ?? false);
     if (origin) {
       setSessionReached(origin.reached);
       setView(origin.entry.view); setSelectedThreadKey(origin.entry.threadKey); setHighlightedMessageKey(origin.entry.messageKey);
-      setLibraryOpen(origin.library); setSourcePeek(origin.source); setReaderSearchOpen(origin.search); setReaderSearch(origin.query); setSearchQuery(origin.streamQuery);
+      setLibraryOpen(origin.library); setSourcePeek(origin.source); setReaderSearchOpen(origin.search); setReaderSearchMode(origin.searchMode); setReaderSearch(origin.query); setSearchQuery(origin.streamQuery);
       pendingPositionRef.current = origin.entry.position;
       lastPositionRef.current = origin.readingPosition;
       setNavigationVersion(v => v + 1);
@@ -964,7 +977,9 @@ export default function App() {
     const search = step.id === "search-panel" || step.id === "search-context";
     setSettingsOpen(appearance); setReaderSearchOpen(search); setSourcePeek(null); setPaletteOpen(false);
     setView(step.id === "reading-timeline" ? "progress" : "read"); setSearchQuery("");
-    const tools=document.querySelector<HTMLDetailsElement>(".reader-tools-menu"); if(tools) tools.open=["basic-tools","reading-resume","reading-trail","reading-session"].includes(step.id);
+    const tools=document.querySelector<HTMLDetailsElement>(".reader-tools-menu"); if(tools) tools.open=["reading-resume","reading-trail"].includes(step.id);
+    const sessionMenu=document.querySelector<HTMLDetailsElement>(".reader-session-menu");if(sessionMenu)sessionMenu.open=step.id==="reading-session";
+    setReaderSearchMode("results");
     if (["basic-actions", "reading-state", "reading-context", "library-save", "library-notes"].includes(step.id)) {
       const post = (step.id === "reading-context" ? snapshot.messages.find(m => m.is_quote_reply) : null)
         ?? snapshot.messages.find(m => m.text.length > 0 && m.text.length < 900) ?? snapshot.messages[0];
@@ -1116,6 +1131,7 @@ export default function App() {
         onOpenPalette={() => setPaletteOpen(true)}
         onOpenSettings={()=>setSettingsOpen(true)}
         onOpenGuide={openGuide}
+        onOpenLibrary={()=>{setReaderSearchOpen(false);setSourcePeek(null);setLibraryOpen(true);}}
         onOpenAccount={()=>openAccount()}
         accountLabel={account.user?"Your account":"Sign in or create account"}
         paletteOpen={paletteOpen}
@@ -1128,33 +1144,31 @@ export default function App() {
       />
 
       {account.user && ["offline","conflict"].includes(account.status) ? <div className="account-strip" data-tour="account-status"><button onClick={()=>openAccount()}>{account.user?account.user.email:"Reading as a guest"}</button><span role="status">{account.user?({guest:"Browser only",loading:"Opening account…",saving:"Saving…",saved:"Saved across devices",offline:"Sync pending · device copy kept",conflict:"Sync needs attention"})[account.status]:"Progress saved in this browser"}</span>{account.user&&account.status==="offline"?<button onClick={()=>account.sync()}>Retry sync</button>:null}</div>:null}
-      {view==="read" ? <div className="reader-toolbar">{view==="read"?<h2>{deferredSearch?`${filteredMessages.length.toLocaleString()} matches`:"Your reading"}</h2>:null}
-      <details className="reader-tools-menu"><summary aria-label="Open reading tools"><MixerHorizontalIcon aria-hidden="true"/><span>Tools</span></summary><div className="reader-tools-content">
-      <div className="reading-tools" data-tour="reading-tools">
-        <div className="reader-trail" aria-label="Reading trail">
-          <button type="button" disabled={!navStack.length} onClick={handleNavigateBack} aria-label="Previous reading location"><ArrowLeftIcon aria-hidden="true"/> Back</button>
-          <button type="button" disabled={!forwardStack.length} onClick={handleNavigateForward} aria-label="Next reading location">Forward <ArrowRightIcon aria-hidden="true"/></button>
-          {navStack.length ? <span>Return to {navStack.at(-1)?.label}</span>: null}
-        </div>
-        <div className="reader-tool-actions">
-          <button type="button" onClick={launchResume}><ResetIcon aria-hidden="true"/> Resume your place</button>
-          <button type="button" aria-expanded={readerSearchOpen} onClick={toggleReaderSearch}><MagnifyingGlassIcon aria-hidden="true"/> Search beside reading</button>
-          <button type="button" aria-expanded={libraryOpen} onClick={()=>{setReaderSearchOpen(false);setSourcePeek(null);setLibraryOpen(o=>!o);}}><BookmarkIcon aria-hidden="true"/> My library{personal.queue.length?` · ${personal.queue.length}`:""}</button>
-        </div>
-      </div>
-      {view==="read" ? <form className="session-controls" data-tour="session" onSubmit={e=>{e.preventDefault();startSession();}}>
+      {view==="read" ? <div className="reader-toolbar" data-tour="reading-tools">
+        <h2>{deferredSearch?`${filteredMessages.length.toLocaleString()} matches`:"Your reading"}</h2>
+        <button type="button" className="reader-quick-action" data-tour="reader-search" aria-label="Search and filter" aria-expanded={readerSearchOpen} onClick={toggleReaderSearch}><MagnifyingGlassIcon aria-hidden/><span>Search</span>{searchQuery&&<i className="quick-active-dot" aria-label="Filter active"/>}</button>
+        <details className="reader-tools-menu reader-navigation-menu"><summary aria-label="Reading navigation"><CounterClockwiseClockIcon aria-hidden/><span>Navigate</span></summary><div className="reader-quick-panel reader-navigation-panel">
+          <h3>Reading navigation</h3><div className="reader-history-actions">
+          <button type="button" disabled={!navStack.length} onClick={handleNavigateBack} aria-label="Previous reading location"><ArrowLeftIcon aria-hidden/> Back</button>
+          <button type="button" disabled={!forwardStack.length} onClick={handleNavigateForward} aria-label="Next reading location">Forward <ArrowRightIcon aria-hidden/></button></div>
+          <button type="button" onClick={()=>{launchResume();const menu=document.querySelector<HTMLDetailsElement>(".reader-navigation-menu");if(menu)menu.open=false;}}><ResetIcon aria-hidden/> Resume your place</button>
+          <p>{navStack.length?`Back returns to ${navStack.at(-1)?.label}.`:"Your reading trail starts when you open another post or view."}</p>
+        </div></details>
+        <details className="reader-session-menu"><summary aria-label="Session boundary"><TimerIcon aria-hidden/><span>Session</span>{session&&<i className="quick-active-dot" aria-label="Boundary active"/>}</summary><div className="reader-quick-panel reader-session-panel"><form className="session-controls" data-tour="session" onSubmit={e=>{e.preventDefault();startSession();const menu=document.querySelector<HTMLDetailsElement>(".reader-session-menu");if(menu)menu.open=false;}}>
         <span className="eyebrow">Session boundary</span>
-        <label>Session target <select value={sessionMode} onChange={e=>{const mode=e.target.value as typeof sessionMode;setSessionMode(mode);setSessionValue(mode==="date"?(activeAnchorMessage?.date_utc?.slice(0,10)??new Date().toISOString().slice(0,10)):"5");}}><option value="posts">Posts</option><option value="minutes">Reading minutes</option><option value="date">Until date</option></select></label>
+        <label>Session target <CustomSelect value={sessionMode} onChange={e=>{const mode=e.target.value as typeof sessionMode;setSessionMode(mode);setSessionValue(mode==="date"?(activeAnchorMessage?.date_utc?.slice(0,10)??new Date().toISOString().slice(0,10)):"5");}}><option value="posts">Posts</option><option value="minutes">Reading minutes</option><option value="date">Until date</option></CustomSelect></label>
         <label className="session-value-label">{sessionMode==="date"?"End date":sessionMode==="minutes"?"Minutes":"Number of posts"}<input aria-label="Session target value" type={sessionMode==="date"?"date":"number"} min="1" max="500" value={sessionValue} onChange={e=>setSessionValue(e.target.value)}/></label>
         <button type="submit">Set boundary</button>
         {session?<><span className="session-boundary-status">{session.label} · ending at #{messageByKey.get(session.endKey)?.message_id}</span><button type="button" className="btn-ghost session-boundary-clear" onClick={()=>{const pos=timelineRef.current?.getPosition();setSession(null);setSessionReached(false);pendingPositionRef.current=pos??null;setNavigationVersion(v=>v+1);}}>Clear boundary</button></>:null}
-      </form>:null}
-      </div></details>
-      {view==="read"?<><ReadingWidth value={preferences.readingWidth} onChange={readingWidth=>changePreferences({...preferences,readingWidth})}/><details className="stream-filter"><summary><MagnifyingGlassIcon aria-hidden="true"/><span>Filter</span></summary><div className="stream-filter-panel"><input type="search" value={searchQuery} onChange={e=>setSearchQuery(e.target.value)} aria-label="Filter reading stream" placeholder="Find words in this stream…"/></div></details></>:null}</div> : null}
+      </form></div></details>
+        <ReadingWidth value={preferences.readingWidth} onChange={readingWidth=>changePreferences({...preferences,readingWidth})}/>
+      </div>:null}
       {preferences.focusMode?<button type="button" className="reader-focus-exit" onClick={()=>changePreferences({...preferences,focusMode:false})}>Exit focus</button>:null}
       {libraryOpen?<aside hidden={guideOpen && guideTopic !== null} className="reader-side-panel" data-tour="library-panel" aria-label="Personal reading library"><header><h2>Your reading library</h2><button type="button" onClick={()=>setLibraryOpen(false)} aria-label="Close library">×</button></header><ReadingLibrary state={personal} onChange={commitPersonal} messages={snapshot.messages} onOpenMessage={key=>{setLibraryOpen(false);focusMessage(key);}} onReadAround={readAround}/></aside>:null}
       {guideOpen && guideStep && ["library-queue", "library-collections", "library-work"].includes(guideStep.id) ? <aside className="reader-side-panel" data-tour="library-panel" aria-label="Library tour preview"><header><h2>Your reading library</h2><span className="eyebrow">Tour preview</span></header><ReadingLibrary idPrefix="guide-" state={personal} onChange={() => {}} messages={snapshot.messages} onOpenMessage={() => {}} onReadAround={() => {}} /></aside> : null}
-      {readerSearchOpen?<aside className="reader-side-panel reader-search-panel" data-tour="search-panel" aria-label="Search beside reading"><header><h2>Find a thought</h2><button type="button" onClick={toggleReaderSearch} aria-label="Close search and return to your place">×</button></header><input autoFocus type="search" aria-label="Search archive beside reading" placeholder="Search the archive…" value={readerSearch} onChange={e=>setReaderSearch(e.target.value)}/><p>Close to return to your original passage.</p>{readerSearch.trim()?snapshot.messages.filter(m=>m.search_text.includes(readerSearch.trim().toLowerCase())).slice(0,100).map(m=><article className="library-card" key={m.message_key}><p><strong>#{m.message_id}</strong> · {trimPreview(m.text,180)}</p><div className="library-actions"><button type="button" onClick={()=>focusMessage(m.message_key)}>Read post</button><button type="button" onClick={()=>readAround(m.message_key)}>Read around this</button></div></article>):<p>Search for a phrase, topic, or source.</p>}{readerSearch.trim()&&!snapshot.messages.some(m=>m.search_text.includes(readerSearch.trim().toLowerCase()))?<p>No posts match this phrase.</p>:null}</aside>:null}
+      {readerSearchOpen?<aside className="reader-side-panel reader-search-panel" data-tour="search-panel" aria-label="Search beside reading"><header><h2>Search & filter</h2><button type="button" onClick={toggleReaderSearch} aria-label="Close search and return to your place">×</button></header><input autoFocus type="search" aria-label="Search archive beside reading" placeholder="Search the archive…" value={readerSearch} onChange={e=>{setReaderSearch(e.target.value);if(readerSearchMode==="stream")setSearchQuery(e.target.value);}}/>
+      <div className="reader-search-modes" role="group" aria-label="Search display"><button type="button" aria-pressed={readerSearchMode==="results"} onClick={()=>{setReaderSearchMode("results");setSearchQuery("");if(searchReturnRef.current)restoreEntry(searchReturnRef.current);}}>Show results</button><button type="button" aria-pressed={readerSearchMode==="stream"} onClick={()=>{setReaderSearchMode("stream");setSearchQuery(readerSearch);}}>Filter stream</button></div>
+      <p>{readerSearchMode==="stream"?"Only matching posts appear in your reading stream. Close this panel to read them.":"Browse results here without losing your place. Close to return."}</p>{searchQuery&&<button type="button" className="reader-clear-filter" onClick={()=>{setSearchQuery("");setReaderSearchMode("results");if(searchReturnRef.current)restoreEntry(searchReturnRef.current);}}>Clear stream filter</button>}{readerSearch.trim()?snapshot.messages.filter(m=>m.search_text.includes(readerSearch.trim().toLowerCase())).slice(0,100).map(m=><article className="library-card" key={m.message_key}><p><strong>#{m.message_id}</strong> · {trimPreview(m.text,180)}</p><div className="library-actions"><button type="button" onClick={()=>focusMessage(m.message_key)}>Read post</button><button type="button" onClick={()=>readAround(m.message_key)}>Read around this</button></div></article>):<p>Search for a phrase, topic, or source.</p>}{readerSearch.trim()&&!snapshot.messages.some(m=>m.search_text.includes(readerSearch.trim().toLowerCase()))?<p>No posts match this phrase.</p>:null}</aside>:null}
       {sourcePeek?<aside className="reader-side-panel reader-source-peek" role="dialog" aria-label="Quoted source preview"><header><div><p className="eyebrow">Quoted source</p><h2>Post #{sourcePeek.message.message_id}</h2></div><button type="button" onClick={()=>setSourcePeek(null)} aria-label="Close quoted source">×</button></header><p>Your place in post #{sourcePeek.origin.message_id} is preserved.</p><div className="reader-message-text" style={{whiteSpace:"pre-wrap"}}>{sourcePeek.message.text||"This source contains media without text."}</div><div className="library-actions"><button type="button" onClick={()=>{const peek=sourcePeek;setSourcePeek(null);focusMessage(peek.message.message_key);setQuoteHighlight({messageKey:peek.message.message_key,offset:peek.origin.quote_offset_utf16??-1,length:peek.origin.quote_text_length??0,fallbackText:peek.origin.quote_text});}}>Expand source</button><button type="button" onClick={()=>{const key=sourcePeek.message.message_key;setSourcePeek(null);readAround(key);}}>Read surrounding posts</button></div></aside>:null}
       {accountDialog}
       {settingsDialog}

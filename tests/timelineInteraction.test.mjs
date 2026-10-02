@@ -11,8 +11,9 @@ async function compile(path,dependencies={}){
  const js=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX}}).outputText;
  const module={exports:{}};new Function('require','module','exports',js)(name=>dependencies[name]??require(name),module,module.exports);return module.exports;
 }
+const customSelect=await compile('../src/components/CustomSelect.tsx',{'react-dom':{createPortal:content=>content}});
 const model=await compile('../src/lib/postTimeline.ts');
-const {default:Timeline}=await compile('../src/components/PostTimeline.tsx',{'../lib/postTimeline':model,'../lib/media':{getMediaObjectUrl:async()=>''}});
+const {default:Timeline}=await compile('../src/components/PostTimeline.tsx',{'./CustomSelect':customSelect,'../lib/postTimeline':model,'../lib/media':{getMediaObjectUrl:async()=>''}});
 const {default:VirtualList}=await compile('../src/components/VirtualizedMessageList.tsx');
 const message=id=>({message_key:`1:${id}`,message_id:id,message_type:'Message',date_utc:`2024-01-${String(id).padStart(2,'0')}T10:00:00Z`,text:`Post ${id}`,entities:[],media_kind:null,media_path:null,media_present:false,external_urls:[]});
 function environment(){

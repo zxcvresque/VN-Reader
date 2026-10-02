@@ -15,7 +15,7 @@ test("the first visit chooses Vercel for system dark and Liquid Opal for system 
     try {
       const preferences = loadPreferences();
       assert.equal(preferences.theme, dark ? "vercel" : "opal");
-      assert.equal(preferences.fontFamily, dark ? "sans" : "serif");
+      assert.equal(preferences.fontFamily, "sans");
       assert.equal(JSON.parse(storage.get(PREFERENCES_KEY)).theme, preferences.theme);
       window.matchMedia = () => ({ matches: !dark });
       assert.equal(loadPreferences().theme, preferences.theme);

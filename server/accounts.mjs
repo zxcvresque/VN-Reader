@@ -1,3 +1,4 @@
+import { createNotifier } from "./notifications.mjs";
 import { betterAuth } from "better-auth";
 import { getMigrations } from "better-auth/db/migration";
 import { emailOTP } from "better-auth/plugins";
@@ -10,7 +11,7 @@ import { createAuthMiddleware, APIError } from "better-auth/api";
 import { AdminStore, AllowanceError, deliveryFailureIsDefinitive } from "./adminStore.mjs";
 
 export function accountSettings(env=process.env) {
-  return { database:env.VN_ACCOUNT_DATABASE_PATH??"data/accounts.sqlite3", secret:env.BETTER_AUTH_SECRET,
+  return { eventUrl:env.VN_OPERATOR_EVENT_URL,botToken:env.TELEGRAM_BOT_TOKEN,logTopicId:env.TELEGRAM_LOG_TOPIC_ID,logDestination:env.TELEGRAM_DESTINATION, database:env.VN_ACCOUNT_DATABASE_PATH??"data/accounts.sqlite3", secret:env.BETTER_AUTH_SECRET,
     baseURL:env.BETTER_AUTH_URL??"http://127.0.0.1:5173", production:env.VN_ENV!=="development",
     origins:(env.VN_ALLOWED_ORIGINS??"http://127.0.0.1:5173,http://localhost:5173").split(",").map(s=>s.trim()).filter(Boolean),
     smtpHost:env.VN_SMTP_HOST, smtpPort:Number(env.VN_SMTP_PORT??587), smtpUser:env.VN_SMTP_USERNAME,
@@ -28,6 +29,7 @@ export async function createAccounts(settings=accountSettings(), sendEmail) {
   if(settings.database!==":memory:")chmodSync(settings.database,0o600);
   database.exec("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=15000; PRAGMA foreign_keys=ON;");
   const admin=new AdminStore(database,settings);
+  const notify=createNotifier(settings);
   const transport=sendEmail?null:nodemailer.createTransport({host:settings.smtpHost,port:settings.smtpPort,
     secure:settings.smtpSSL,requireTLS:!settings.smtpSSL,auth:settings.smtpUser?{user:settings.smtpUser,pass:settings.smtpPassword}:undefined,
     connectionTimeout:10000,socketTimeout:20000});
@@ -54,8 +56,10 @@ export async function createAccounts(settings=accountSettings(), sendEmail) {
       const id=ctx.context.vnEmailReservation??ctx.request?.headers.get("x-vn-email-reservation");
       if(id&&["failed","unknown"].includes(admin.deliveryStatus(id)))throw new APIError("SERVICE_UNAVAILABLE",{message:"The verification email could not be sent. Please try again shortly."});
       if(id)admin.complete(id,"rejected"); // Unsent admission (validation/duplicate errors) is released.
+      if(ctx.path==="/sign-up/email"&&ctx.context.returned?.user?.id)void notify("Account created","A new reader signed up.",0);
       const kind=ctx.path==="/sign-in/email"?"password":ctx.path==="/email-otp/verify-email"?"verification":null;
       if(kind)admin.recordSession(ctx.context.newSession,kind);
+      if(kind==="verification"&&ctx.context.newSession)void notify("Email verified","A reader completed verification.",0);
     })},
     plugins:[emailOTP({otpLength:6,expiresIn:600,allowedAttempts:5,storeOTP:"hashed",disableSignUp:true,
       overrideDefaultEmailVerification:true,sendVerificationOnSignUp:true,
@@ -72,6 +76,7 @@ export async function createAccounts(settings=accountSettings(), sendEmail) {
             text:`Your VN Reader code is ${otp}. Use it to ${purpose}. It expires in 10 minutes. If you didn't request this, ignore this email.`});
           admin.complete(id,"accepted");
         }catch(error){
+          void notify("OTP email delivery failed",/^[A-Z0-9_]{1,40}$/.test(error.code??"")?error.code:"SMTP error");
           const definitive=deliveryFailureIsDefinitive(error);admin.complete(id,definitive?"failed":"unknown");
           if(definitive&&admission===id)database.prepare("DELETE FROM user WHERE email=? AND emailVerified=0").run(email.toLowerCase());
           throw new APIError("SERVICE_UNAVAILABLE",{message:"The verification email could not be sent. Please try again shortly."});
@@ -85,7 +90,7 @@ export async function createAccounts(settings=accountSettings(), sendEmail) {
   database.exec(`CREATE TABLE IF NOT EXISTS reader_states (
     user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE, chat_id TEXT NOT NULL,
     revision INTEGER NOT NULL, data TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(user_id,chat_id));`);
-  return {auth,database,enabled,admin,states:new StateStore(database),close:()=>{transport?.close();database.close();}};
+  return {auth,database,enabled,admin,notify,states:new StateStore(database),close:()=>{transport?.close();database.close();}};
 }
 
 export class StateError extends Error {constructor(status,message){super(message);this.status=status;}}

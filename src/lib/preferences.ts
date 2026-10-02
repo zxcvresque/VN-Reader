@@ -16,7 +16,7 @@ export type NavPosition = typeof NAV_POSITIONS[number]["id"];
 export interface ReaderPreferences {
   theme: ThemeId;
   navPosition: NavPosition;
-  fontFamily: "serif" | "sans" | "mono";
+  fontFamily: "serif" | "sans" | "mono" | "custom";
   fontSize: number;
   lineHeight: number;
   paragraphSpacing: number;
@@ -32,7 +32,7 @@ export interface ReaderPreset {
   preferences: Omit<ReaderPreferences, "presets">;
 }
 export const DEFAULT_PREFERENCES: ReaderPreferences = {
-  theme: "opal", navPosition: "top", fontFamily: "serif", fontSize: 17, lineHeight: 1.75,
+  theme: "opal", navPosition: "top", fontFamily: "sans", fontSize: 17, lineHeight: 1.75,
   paragraphSpacing: 1, readingWidth: 76, paper: "theme", mediaMode: "compact", focusMode: false, presets: []
 };
 export const PREFERENCES_KEY = "vn-reader-preferences-v1";
@@ -48,7 +48,7 @@ export function normalizePreferences(value: unknown, includePresets = true): Rea
   return {
     theme: choice(candidate.theme, THEMES.map(theme => theme.id), ["aurora", "signal"].includes(legacyTheme) ? "vercel" : DEFAULT_PREFERENCES.theme),
     navPosition: choice(candidate.navPosition, NAV_POSITIONS.map(position => position.id), DEFAULT_PREFERENCES.navPosition),
-    fontFamily: choice(candidate.fontFamily, ["serif", "sans", "mono"], DEFAULT_PREFERENCES.fontFamily),
+    fontFamily: choice(candidate.fontFamily, ["serif", "sans", "mono", "custom"], DEFAULT_PREFERENCES.fontFamily),
     fontSize: clamp(candidate.fontSize, DEFAULT_PREFERENCES.fontSize, 14, 26),
     lineHeight: clamp(candidate.lineHeight, DEFAULT_PREFERENCES.lineHeight, 1.3, 2.2),
     paragraphSpacing: clamp(candidate.paragraphSpacing, DEFAULT_PREFERENCES.paragraphSpacing, 0.25, 2),
@@ -67,7 +67,7 @@ export function normalizePreferences(value: unknown, includePresets = true): Rea
 export function initialPreferences(): ReaderPreferences {
   let dark = false;
   try { dark = typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(prefers-color-scheme: dark)").matches; } catch { /* Light is the accessible fallback. */ }
-  return { ...DEFAULT_PREFERENCES, theme: dark ? "vercel" : "opal", fontFamily: dark ? "sans" : "serif", presets: [] };
+  return { ...DEFAULT_PREFERENCES, theme: dark ? "vercel" : "opal", fontFamily: "sans", presets: [] };
 }
 export function loadPreferences(): ReaderPreferences {
   const initial = initialPreferences();
@@ -110,7 +110,7 @@ export function validatePreferences(value: unknown): ReaderPreferences {
   const candidate = value as Record<string, unknown>;
   // Older backups predate navigation placement. Only a missing field receives the default.
   if ("navPosition" in candidate && !NAV_POSITIONS.some(position => position.id === candidate.navPosition)) throw new Error("Invalid navPosition in reading backup.");
-  const enums: Record<string, readonly string[]> = { theme: THEMES.map(theme => theme.id), fontFamily: ["serif", "sans", "mono"], paper: ["theme", "warm", "sepia"], mediaMode: ["compact", "full", "collapsed"] };
+  const enums: Record<string, readonly string[]> = { theme: THEMES.map(theme => theme.id), fontFamily: ["serif", "sans", "mono", "custom"], paper: ["theme", "warm", "sepia"], mediaMode: ["compact", "full", "collapsed"] };
   for (const [field, choices] of Object.entries(enums)) {
     if (field === "theme" && ["aurora", "niti", "signal"].includes(String(candidate[field]))) continue;
     if (typeof candidate[field] !== "string" || !choices.includes(candidate[field] as string)) throw new Error(`Invalid ${field} in reading backup.`);

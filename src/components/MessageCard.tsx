@@ -1,3 +1,4 @@
+import CustomSelect from "./CustomSelect";
 import { useEffect, useMemo, useRef, useState, type SyntheticEvent } from "react";
 import { createPortal } from "react-dom";
 import {BookmarkIcon,BookmarkFilledIcon,CheckIcon,DotsHorizontalIcon} from "@radix-ui/react-icons";
@@ -122,7 +123,7 @@ function MediaPreview({
   };
   const speedControl = (
     <label className="reader-media-speed">Playback speed
-      <select value={playbackRate} onChange={(event) => {
+      <CustomSelect value={playbackRate} onChange={(event) => {
         const rate = Number(event.target.value);
         setPlaybackRate(rate);
         if (mediaRef.current) {
@@ -131,7 +132,7 @@ function MediaPreview({
         }
       }}>
         {[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3].map((rate) => <option key={rate} value={rate}>{rate}×</option>)}
-      </select>
+      </CustomSelect>
     </label>
   );
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
@@ -498,7 +499,7 @@ export default function MessageCard({
             <button type="button" className={`post-icon-button ${isRead?"is-saved":""}`} aria-label={isRead?"Mark unseen":"Mark seen"} title={isRead?"Mark unseen":"Mark seen"} aria-pressed={isRead} onClick={()=>isRead?onMarkUnread(message):onMarkRead(message)}><CheckIcon aria-hidden/><span>{isRead?"Seen":"Mark seen"}</span></button>
             <details ref={actionsRef} className="post-more-actions" onToggle={event=>setActionsOpen(event.currentTarget.open)}><summary aria-label={`More actions for post ${message.message_id}`} aria-expanded={actionsOpen} aria-controls={`post-actions-${message.message_key}`} title="More actions"><DotsHorizontalIcon aria-hidden/><span>More</span></summary>
               {actionsOpen && createPortal(<div ref={panelRef} id={`post-actions-${message.message_key}`} className="post-more-panel post-more-portal" style={panelPosition} role="group" aria-label={`Additional actions for post ${message.message_id}`}>
-                {onSetReadingStatus&&<label className="reader-status-control">Reading state<select aria-label={`Reading state for post ${message.message_id}`} value={readingStatus??""} onChange={e=>onSetReadingStatus(message,e.target.value?e.target.value as "in-progress"|"finished"|"revisit":null)}><option value="">Not started</option><option value="in-progress">In progress</option><option value="finished">Finished</option><option value="revisit">Revisit</option></select></label>}
+                {onSetReadingStatus&&<label className="reader-status-control">Reading state<CustomSelect aria-label={`Reading state for post ${message.message_id}`} value={readingStatus??""} onChange={e=>onSetReadingStatus(message,e.target.value?e.target.value as "in-progress"|"finished"|"revisit":null)}><option value="">Not started</option><option value="in-progress">In progress</option><option value="finished">Finished</option><option value="revisit">Revisit</option></CustomSelect></label>}
                 {onToggleQueue&&<button type="button" onClick={()=>{onToggleQueue(message);closeActions();}}>{queued?"Remove from queue":"Read later"}</button>}
                 {onSaveNote?<button type="button" onClick={()=>{setNoteOpen(o=>!o);closeActions();}}>{note?"Edit note":"Add note"}</button>:null}
                 {onReadAround?<button type="button" onClick={()=>{closeActions();onReadAround(message);}}>Read nearby posts</button>:null}

@@ -57,7 +57,7 @@ export async function createAccountApp(settings=accountSettings(),sendEmail) {
     const revision=String(match).replace(/^"|"$/g,"");if(!/^\d+$/.test(revision))return res.status(422).json({detail:"Invalid revision."});
     try{const state=accounts.states.put(req.readerUser.id,req.params.chatId,req.body?.data,Number(revision));res.set("ETag",`"${state.revision}"`).json(state);}catch(e){next(e);}
   });
-  app.use((error,req,res,next)=>{res.status(error instanceof StateError?error.status:error.type==="entity.too.large"?413:error instanceof SyntaxError?422:500).json({detail:error instanceof StateError?error.message:error.type==="entity.too.large"?"Request too large.":error instanceof SyntaxError?"Invalid JSON.":"The account service could not complete this request."});});
+  app.use((error,req,res,next)=>{if(!(error instanceof StateError)&&!error.type&&!(error instanceof SyntaxError))void accounts.notify("Account request failed","An internal request could not be completed.");res.status(error instanceof StateError?error.status:error.type==="entity.too.large"?413:error instanceof SyntaxError?422:500).json({detail:error instanceof StateError?error.message:error.type==="entity.too.large"?"Request too large.":error instanceof SyntaxError?"Invalid JSON.":"The account service could not complete this request."});});
   return {app,accounts};
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
@@ -65,6 +65,7 @@ if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
   const settings=accountSettings();const {app,accounts}=await createAccountApp(settings);
   const server=app.listen(settings.port,settings.host,(error)=>{
     if(error){console.error(`Account service could not listen: ${error.code??"unknown"}`);accounts.close();process.exitCode=1;return;}
+    void accounts.notify("Account service started");
     console.log(`VN Reader account service listening on ${settings.host}:${settings.port}`);
   });
   for(const signal of ["SIGTERM","SIGINT"])process.once(signal,()=>server.close(()=>{accounts.close();process.exit(0);}));

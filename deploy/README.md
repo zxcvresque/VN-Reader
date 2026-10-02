@@ -214,3 +214,11 @@ Do not change secrets or delete volumes. Update cloudflared through Compose rath
 ## Capacity
 
 4–5k daily visitors is a reasonable launch target to measure, not a concurrency guarantee. Static files are small; video traffic dominates. Track simultaneous streams, bandwidth, response times, memory, Telegram FloodWaits and disk usage on the A1 instance. A tunnel does not remove the VPS's streaming bandwidth or Telegram limits. Avoid custom caching of media/auth until the delivery rules and provider plan are checked. Scale based on actual concurrent viewing, not daily visitor count alone.
+
+### Operator updates and media recovery
+
+`TELEGRAM_LOG_TOPIC_ID` selects the existing Logs topic (`4523` by default) in the configured storage group. The services never create another Logs topic. Archive/account service starts, mirror updates, new signups, completed email verification, delivery failures and mirror recovery are reported there. Notifications omit email addresses, passwords, OTPs and reader content. Repeated failure events are limited to one per event type every five minutes; notifications are best effort and Docker logs remain the diagnostic record.
+
+The account service sends events through an authenticated internal archive endpoint. Caddy does not publish that endpoint. Both services need the same configured bot token and the bot must be able to send messages in the existing topic.
+
+A disconnected Telegram media session reconnects on the next lookup. Concurrent requests share the reconnect; interrupted streams retry from the last emitted byte. Persistent Telegram/network failures still return an error rather than silently supplying incomplete media. After deploying these backend changes, rebuild and recreate `archive`, `accounts` and `mirror` along with `web`; rebuilding only `web` will not update the media service.

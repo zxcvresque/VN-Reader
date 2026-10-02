@@ -4,6 +4,7 @@ A user session reads the public source; the bot writes private copies. Another b
 from the private group. The web process never starts copying or asks for a login.
 """
 from __future__ import annotations
+from .notifications import notify
 import argparse
 import asyncio
 import hashlib
@@ -563,6 +564,7 @@ async def run(command):
         mirror = Mirror(reader, TelegramWriter(bot, peer, topic_id, bot_source,store), store, source, entity,
             settle_live_albums=command=="watch", progress=progress, batch_size=100)
         progress.notice("ARCHIVE", f"{entity.title} · saved progress will be resumed · Ctrl+C stops safely")
+        asyncio.create_task(notify("Archive mirror started"))
         wake = asyncio.Event()
         async def new_message(event): wake.set()
         async def edited(event):
@@ -572,6 +574,8 @@ async def run(command):
         reader.add_event_handler(edited, events.MessageEdited(chats=entity))
         await reader.catch_up()
         last_total_refresh = 0
+        last_notified_checkpoint = store.meta("checkpoint", 0)
+        was_paused = False
         while True:
             try:
                 if time.monotonic() - last_total_refresh >= 60:
@@ -581,6 +585,13 @@ async def run(command):
                     progress("Resuming" if command=="backfill" else "Catching up")
                 complete = await mirror.backfill()
                 await mirror.apply_edits()
+                checkpoint = store.meta("checkpoint", 0)
+                if was_paused:
+                    asyncio.create_task(notify("Archive mirror recovered", f"Checkpoint {checkpoint}"))
+                    was_paused = False
+                if checkpoint != last_notified_checkpoint:
+                    asyncio.create_task(notify("Archive updated", f"Copied through post #{checkpoint}"))
+                    last_notified_checkpoint = checkpoint
                 progress(("Backfill complete" if command=="backfill" else "Caught up · listening for new posts") if complete else "Waiting for the latest album to finish arriving", complete=complete)
                 if command == "backfill": return
                 # Catch-up polling repairs missed events/restarts. Edits received by Telethon are durable.
@@ -593,6 +604,8 @@ async def run(command):
                 if exc.__class__.__name__ == "FloodWaitError":
                     await progress.wait(exc.seconds)
                     continue
+                was_paused = True
+                asyncio.create_task(notify("Archive mirror paused", f"Checkpoint {store.meta('checkpoint', 0)} · {exc.__class__.__name__}"))
                 log.error("Mirror paused at checkpoint %s (%s); retrying without skipping", store.meta("checkpoint", 0), error_label(exc))
                 if command == "backfill": raise
                 await progress.wait(15, "RETRY")

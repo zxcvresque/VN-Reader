@@ -20,8 +20,14 @@ services:
       context: .
       dockerfile: deploy/Dockerfile
       target: accounts
+    depends_on:
+      archive: {condition: service_healthy}
     environment:
       VN_ENV: production
+      VN_OPERATOR_EVENT_URL: http://archive:8000/internal/events
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_DESTINATION: ${TELEGRAM_DESTINATION:--1004434351194}
+      TELEGRAM_LOG_TOPIC_ID: ${TELEGRAM_LOG_TOPIC_ID:-4523}
       BETTER_AUTH_URL: https://${VN_DOMAIN:?Set VN_DOMAIN to the website hostname}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Set a persistent secret of at least 32 characters}
       VN_ALLOWED_ORIGINS: https://${VN_DOMAIN}
@@ -55,6 +61,7 @@ services:
       TELEGRAM_SOURCE: ${TELEGRAM_SOURCE:-@Vidurneeti}
       TELEGRAM_DESTINATION: ${TELEGRAM_DESTINATION:--1004434351194}
       TELEGRAM_ARCHIVE_TOPIC_ID: ${TELEGRAM_ARCHIVE_TOPIC_ID:-}
+      TELEGRAM_LOG_TOPIC_ID: ${TELEGRAM_LOG_TOPIC_ID:-4523}
     volumes: ["telegram-data:/data"]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/archive-health',timeout=5)"]

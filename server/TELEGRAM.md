@@ -112,3 +112,7 @@ copy of those projects. The relevant protocols are
 [history API](https://core.telegram.org/method/messages.getHistory),
 [album sends](https://core.telegram.org/method/messages.sendMultiMedia) and
 [quoted replies](https://core.telegram.org/constructor/inputReplyToMessage).
+
+### Operator logs topic
+
+The archive service automatically creates a private Logs topic and saves its ID in the existing archive database. Enable Manage Topics for the bot. Optionally set `TELEGRAM_LOG_TOPIC_ID` in `.env.production` to reuse an existing topic. The bot must be able to post in that topic. Notifications cover startup, archive catch-up, mirror and media failures/recovery, new accounts, email verification, and OTP delivery failures. They exclude passwords, OTPs, email addresses and reader content. Repeated operational failures are throttled to one event per category every five minutes; signup and verification events are individual. Delivery is best effort and does not block reader requests; Docker logs remain the fallback if Telegram itself is unavailable. Account events use an authenticated internal endpoint; this endpoint is not routed through the public web proxy. Rebuild and recreate accounts, archive and mirror when deploying this update.
