@@ -11,7 +11,7 @@ import { createAuthMiddleware, APIError } from "better-auth/api";
 import { AdminStore, AllowanceError, deliveryFailureIsDefinitive } from "./adminStore.mjs";
 
 export function accountSettings(env=process.env) {
-  return { eventUrl:env.VN_OPERATOR_EVENT_URL,botToken:env.TELEGRAM_BOT_TOKEN,logTopicId:env.TELEGRAM_LOG_TOPIC_ID,logDestination:env.TELEGRAM_DESTINATION, database:env.VN_ACCOUNT_DATABASE_PATH??"data/accounts.sqlite3", secret:env.BETTER_AUTH_SECRET,
+  return { ownerId:env.TELEGRAM_OWNER_ID,eventUrl:env.VN_OPERATOR_EVENT_URL,botToken:env.TELEGRAM_BOT_TOKEN,logTopicId:env.TELEGRAM_LOG_TOPIC_ID,logDestination:env.TELEGRAM_DESTINATION, database:env.VN_ACCOUNT_DATABASE_PATH??"data/accounts.sqlite3", secret:env.BETTER_AUTH_SECRET,
     baseURL:env.BETTER_AUTH_URL??"http://127.0.0.1:5173", production:env.VN_ENV!=="development",
     origins:(env.VN_ALLOWED_ORIGINS??"http://127.0.0.1:5173,http://localhost:5173").split(",").map(s=>s.trim()).filter(Boolean),
     smtpHost:env.VN_SMTP_HOST, smtpPort:Number(env.VN_SMTP_PORT??587), smtpUser:env.VN_SMTP_USERNAME,
@@ -76,7 +76,7 @@ export async function createAccounts(settings=accountSettings(), sendEmail) {
             text:`Your VN Reader code is ${otp}. Use it to ${purpose}. It expires in 10 minutes. If you didn't request this, ignore this email.`});
           admin.complete(id,"accepted");
         }catch(error){
-          void notify("OTP email delivery failed",/^[A-Z0-9_]{1,40}$/.test(error.code??"")?error.code:"SMTP error");
+          void notify("OTP email delivery failed",/^[A-Z0-9_]{1,40}$/.test(error.code??"")?error.code:"SMTP error",300000,{severity:"critical"});
           const definitive=deliveryFailureIsDefinitive(error);admin.complete(id,definitive?"failed":"unknown");
           if(definitive&&admission===id)database.prepare("DELETE FROM user WHERE email=? AND emailVerified=0").run(email.toLowerCase());
           throw new APIError("SERVICE_UNAVAILABLE",{message:"The verification email could not be sent. Please try again shortly."});

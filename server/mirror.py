@@ -512,6 +512,18 @@ def configuration():
 
 
 async def run(command):
+    # Await fatal alerts before asyncio.run closes its loop and cancels tasks.
+    state = {"started": False, "alerted": False}
+    try:
+        await _run(command, state)
+    except Exception as exc:
+        if not state["alerted"]:
+            event = "Archive mirror stopped" if state["started"] else "Archive mirror startup failed"
+            await notify(event, exc.__class__.__name__, severity="critical")
+        raise
+
+
+async def _run(command, state):
     os.umask(0o077)
     from telethon import TelegramClient, events, utils, functions, types
     config = configuration()
@@ -523,10 +535,10 @@ async def run(command):
         await reader.start()
         await reader.disconnect()
         return
-    await reader.connect()
     bot = None
     store = None
     try:
+        await reader.connect()
         if not await reader.is_user_authorized(): raise RuntimeError("Run python -m server.mirror login first")
         entity = await reader.get_entity(config["source"])
         if not getattr(entity, "broadcast", False) or not getattr(entity, "username", None):
@@ -576,6 +588,8 @@ async def run(command):
         last_total_refresh = 0
         last_notified_checkpoint = store.meta("checkpoint", 0)
         was_paused = False
+        consecutive_failures = 0
+        state["started"] = True
         while True:
             try:
                 if time.monotonic() - last_total_refresh >= 60:
@@ -586,6 +600,7 @@ async def run(command):
                 complete = await mirror.backfill()
                 await mirror.apply_edits()
                 checkpoint = store.meta("checkpoint", 0)
+                consecutive_failures = 0
                 if was_paused:
                     asyncio.create_task(notify("Archive mirror recovered", f"Checkpoint {checkpoint}"))
                     was_paused = False
@@ -605,7 +620,13 @@ async def run(command):
                     await progress.wait(exc.seconds)
                     continue
                 was_paused = True
-                asyncio.create_task(notify("Archive mirror paused", f"Checkpoint {store.meta('checkpoint', 0)} · {exc.__class__.__name__}"))
+                consecutive_failures += 1
+                alert = notify("Archive mirror paused", f"Checkpoint {store.meta('checkpoint', 0)} · {exc.__class__.__name__}", severity="critical" if consecutive_failures >= 2 or command == "backfill" else "routine")
+                if command == "backfill":
+                    await alert
+                    state["alerted"] = True
+                else:
+                    asyncio.create_task(alert)
                 log.error("Mirror paused at checkpoint %s (%s); retrying without skipping", store.meta("checkpoint", 0), error_label(exc))
                 if command == "backfill": raise
                 await progress.wait(15, "RETRY")

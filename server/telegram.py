@@ -50,7 +50,7 @@ async def start_telegram():
         if store: store.close()
         await client.disconnect()
         log.error("Telegram archive unavailable (%s). Check operator configuration.", exc.__class__.__name__)
-        asyncio.create_task(notify("Archive startup failed", exc.__class__.__name__))
+        await notify("Archive startup failed", exc.__class__.__name__, severity="critical")
 
 
 async def stop_telegram():
@@ -120,7 +120,7 @@ async def media(source_id: int, request: Request):
                 async for chunk in telegram_chunks(_client, message, start, end, request.is_disconnected, fetch):
                     yield chunk
             except Exception as exc:
-                asyncio.create_task(notify("Media stream failed", f"Post #{source_id} · {exc.__class__.__name__}"))
+                asyncio.create_task(notify("Media stream failed", f"Post #{source_id} · {exc.__class__.__name__}", severity="critical"))
                 raise
             finally:
                 _slots.release()
@@ -130,7 +130,7 @@ async def media(source_id: int, request: Request):
         raise
     except Exception as exc:
         log.warning("Stored Telegram media lookup failed (%s)", exc.__class__.__name__)
-        asyncio.create_task(notify("Media delivery failed", f"Post #{source_id} · {exc.__class__.__name__}"))
+        asyncio.create_task(notify("Media delivery failed", f"Post #{source_id} · {exc.__class__.__name__}", severity="critical"))
         raise HTTPException(502, "Stored media is temporarily unavailable")
     finally:
         if not handed_off: _slots.release()
@@ -148,7 +148,12 @@ async def operator_event(request: Request):
     import json
     try: data=json.loads(raw)
     except ValueError: raise HTTPException(422,"Invalid event")
-    if not isinstance(data,dict) or data.get("event") not in {"Account created","Email verified","OTP email delivery failed","Account request failed","Account service started"}:
+    if not isinstance(data,dict) or not isinstance(data.get("event"), str) or data.get("event") not in {"Account created","Email verified","OTP email delivery failed","Account request failed","Account service started","Account service startup failed","Account service fatal"}:
         raise HTTPException(422,"Unsupported event")
-    asyncio.create_task(notify(data["event"],str(data.get("detail",""))[:200],cooldown=0 if data["event"] in {"Account created","Email verified"} else 300))
+    severity = data.get("severity", "routine")
+    if not isinstance(severity, str) or severity not in {"routine", "critical"} or (severity == "critical" and data["event"] not in {"OTP email delivery failed", "Account request failed", "Account service startup failed", "Account service fatal"}):
+        raise HTTPException(422, "Unsupported event severity")
+    if not isinstance(data.get("detail", ""), str) or len(data.get("detail", "")) > 200:
+        raise HTTPException(422, "Invalid event detail")
+    asyncio.create_task(notify(data["event"], data.get("detail", ""), cooldown=0 if data["event"] in {"Account created", "Email verified"} else 300, severity=severity))
     return {"ok":True}

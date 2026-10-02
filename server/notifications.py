@@ -7,31 +7,52 @@ import urllib.request
 import logging
 
 _last = {}
-async def notify(event, detail="", cooldown=300):
+async def notify(event, detail="", cooldown=300, *, severity="routine"):
+    """Send routine events to Logs and explicit critical events to the owner too."""
+    if severity not in {"routine", "critical"}:
+        raise ValueError("Unsupported notification severity")
     token = os.getenv("TELEGRAM_BOT_TOKEN")
+    if not token: return
     topic = os.getenv("TELEGRAM_LOG_TOPIC_ID")
     destination = os.getenv("TELEGRAM_DESTINATION")
+    owner = os.getenv("TELEGRAM_OWNER_ID")
     if not topic:
-        # Mirror shares the durable metadata but never creates competing topics.
+        # Mirror shares durable metadata but never creates competing topics.
         try:
             import sqlite3
-            with sqlite3.connect(os.getenv("VN_DATABASE_PATH","data/vn-reader.sqlite3")) as db:
-                row=db.execute("SELECT value FROM tg_meta WHERE key='logs_topic_id'").fetchone()
-                topic=json.loads(row[0]) if row else None
+            with sqlite3.connect(os.getenv("VN_DATABASE_PATH", "data/vn-reader.sqlite3")) as db:
+                row = db.execute("SELECT value FROM tg_meta WHERE key='logs_topic_id'").fetchone()
+                topic = json.loads(row[0]) if row else None
         except Exception: pass
-    if not token or not topic or not destination: return
-    now = time.monotonic()
-    if now - _last.get(event, -cooldown) < cooldown: return
-    _last[event] = now
-    def send():
-        data = json.dumps({"chat_id": destination, "message_thread_id": int(topic),
-                           "text": f"vn reader · {event}\n{detail}"[:1000]}).encode()
-        req = urllib.request.Request(f"https://api.telegram.org/bot{token}/sendMessage", data=data,
-                                     headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=8) as response:
-            if not json.load(response).get("ok"): raise RuntimeError("Notification rejected")
-    try: await asyncio.to_thread(send)
-    except Exception: logging.getLogger(__name__).warning("Operator notification could not be delivered")
+    text = f"vn reader · {event}\n{detail}"[:1000]
+
+    async def deliver(route, payload, interval):
+        key = (route, event)
+        now = time.monotonic()
+        if now - _last.get(key, -float("inf")) < interval: return
+        # Set before awaiting so simultaneous failures cannot flood the operator.
+        _last[key] = now
+        def send():
+            req = urllib.request.Request(f"https://api.telegram.org/bot{token}/sendMessage",
+                data=json.dumps({**payload, "text": ("CRITICAL · " + text)[:1000] if route == "owner" else text}).encode(),
+                headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=8) as response:
+                if not json.load(response).get("ok"): raise RuntimeError("Notification rejected")
+        try: await asyncio.to_thread(send)
+        except Exception:
+            # Never print exceptions: Bot API URLs contain the bot credential.
+            logging.getLogger(__name__).warning("Operator %s notification could not be delivered", route)
+
+    deliveries = []
+    try:
+        topic_number = int(topic)
+        if topic_number > 0 and destination:
+            deliveries.append(deliver("topic", {"chat_id": destination, "message_thread_id": topic_number}, max(0, cooldown)))
+    except (TypeError, ValueError): pass
+    if severity == "critical" and owner:
+        # Owner delivery is independent of a missing, failing or throttled topic.
+        deliveries.append(deliver("owner", {"chat_id": owner}, max(300, cooldown)))
+    if deliveries: await asyncio.gather(*deliveries)
 
 async def configure_topic(store):
     # The operator supplies an existing topic. Never create another on restart.

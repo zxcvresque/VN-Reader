@@ -24,3 +24,24 @@ test('account events use authenticated internal relay and do not expose bot URL'
  assert.equal(calls[0].options.headers.Authorization,'Bearer test-secret');
  assert.deepEqual(JSON.parse(calls[0].options.body),{event:'Account created',detail:'A new reader signed up.'});
 });
+test('only critical events reach owner DM and repeated critical failures are throttled',async()=>{
+ const calls=[];const notify=createNotifier({botToken:'test',logTopicId:'4523',logDestination:'-1001',ownerId:'5988446905'},async(url,options)=>{calls.push(JSON.parse(options.body));return {ok:true,json:async()=>({ok:true})};});
+ await notify('Account created','A new reader signed up.',0);
+ assert.equal(calls.length,1);assert.equal(calls[0].chat_id,'-1001');
+ await notify('Account request failed','Internal error.',0,{severity:'critical'});
+ await notify('Account request failed','Internal error.',0,{severity:'critical'});
+ const owner=calls.filter(call=>call.chat_id==='5988446905');
+ assert.equal(owner.length,1);assert.equal(owner[0].message_thread_id,undefined);assert.match(owner[0].text,/^CRITICAL/);
+});
+test('critical owner alert bypasses unavailable archive relay and missing logs config',async()=>{
+ const calls=[];const notify=createNotifier({botToken:'test',eventUrl:'http://archive:8000/internal/events',ownerId:'5988446905'},async(url,options)=>{calls.push({url,body:JSON.parse(options.body)});if(url.includes('/internal/'))throw new Error('offline');return {ok:true,json:async()=>({ok:true})};});
+ await notify('Account service fatal','Service stopping.',300000,{severity:'critical'});
+ assert.ok(calls.some(call=>call.body.chat_id==='5988446905'));
+ const direct=[];const withoutTopic=createNotifier({botToken:'test',ownerId:'5988446905'},async(url,options)=>{direct.push(JSON.parse(options.body));return {ok:true,json:async()=>({ok:true})};});
+ await withoutTopic('Account service startup failed','',300000,{severity:'critical'});
+ assert.equal(direct.length,1);assert.equal(direct[0].chat_id,'5988446905');
+});
+test('failed notification delivery cannot reject account operations or leak transport errors',async()=>{
+ const notify=createNotifier({botToken:'test',ownerId:'5988446905'},async()=>{throw new Error('sensitive transport error');});
+ await assert.doesNotReject(()=>notify('Account service fatal','Service stopping.',300000,{severity:'critical'}));
+});

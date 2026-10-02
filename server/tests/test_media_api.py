@@ -63,7 +63,7 @@ class MediaAPITests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual((await client.post("/internal/events",headers=headers,json={"event":"arbitrary"})).status_code,422)
                 self.assertEqual((await client.post("/internal/events",headers=headers,json={"event":"Account created","detail":"A new reader signed up."})).status_code,200)
                 await asyncio.sleep(0)
-                notification.assert_awaited_once_with("Account created","A new reader signed up.",cooldown=0)
+                notification.assert_awaited_once_with("Account created","A new reader signed up.",cooldown=0,severity="routine")
 
     async def test_concurrent_disconnected_lookups_share_one_reconnect(self):
         import asyncio
@@ -118,3 +118,16 @@ class MediaAPITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(data,b"abcdefgh")
         self.assertEqual(fake.offsets,[0,4])
         refresh.assert_awaited_once()
+
+    async def test_internal_events_only_allow_critical_failure_types(self):
+        import asyncio
+        app = FastAPI(); app.include_router(telegram.router)
+        headers = {"Authorization":"Bearer test-secret"}
+        with patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN":"test-secret"}), patch.object(telegram,"notify",AsyncMock()) as notification:
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url="http://test") as client:
+                for payload in [{"event":[]}, {"event":"OTP email delivery failed","severity":[]}, {"event":"Account created","severity":"critical"}, {"event":"OTP email delivery failed","severity":"unknown"}, {"event":"OTP email delivery failed","detail":"x"*201}]:
+                    self.assertEqual((await client.post("/internal/events",headers=headers,json=payload)).status_code,422)
+                response = await client.post("/internal/events",headers=headers,json={"event":"Account service startup failed","detail":"Error","severity":"critical"})
+                self.assertEqual(response.status_code,200)
+                await asyncio.sleep(0)
+                notification.assert_awaited_once_with("Account service startup failed","Error",cooldown=300,severity="critical")
