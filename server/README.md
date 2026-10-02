@@ -182,3 +182,38 @@ variant for Content-Length, byte ranges, and downloads. Telegram's heaviest JPEG
 can differ from its largest-dimension JPEG; using generic `File.size` with an
 implicit download can truncate HTTP responses. Cached thumbnails use their
 embedded bytes, and progressive photos use the final scan size.
+
+Ranged downloads align physical requests to 256 KiB boundaries, then trim the
+requested HTTP range locally. This satisfies Telegram's rule that a request must
+stay inside one 1 MiB block, including video seeks near a block boundary.
+
+## Preserve and repair link previews
+
+A forwarded link preview is not a permanent photo attachment: Telegram can later
+return `WebPageEmpty` for the saved post. The mirror now saves available preview
+files as separate attachments in the same private archive group. Their durable
+`tg_media_copies` mapping leaves the original post, reply and caption IDs intact.
+The media API uses the attachment mapping when present.
+
+For previously copied posts, run the explicit repair on the VPS after rebuilding
+`archive`, `mirror` and `web`. Stop the watch process first so only one process uses
+the authorized reader session. With the deployment's `dc` helper defined:
+
+```sh
+(
+  set -e
+  dc stop mirror
+  trap 'dc up -d mirror' EXIT
+  dc run --rm --no-deps mirror python -u -m server.mirror repair-media
+)
+```
+
+The command checks all copied media, preserves existing preview images, and asks
+Telegram to regenerate confirmed expired previews using their original public
+article URLs. It prints repaired, healthy, unrecoverable and failed counts, and
+does not advance the mirror checkpoint or replace post text. Repeating it skips
+healthy attachment copies. A preview Telegram cannot regenerate remains an
+article card in the reader, with its saved title, site and link when available.
+An expired preview returns HTTP 410 with `X-Media-Status: link-preview-unavailable`;
+missing attached files remain a distinct HTTP 404. The reader retains retry for
+transient media failures.

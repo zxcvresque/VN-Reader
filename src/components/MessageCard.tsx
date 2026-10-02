@@ -1,7 +1,7 @@
 import CustomSelect from "./CustomSelect";
 import { useEffect, useMemo, useRef, useState, type SyntheticEvent } from "react";
 import { createPortal } from "react-dom";
-import {BookmarkIcon,BookmarkFilledIcon,CheckIcon,DotsHorizontalIcon} from "@radix-ui/react-icons";
+import {BookmarkIcon,BookmarkFilledIcon,CheckIcon,DotsHorizontalIcon,ExternalLinkIcon} from "@radix-ui/react-icons";
 import { getMediaObjectUrl } from "../lib/media";
 import type { BookmarkRecord, MessageRecord } from "../types";
 import TelegramRichText, { extractMessageEntities } from "./TelegramRichText";
@@ -86,6 +86,40 @@ function buildRelatedLinks(message: MessageRecord): string[] {
   );
 }
 
+function safeArticleUrl(value: string | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    if (!['https:', 'http:'].includes(url.protocol)) return null;
+    const hostname = url.hostname.toLowerCase().replace(/^www\./, '');
+    if (['t.me', 'telegram.me', 'telegram.dog'].includes(hostname)) return null;
+    url.username = '';
+    url.password = '';
+    return url.href;
+  } catch {
+    // Invalid archive links must never become clickable fallback URLs.
+    return null;
+  }
+}
+
+function originalArticleUrl(message: MessageRecord): string | null {
+  for (const value of [message.media_preview?.url, ...(message.external_urls ?? [])]) {
+    const url = safeArticleUrl(value);
+    if (url) return url;
+  }
+  return null;
+}
+
+function articleLinkTitle(url: string | null): string {
+  if (!url) return 'Original article';
+  const parsed = new URL(url);
+  const segment = parsed.pathname.split('/').filter(Boolean).at(-1) ?? '';
+  let slug = segment;
+  try { slug = decodeURIComponent(segment); } catch { /* Keep malformed URL escapes readable. */ }
+  const title = slug.replace(/\.(?:html?|php|aspx?)$/i, '').replace(/[-_]+/g, ' ').trim();
+  return title && /\p{L}/u.test(title) ? title : parsed.hostname.replace(/^www\./, '');
+}
+
 function MediaPreview({
   directoryHandle,
   message,
@@ -141,15 +175,24 @@ function MediaPreview({
   );
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [previewUnavailable, setPreviewUnavailable] = useState(false);
   const [attempt, setAttempt] = useState(0);
-  const failedMedia = () => setError("This media could not be loaded. Try again.");
+  const [failedSource, setFailedSource] = useState<{ messageKey: string; url: string | null } | null>(null);
+  const failedMedia = () => {
+    setFailedSource({ messageKey: message.message_key, url: objectUrl });
+    setError("This media could not be loaded. Try again.");
+  };
 
   useEffect(() => {
     let cancelled = false;
 
     async function load(): Promise<void> {
+      setPreviewUnavailable(false);
+      setError(null);
+      setFailedSource(null);
       if (!collapsed && message.media_path && /^\/api\/media\/\d+$/.test(message.media_path)) {
-        setObjectUrl(message.media_path); setError(null); return;
+        setObjectUrl(attempt ? `${message.media_path}?retry=${attempt}` : message.media_path);
+        return;
       }
       if (collapsed || !directoryHandle || !message.media_path) {
         setObjectUrl(null);
@@ -180,7 +223,27 @@ function MediaPreview({
     };
   }, [directoryHandle, message.media_path, message.message_key, collapsed, attempt]);
 
-  if (!message.media_present) {
+  useEffect(() => {
+    if (!error || collapsed || !objectUrl || failedSource?.messageKey !== message.message_key || failedSource.url !== objectUrl || !/^\/api\/media\/\d+$/.test(message.media_path ?? '')) return;
+    const controller = new AbortController();
+    let cancelled = false;
+    // Native image/video errors hide HTTP details. Only inspect failed hosted
+    // media, so successful images never need an extra API request.
+    void fetch(objectUrl, { method: 'HEAD', cache: 'no-store', signal: controller.signal })
+      .then((response) => {
+        if (!cancelled && response.status === 410 && response.headers.get('X-Media-Status') === 'link-preview-unavailable') {
+          setPreviewUnavailable(true);
+        }
+      })
+      .catch(() => { /* A failed diagnostic request leaves the normal retry available. */ });
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [error, failedSource, objectUrl, message.media_path, message.message_key, collapsed]);
+
+  const metadataOnlyPreview = !message.media_present && Boolean(safeArticleUrl(message.media_preview?.url));
+  if (!message.media_present && !metadataOnlyPreview) {
     return null;
   }
 
@@ -189,6 +252,24 @@ function MediaPreview({
       <span>{message.media_kind ?? "Media"} · hidden for focused reading</span>
       <button type="button" className="reader-inline-button" onClick={() => setExpanded(true)}>Show media</button>
     </div>;
+  }
+
+  if (previewUnavailable || metadataOnlyPreview) {
+    const articleUrl = originalArticleUrl(message);
+    const preview = articleUrl && safeArticleUrl(message.media_preview?.url) === articleUrl ? message.media_preview : null;
+    const title = preview?.title?.trim();
+    const description = preview?.description?.trim();
+    const hostname = articleUrl ? new URL(articleUrl).hostname.replace(/^www\./, '') : null;
+    const siteName = preview?.site_name?.trim() || hostname;
+    return <aside className="reader-media reader-media-file reader-link-preview" aria-label="Article preview">
+      <div className="reader-link-preview-content">
+        <p className="reader-link-preview-site">{siteName ?? 'Article preview'}</p>
+        <strong className="reader-link-preview-title">{title || articleLinkTitle(articleUrl)}</strong>
+        {description ? <p className="reader-link-preview-description">{description}</p> : null}
+        {!title ? <p className="reader-link-preview-caption">{articleUrl ? 'From the article link' : 'Find the original link in this post.'}</p> : null}
+      </div>
+      {articleUrl ? <a className="reader-inline-button reader-link-preview-open" href={articleUrl} target="_blank" rel="noopener noreferrer">Open article<ExternalLinkIcon aria-hidden="true" /></a> : null}
+    </aside>;
   }
 
   if ((!directoryHandle && !message.media_path?.startsWith("/api/media/")) || !message.media_path || error) {

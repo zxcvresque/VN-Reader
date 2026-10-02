@@ -3355,3 +3355,20 @@ body { isolation: isolate; background-attachment: fixed; }
   :root .reader-source-peek > header { grid-template-columns:minmax(0,1fr); }
   :root .reader-source-actions { justify-content:space-between; }
 }
+
+/* Archived article details remain useful when Telegram expires its preview image. */
+:root .reader-link-preview {
+  display:flex; flex-direction:column; align-items:flex-start; gap:16px;
+  padding:18px; min-width:0; background:var(--bg-1);
+  border:1px solid var(--border-strong); border-radius:12px; cursor:default;
+}
+:root .reader-link-preview-content { display:flex; flex-direction:column; gap:8px; min-width:0; width:100%; }
+:root .reader-link-preview p { margin:0; }
+:root .reader-link-preview-site { color:var(--accent); font-size:11px; font-weight:600; line-height:1.5; overflow-wrap:anywhere; }
+:root .reader-link-preview-title { color:var(--text); font-size:15px; line-height:1.5; overflow-wrap:anywhere; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:3; overflow:hidden; }
+:root .reader-link-preview-description { color:var(--text-muted); font-size:13px; line-height:1.6; overflow-wrap:anywhere; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:3; overflow:hidden; }
+:root .reader-link-preview-caption { color:var(--text-muted); font-size:11px; line-height:1.5; }
+:root .reader-link-preview-open { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:44px; padding:10px 14px; box-sizing:border-box; color:var(--accent); border:1px solid var(--border-strong); border-radius:8px; font-size:13px; line-height:20px; text-decoration:none; }
+:root .reader-link-preview-open svg { width:16px; height:16px; flex-shrink:0; }
+:root .reader-link-preview-open:hover { background:var(--accent-soft); }
+@media(max-width:479px) { :root .reader-link-preview { padding:16px; gap:12px; } }

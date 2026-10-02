@@ -15,6 +15,7 @@ import re
 import time
 import sys
 import copy
+import io
 from pathlib import Path
 import sqlite3
 from datetime import datetime, timezone, timedelta
@@ -40,6 +41,17 @@ def serialized(value):
     return json.loads(json.dumps(value, default=lambda x: utc(x) if hasattr(x, "isoformat") else None))
 
 
+def preview_metadata(webpage):
+    if webpage is None:return None
+    return {key:getattr(webpage,key,None) for key in ("url","title","description","site_name")}
+
+
+def merge_preview_metadata(existing, current):
+    merged=dict(existing or {})
+    merged.update({key:value for key,value in (current or {}).items() if value})
+    return merged or None
+
+
 def record(message, source):
     text = getattr(message, "message", None) or ""
     reply = getattr(message, "reply_to", None)
@@ -48,7 +60,7 @@ def record(message, source):
     document = getattr(message, "document", None)
     poll_media = getattr(message, "media", None)
     poll = getattr(poll_media, "poll", None)
-    media_kind = "photo" if photo else "document" if document else "webpage" if getattr(message, "web_preview", None) else None
+    media_kind = "photo" if photo else "document" if document else "webpage" if poll_media and poll_media.__class__.__name__ == "MessageMediaWebPage" else None
     if document:
         for attr in getattr(document, "attributes", []):
             kind = attr.__class__.__name__
@@ -80,6 +92,9 @@ def record(message, source):
         "views": getattr(message, "views", None), "forwards": getattr(message, "forwards", None),
         "permalink": f'https://t.me/{source["chat_username"]}/{message.id}' if source.get("chat_username") else None,
         "media_kind": media_kind, "media_present": bool(file), "media_path": f"/api/media/{message.id}" if file else None,
+        "media_origin": "link-preview" if poll_media and poll_media.__class__.__name__ == "MessageMediaWebPage" else "attachment" if file else None,
+        "media_preview_url": getattr(getattr(poll_media,"webpage",None),"url",None) if poll_media and poll_media.__class__.__name__ == "MessageMediaWebPage" else None,
+        "media_preview": preview_metadata(getattr(poll_media,"webpage",None)) if poll_media and poll_media.__class__.__name__ == "MessageMediaWebPage" else None,
         "media_download_error": None, "external_urls": list(dict.fromkeys(re.findall(r'https?://[^\s<>]+', text) + [e.url for e in (getattr(message, "entities", None) or []) if getattr(e, "url", None)])), "media_raw": {"mime_type": getattr(file, "mime_type", None), "name": getattr(file, "name", None), "size": getattr(file, "size", None)} if file else poll_snapshot,
         "reply_parent_id": parent, "reply_to_msg_id": parent, "reply_to_top_id": getattr(reply, "reply_to_top_id", None),
         "reply_to_peer_id": serialized(getattr(reply, "reply_to_peer_id", None)), "is_reply": parent is not None, "is_quote_reply": bool(quote_text),
@@ -116,6 +131,7 @@ class MirrorStore:
                 destination_id INTEGER NOT NULL,PRIMARY KEY(source_id,part));
             CREATE TABLE IF NOT EXISTS tg_quote_parts(source_id INTEGER NOT NULL,part INTEGER NOT NULL,
                 destination_id INTEGER,PRIMARY KEY(source_id,part));
+            CREATE TABLE IF NOT EXISTS tg_media_copies(source_id INTEGER PRIMARY KEY,destination_id INTEGER NOT NULL);
         """)
         self.db.commit()
 
@@ -134,6 +150,13 @@ class MirrorStore:
         self.set_meta("source", source)
     def row(self, source_id):
         return self.db.execute("SELECT * FROM tg_messages WHERE source_id=?", (source_id,)).fetchone()
+    def media_destination(self, source_id):
+        saved = self.db.execute("SELECT destination_id FROM tg_media_copies WHERE source_id=?", (source_id,)).fetchone()
+        original = self.row(source_id)
+        return saved[0] if saved else original["destination_id"] if original else None
+    def save_media_destination(self, source_id, destination_id):
+        with self.db:
+            self.db.execute("INSERT INTO tg_media_copies VALUES(?,?) ON CONFLICT(source_id) DO UPDATE SET destination_id=excluded.destination_id", (source_id, destination_id))
     def prepare(self, message, source):
         body = record(message, source)
         identity = self.meta("identity")
@@ -144,7 +167,15 @@ class MirrorStore:
     def complete(self, pairs, messages, source, advance=True):
         with self.db:
             for message, dest_id in zip(messages, pairs):
-                self.db.execute("UPDATE tg_messages SET destination_id=?,record=?,status='copied',error=NULL WHERE source_id=?", (dest_id, json.dumps(record(message, source)), message.id))
+                body=record(message,source)
+                previous=self.row(message.id)
+                old=json.loads(previous["record"]) if previous else {}
+                if body.get("media_origin")=="link-preview":
+                    body["media_preview"]=merge_preview_metadata(old.get("media_preview"),body.get("media_preview"))
+                    body["media_preview_url"]=body.get("media_preview_url") or old.get("media_preview_url")
+                    if self.db.execute("SELECT 1 FROM tg_media_copies WHERE source_id=?",(message.id,)).fetchone():
+                        body.update(media_present=True,media_path=f"/api/media/{message.id}",media_kind=old.get("media_kind") or body.get("media_kind"),media_raw=old.get("media_raw") or body.get("media_raw"))
+                self.db.execute("UPDATE tg_messages SET destination_id=?,record=?,status='copied',error=NULL WHERE source_id=?", (dest_id, json.dumps(body), message.id))
             if advance:
                 checkpoint = max(self.meta("checkpoint", 0), max(m.id for m in messages))
                 self.db.execute("INSERT INTO tg_meta VALUES ('checkpoint',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (json.dumps(checkpoint),))
@@ -236,6 +267,8 @@ class Mirror:
         rows = [self.store.prepare(m, self.source) for m in messages]
         pending = [(m, r) for m, r in zip(messages, rows) if r["status"] != "copied"]
         if not pending:
+            if hasattr(self.writer, "preserve_link_previews"):
+                await self.writer.preserve_link_previews(messages)
             self.store.complete([r["destination_id"] for r in rows], messages, self.source)
             return
         # Atomic albums are either entirely pending or entirely complete.
@@ -247,6 +280,12 @@ class Mirror:
         try:
             ids = await self.writer.send(messages, [r["random_id"] for r in rows], mapped_parent)
             if len(ids) != len(messages): raise RuntimeError("Telegram did not map every copied message")
+            # Keep the main post IDs for replies. Preview files live in separate,
+            # permanent attachments because Telegram may discard a WebPage later.
+            with self.store.db:
+                self.store.db.executemany("UPDATE tg_messages SET destination_id=? WHERE source_id=?", [(d, m.id) for d, m in zip(ids, messages)])
+            if hasattr(self.writer, "preserve_link_previews"):
+                await self.writer.preserve_link_previews(messages)
             self.store.complete(ids, messages, self.source)
             if self.progress: self.progress("Copied", messages[-1])
         except Exception as exc:
@@ -315,12 +354,72 @@ def caption_parts(message):
 
 
 class TelegramWriter:
-    def __init__(self, client, destination, topic_id=None, source_peer=None, store=None):
+    def __init__(self, client, destination, topic_id=None, source_peer=None, store=None, reader=None):
         self.client, self.destination, self.topic_id, self.source_peer = client, destination, topic_id, source_peer
         self.store=store
+        self.reader=reader
+    async def preserve_link_previews(self, messages):
+        from telethon import types
+        for message in messages:
+            if not isinstance(getattr(message, "media", None), types.MessageMediaWebPage):
+                continue
+            existing=self.store.db.execute("SELECT destination_id FROM tg_media_copies WHERE source_id=?",(message.id,)).fetchone() if self.store else None
+            if existing: continue
+            original_file=getattr(message,"file",None)
+            if not original_file:
+                row=self.store.row(message.id) if self.store else None
+                old=json.loads(row["record"]) if row else {}
+                if not old.get("media_present"):continue
+                # Retrying a pending batch must not silently drop a preview that
+                # expired after its original read but before preservation finished.
+                if not original_file:raise RuntimeError("Original preview expired before preservation; checkpoint retained")
+            refreshed=await asyncio.wait_for(self.client.get_messages(self.source_peer,ids=message.id),timeout=20) if self.source_peer is not None else message
+            file=getattr(refreshed,"file",None)
+            # A bot reference is preferred; fall back to bounded reader upload if
+            # the preview disappeared between source read and destination write.
+            await self.save_preview_file(message.id,file or original_file,self.client if file else self.reader)
+    async def save_preview_file(self, source_id, file, download_client=None, replace=False):
+        """Archive an actual attachment without replacing the post/reply mapping."""
+        from telethon import functions, types, utils
+        existing=self.store.db.execute("SELECT destination_id FROM tg_media_copies WHERE source_id=?",(source_id,)).fetchone() if self.store else None
+        if existing and not replace:return existing[0]
+        row=self.store.row(source_id) if self.store else None
+        if not row:raise RuntimeError("Preview has no durable source mapping")
+        if not file or not getattr(file,"media",None):raise RuntimeError("Preview file is unavailable")
+        limit=32*1024*1024
+        revision=f":replace:{existing[0]}" if existing and replace else ""
+        random_id=int.from_bytes(hashlib.sha256(f"vn-preview:{row['random_id']}{revision}".encode()).digest()[:8],"big") & ((1<<63)-1)
+        reply=types.InputReplyToMessage(reply_to_msg_id=row["destination_id"] or self.topic_id,top_msg_id=self.topic_id or None) if row["destination_id"] or self.topic_id else None
+        common=dict(peer=self.destination,message=f"Archived preview for post #{source_id}",random_id=random_id,silent=True,reply_to=reply)
+        try:
+            result=await asyncio.wait_for(self.client(functions.messages.SendMediaRequest(media=utils.get_input_media(file.media),**common)),timeout=30)
+        except Exception as exc:
+            # File references may belong to the reader account. Download only the
+            # selected Telegram file, never the public website or arbitrary bytes.
+            if download_client is None or exc.__class__.__name__ not in {"FileReferenceExpiredError","FileReferenceInvalidError","MediaEmptyError","PhotoInvalidError","DocumentInvalidError","FileIdInvalidError"}:
+                raise
+            if not isinstance(file.size,int) or file.size<=0 or file.size>limit:
+                raise RuntimeError("Preview exceeds the bounded 32 MiB upload fallback limit") from exc
+            class LimitedBuffer(io.BytesIO):
+                def write(self,data):
+                    if self.tell()+len(data)>limit:raise RuntimeError("Preview exceeds the bounded preservation limit")
+                    return super().write(data)
+            with LimitedBuffer() as buffer:
+                await asyncio.wait_for(download_client.download_media(file.media,file=buffer),timeout=120)
+                if not buffer.tell():raise RuntimeError("Preview download was empty")
+                buffer.seek(0)
+                uploaded=await asyncio.wait_for(self.client.upload_file(buffer,file_name=file.name or "preview.jpg"),timeout=120)
+                media=types.InputMediaUploadedPhoto(uploaded) if isinstance(file.media,types.Photo) else types.InputMediaUploadedDocument(uploaded,mime_type=file.mime_type or "application/octet-stream",attributes=file.media.attributes)
+                result=await asyncio.wait_for(self.client(functions.messages.SendMediaRequest(media=media,**common)),timeout=30)
+        destination_id=self.mapped_ids(result,[random_id],types)[0]
+        self.store.save_media_destination(source_id,destination_id)
+        return destination_id
     async def send(self, messages, random_ids, parent):
         from telethon import functions, types, utils
         if self.source_peer is not None and parent is None:
+            rows=[self.store.row(m.id) for m in messages] if self.store else []
+            if rows and all(r and r["status"]=="pending" and r["destination_id"] for r in rows):
+                return [r["destination_id"] for r in rows]
             # One native Telegram request carries mixed text/media/polls and albums.
             # No media-reference lookup, download, or upload is needed for forwarding.
             request=functions.messages.ForwardMessagesRequest(from_peer=self.source_peer,
@@ -511,6 +610,95 @@ def configuration():
     }
 
 
+def public_preview_urls(message, body):
+    """Use recorded public HTTP links; do not fetch local/private addresses."""
+    import ipaddress
+    from urllib.parse import urlsplit
+    webpage=getattr(getattr(message,"media",None),"webpage",None)
+    known=body.get("media_preview_url") or getattr(webpage,"url",None)
+    candidates=[known] if known else body.get("external_urls") or []
+    urls=[]
+    for url in candidates:
+        if not isinstance(url,str) or len(url)>4096:continue
+        try:
+            parsed=urlsplit(url)
+            host=(parsed.hostname or "").lower()
+            if parsed.scheme not in {"http","https"} or parsed.username or parsed.password or "." not in host:continue
+            if host in {"t.me","telegram.me","localhost"} or host.endswith((".localhost",".local")):continue
+            try:
+                if not ipaddress.ip_address(host).is_global:continue
+            except ValueError:pass
+        except ValueError:continue
+        if url not in urls:urls.append(url)
+    # Legacy records with no preview URL are recoverable only when there is one
+    # unambiguous article link. Never attach an unrelated image from another URL.
+    return urls[:1] if known or len(urls)==1 else []
+
+
+async def repair_media(reader, writer, store, source_peer, progress=None):
+    """Explicit operator repair of saved previews, without reimporting posts."""
+    from telethon import functions,types
+    from telethon.tl.custom.file import File
+    rows=[row for row in store.db.execute("SELECT * FROM tg_messages WHERE status IN ('copied','pending') AND destination_id IS NOT NULL ORDER BY source_id") if json.loads(row["record"]).get("media_present")]
+    counts={"checked":0,"healthy":0,"repaired":0,"unrecoverable":0,"failed":0}
+    for start in range(0,len(rows),100):
+        batch=rows[start:start+100]
+        ids=[store.media_destination(row["source_id"]) for row in batch]
+        saved=await asyncio.wait_for(writer.client.get_messages(writer.destination,ids=ids),timeout=30)
+        saved_by_id={message.id:message for message in saved if message}
+        for row,destination_id in zip(batch,ids):
+            source_id=row["source_id"];counts["checked"]+=1
+            body=json.loads(row["record"])
+            message=saved_by_id.get(destination_id)
+            preview=isinstance(getattr(message,"media",None),types.MessageMediaWebPage)
+            if getattr(message,"file",None) and not preview:
+                counts["healthy"]+=1
+                continue
+            try:
+                if preview and getattr(message,"file",None):
+                    file=message.file;download_client=writer.client
+                    webpage=message.media.webpage
+                else:
+                    source=await asyncio.wait_for(reader.get_messages(source_peer,ids=source_id),timeout=20)
+                    # Legacy records lack media_origin. Only classify them using
+                    # the actual source type; missing attachments are not previews.
+                    if not (preview or body.get("media_origin")=="link-preview" or isinstance(getattr(source,"media",None),types.MessageMediaWebPage)):
+                        counts["unrecoverable"]+=1
+                        if progress:progress.notice("MEDIA",f"Post #{source_id} · stored attachment unavailable")
+                        continue
+                    webpage=getattr(getattr(source,"media",None),"webpage",None)
+                    file=getattr(source,"file",None);download_client=reader
+                    if not file:
+                        for url in public_preview_urls(source,body):
+                            refreshed=await asyncio.wait_for(reader(functions.messages.GetWebPagePreviewRequest(message=url)),timeout=20)
+                            media=getattr(refreshed,"media",refreshed)
+                            webpage=getattr(media,"webpage",None)
+                            blob=getattr(webpage,"document",None) or getattr(webpage,"photo",None)
+                            if blob:
+                                file=File(blob)
+                                break
+                body["media_origin"]="link-preview"
+                body["media_preview"]=merge_preview_metadata(body.get("media_preview"),preview_metadata(webpage))
+                body["media_preview_url"]=(body.get("media_preview") or {}).get("url") or body.get("media_preview_url")
+                with store.db:store.db.execute("UPDATE tg_messages SET record=? WHERE source_id=?",(json.dumps(body),source_id))
+                if not file:
+                    counts["unrecoverable"]+=1
+                    if progress:progress.notice("MEDIA",f"Post #{source_id} · preview no longer supplied by Telegram")
+                    continue
+                # An earlier dedicated copy can be deleted externally. Preserve
+                # it until a new send succeeds, then atomically replace its ID.
+                old=store.db.execute("SELECT destination_id FROM tg_media_copies WHERE source_id=?",(source_id,)).fetchone()
+                await writer.save_preview_file(source_id,file,download_client,replace=bool(old))
+                counts["repaired"]+=1
+                if progress:progress.notice("REPAIRED",f"Post #{source_id} · permanent Telegram attachment saved")
+            except Exception as exc:
+                if exc.__class__.__name__=="FloodWaitError":raise
+                counts["failed"]+=1
+                if progress:progress.notice("MEDIA",f"Post #{source_id} · {error_label(exc)}")
+    if progress:progress.notice("MEDIA SUMMARY"," · ".join(f"{key}: {value}" for key,value in counts.items()))
+    return counts
+
+
 async def run(command):
     # Await fatal alerts before asyncio.run closes its loop and cancels tasks.
     state = {"started": False, "alerted": False}
@@ -559,6 +747,8 @@ async def _run(command, state):
         store = MirrorStore(config["database"])
         store.bind(source, config["destination"])
         topic_id = config["topic_id"] if config["topic_id"] is not None else store.meta("archive_topic_id")
+        if command=="repair-media" and getattr(destination,"forum",False) and topic_id is None:
+            raise RuntimeError("Configure the existing archive topic before media repair")
         if getattr(destination, "forum", False) and topic_id is None:
             try:
                 result = await bot(functions.messages.CreateForumTopicRequest(peer=peer, title="VidurNeeti archive",
@@ -575,7 +765,13 @@ async def _run(command, state):
         elif topic_id:
             store.set_meta("archive_topic_id", topic_id)
         progress = TerminalProgress(store)
-        mirror = Mirror(reader, TelegramWriter(bot, peer, topic_id, bot_source,store), store, source, entity,
+        writer=TelegramWriter(bot,peer,topic_id,bot_source,store,reader=reader)
+        if command=="repair-media":
+            state["started"]=True
+            counts=await repair_media(reader,writer,store,entity,progress)
+            if counts["failed"]:raise RuntimeError("Media repair encountered failures; original post mappings retained")
+            return
+        mirror = Mirror(reader, writer, store, source, entity,
             settle_live_albums=command=="watch", progress=progress, batch_size=100)
         progress.notice("ARCHIVE", f"{entity.title} · saved progress will be resumed · Ctrl+C stops safely")
         asyncio.create_task(notify("Archive mirror started"))
@@ -640,7 +836,7 @@ async def _run(command, state):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["login", "backfill", "watch"])
+    parser.add_argument("command", choices=["login", "backfill", "watch", "repair-media"])
     parser.add_argument("--env-file", default="server/.env", help="Operator configuration (never committed)")
     args = parser.parse_args()
     from dotenv import load_dotenv

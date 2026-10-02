@@ -85,8 +85,15 @@ async def telegram_chunks(client, message, start, end, disconnected=None, refres
             if not disconnected or not await disconnected():
                 yield location[position:end + 1]
             return
-        download_options = {"offset": position, "request_size": CHUNK_SIZE,
-                            "chunk_size": CHUNK_SIZE, "file_size": file_size}
+        # Telegram requires each getFile request to stay inside a single 1 MiB
+        # block. Telethon can use its direct iterator for a merely 4 KiB-aligned
+        # range offset, whose 256 KiB request may cross that boundary. Align the
+        # physical download ourselves, then trim the HTTP range prefix locally.
+        download_offset = position - position % CHUNK_SIZE
+        prefix = position - download_offset
+        download_options = {"offset": download_offset, "request_size": CHUNK_SIZE,
+                            "chunk_size": CHUNK_SIZE, "file_size": file_size,
+                            "limit": (end - download_offset) // CHUNK_SIZE + 1}
         if dc_id is not None:
             download_options["dc_id"] = dc_id
         iterator = client.iter_download(location, **download_options)
@@ -94,7 +101,14 @@ async def telegram_chunks(client, message, start, end, disconnected=None, refres
             async for chunk in iterator:
                 if disconnected and await disconnected():
                     return
-                data = bytes(chunk)[:end - position + 1]
+                data = bytes(chunk)
+                if prefix:
+                    skipped = min(prefix, len(data))
+                    prefix -= skipped
+                    data = data[skipped:]
+                    if not data:
+                        continue
+                data = data[:end - position + 1]
                 if not data:
                     break
                 position += len(data)

@@ -136,7 +136,7 @@ class PhotoVariantTests(unittest.IsolatedAsyncioTestCase):
                     if len(self.requests) == 1:
                         yield b"abcd"
                         raise FileReferenceExpiredError()
-                    yield b"efgh"
+                    yield b"abcdefgh"[kwargs["offset"]:]
                 return chunks()
         fake = RefreshClient()
         async def refresh():
@@ -144,7 +144,7 @@ class PhotoVariantTests(unittest.IsolatedAsyncioTestCase):
         result = b"".join([part async for part in telegram_chunks(
             fake, original, 0, 7, refresh=refresh)])
         self.assertEqual(result, b"abcdefgh")
-        self.assertEqual([options["offset"] for _, options in fake.requests], [0, 4])
+        self.assertEqual([options["offset"] for _, options in fake.requests], [0, 0])
         self.assertEqual([location.thumb_size for location, _ in fake.requests], ["y", "y"])
         self.assertEqual([location.file_reference for location, _ in fake.requests],
                          [b"original-reference", b"fresh-reference"])

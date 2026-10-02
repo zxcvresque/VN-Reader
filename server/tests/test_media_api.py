@@ -106,17 +106,17 @@ class MediaAPITests(unittest.IsolatedAsyncioTestCase):
                 offset = kwargs["offset"]
                 self.offsets.append(offset)
                 async def chunks():
-                    if offset == 0:
+                    if len(self.offsets) == 1:
                         yield b"abcd"
                         raise ConnectionError("disconnected mid-download")
-                    yield b"efgh"
+                    yield b"abcdefgh"[offset:]
                 return chunks()
         fake = FakeClient()
         message = SimpleNamespace(media="photo",file=SimpleNamespace(size=8))
         refresh = AsyncMock(return_value=message)
         data = b"".join([part async for part in telegram_chunks(fake,message,0,7,refresh=refresh)])
         self.assertEqual(data,b"abcdefgh")
-        self.assertEqual(fake.offsets,[0,4])
+        self.assertEqual(fake.offsets,[0,0])
         refresh.assert_awaited_once()
 
     async def test_internal_events_only_allow_critical_failure_types(self):
@@ -143,7 +143,7 @@ class MediaAPITests(unittest.IsolatedAsyncioTestCase):
                     if self.broken:
                         yield b"abcd"
                         raise AuthKeyDuplicatedError()
-                    yield b"efgh"
+                    yield b"abcdefgh"[kwargs["offset"]:]
                 return chunks()
         old, new = Client(True), Client(False)
         current = [old]
@@ -154,4 +154,4 @@ class MediaAPITests(unittest.IsolatedAsyncioTestCase):
         data = b"".join([part async for part in telegram_chunks(old,message,0,7,refresh=refresh,get_client=lambda:current[0])])
         self.assertEqual(data,b"abcdefgh")
         self.assertEqual(old.offsets,[0])
-        self.assertEqual(new.offsets,[4])
+        self.assertEqual(new.offsets,[0])

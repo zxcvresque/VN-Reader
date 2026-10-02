@@ -98,6 +98,7 @@ function toMessageSeed(input: ArchiveMessage | MessageRecord): MessageSeed {
     media_present: input.media_present,
     media_path: input.media_path,
     media_download_error: input.media_download_error,
+    media_preview: input.media_preview,
     external_urls: Array.isArray(input.external_urls) ? input.external_urls : [],
     media_raw: input.media_raw,
     reply_parent_id: input.reply_parent_id ?? input.reply_to_msg_id,

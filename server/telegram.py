@@ -178,8 +178,12 @@ async def media(source_id: int, request: Request):
         async def fetch():
             global _client, _destination, _last_error
             client, destination = _client, _destination
+            # Preview images are saved as real attachments separately from the
+            # original post, whose ID must remain stable for replies/quotes.
+            media_destination = getattr(_store, "media_destination", None)
+            destination_id = media_destination(source_id) if media_destination else row["destination_id"]
             try:
-                return await asyncio.wait_for(client.get_messages(destination, ids=row["destination_id"]), timeout=20)
+                return await asyncio.wait_for(client.get_messages(destination, ids=destination_id), timeout=20)
             except Exception as exc:
                 invalid_auth = exc.__class__.__name__ in {"AuthKeyDuplicatedError", "AuthKeyUnregisteredError", "SessionRevokedError", "SessionExpiredError"}
                 if invalid_auth:
@@ -199,11 +203,17 @@ async def media(source_id: int, request: Request):
                     raise
                 if _client is None:
                     raise ConnectionError("Telegram connection is recovering")
-                result = await asyncio.wait_for(_client.get_messages(_destination, ids=row["destination_id"]), timeout=20)
+                result = await asyncio.wait_for(_client.get_messages(_destination, ids=destination_id), timeout=20)
                 asyncio.create_task(notify("Telegram media connection recovered"))
                 return result
         message = await fetch()
         if not message or not message.file or message.file.size is None:
+            from telethon.tl.types import MessageMediaWebPage
+            if message and isinstance(getattr(message, "media", None), MessageMediaWebPage):
+                # A Telegram link preview can disappear while the saved text
+                # remains. Distinguish this from a broken attached photo/video.
+                raise HTTPException(410, "Telegram no longer provides media for this link preview",
+                                    headers={"X-Media-Status": "link-preview-unavailable", "Cache-Control": "no-store"})
             raise HTTPException(404, "Stored media not found")
         _, _, size = media_file_info(message)
         # If-Range mismatch falls back to the whole representation.

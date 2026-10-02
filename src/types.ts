@@ -56,6 +56,12 @@ export interface ArchiveMessage {
   media_present: boolean;
   media_path: string | null;
   media_download_error: string | null;
+  media_preview?: {
+    url?: string | null;
+    title?: string | null;
+    description?: string | null;
+    site_name?: string | null;
+  } | null;
   external_urls: string[];
   media_raw: unknown;
   reply_parent_id: number | null;
