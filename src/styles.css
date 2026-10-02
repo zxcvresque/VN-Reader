@@ -3141,7 +3141,7 @@ body { isolation: isolate; background-attachment: fixed; }
 :root:not([data-theme="vercel"]) .minimal-nav .nav-action{border:1px solid var(--border-strong);background:var(--bg-1)}
 
 /* Refined reading dock: controls sit inside an even breathing margin. */
-:root:not([data-focus="true"]):is([data-nav-position="top"],[data-nav-position="bottom"]) .minimal-nav{height:80px;grid-template-columns:minmax(64px,1fr) auto auto;align-items:center;gap:20px;padding:14px 20px;border:1px solid var(--border-strong);border-radius:16px}
+:root:not([data-focus="true"]):is([data-nav-position="top"],[data-nav-position="bottom"]) .minimal-nav{height:72px;grid-template-columns:44px auto auto;align-items:center;gap:20px;padding:12px 16px;border:1px solid var(--border-strong);border-radius:16px}
 :root .minimal-nav .view-switch{padding:0;border:0;background:transparent;box-shadow:none;gap:8px;width:440px}
 :root .minimal-nav .view-switch button{height:44px;min-height:44px;border-radius:10px;padding:10px 14px;gap:9px;font-size:12px;font-weight:500}
 :root .minimal-nav .top-bar-actions{align-items:center;align-self:center;gap:10px;flex-wrap:nowrap}
@@ -3150,3 +3150,6 @@ body { isolation: isolate; background-attachment: fixed; }
 @media(max-width:767px){:root .minimal-nav{height:80px!important;min-height:80px;grid-template-columns:minmax(44px,1fr) auto!important;align-items:center;gap:12px;padding:12px 16px!important;border:1px solid var(--border-strong);border-radius:16px}:root .minimal-nav .top-bar-actions{gap:10px;padding:0;border:0;flex-direction:row}:root .minimal-nav .nav-action{height:52px!important;width:52px!important;min-width:52px!important;border-radius:10px}:root .minimal-nav .top-bar-mark{width:38px;height:38px;min-width:38px}:root .minimal-nav .top-bar-channel{width:44px}:root .minimal-nav .top-bar-menu-panel .view-switch{width:100%}:root:not([data-focus="true"]):is([data-nav-position="top"],[data-nav-position="left"],[data-nav-position="right"]) .app-shell{padding-top:112px}}
 
 @media(min-width:1180px){:root:not([data-focus="true"])[data-nav-position="top"] .app-shell.has-thread-panel,:root:not([data-focus="true"])[data-nav-position="bottom"] .app-shell.has-thread-panel{padding-right:380px}}
+
+/* Keep desktop navigation fitted to its contents, without a stretched logo column. */
+@media(min-width:768px){:root:not([data-focus="true"]):is([data-nav-position="top"],[data-nav-position="bottom"]) .minimal-nav{width:max-content;max-width:calc(100vw - 32px)}:root:not([data-focus="true"]):is([data-nav-position="top"],[data-nav-position="bottom"]) .app-shell{padding-top:100px}}
