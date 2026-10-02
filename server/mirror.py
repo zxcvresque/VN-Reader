@@ -353,6 +353,21 @@ def caption_parts(message):
     return parts or [("",[])]
 
 
+async def telegram_operation(operation, *, timeout, flood_waiter=None):
+    """Retry the same operation after Telegram's explicit rate-limit interval.
+
+    The watch loop already handles FloodWait. An operator repair supplies its
+    own countdown so even nested upload/send requests can resume in place.
+    """
+    while True:
+        try:
+            return await asyncio.wait_for(operation(), timeout=timeout)
+        except Exception as exc:
+            if exc.__class__.__name__ != "FloodWaitError" or flood_waiter is None:
+                raise
+            await flood_waiter(max(1, int(exc.seconds)) + 1)
+
+
 class TelegramWriter:
     def __init__(self, client, destination, topic_id=None, source_peer=None, store=None, reader=None):
         self.client, self.destination, self.topic_id, self.source_peer = client, destination, topic_id, source_peer
@@ -378,7 +393,7 @@ class TelegramWriter:
             # A bot reference is preferred; fall back to bounded reader upload if
             # the preview disappeared between source read and destination write.
             await self.save_preview_file(message.id,file or original_file,self.client if file else self.reader)
-    async def save_preview_file(self, source_id, file, download_client=None, replace=False):
+    async def save_preview_file(self, source_id, file, download_client=None, replace=False, *, flood_waiter=None):
         """Archive an actual attachment without replacing the post/reply mapping."""
         from telethon import functions, types, utils
         existing=self.store.db.execute("SELECT destination_id FROM tg_media_copies WHERE source_id=?",(source_id,)).fetchone() if self.store else None
@@ -391,8 +406,9 @@ class TelegramWriter:
         random_id=int.from_bytes(hashlib.sha256(f"vn-preview:{row['random_id']}{revision}".encode()).digest()[:8],"big") & ((1<<63)-1)
         reply=types.InputReplyToMessage(reply_to_msg_id=row["destination_id"] or self.topic_id,top_msg_id=self.topic_id or None) if row["destination_id"] or self.topic_id else None
         common=dict(peer=self.destination,message=f"Archived preview for post #{source_id}",random_id=random_id,silent=True,reply_to=reply)
+        request=functions.messages.SendMediaRequest(media=utils.get_input_media(file.media),**common)
         try:
-            result=await asyncio.wait_for(self.client(functions.messages.SendMediaRequest(media=utils.get_input_media(file.media),**common)),timeout=30)
+            result=await telegram_operation(lambda:self.client(request),timeout=30,flood_waiter=flood_waiter)
         except Exception as exc:
             # File references may belong to the reader account. Download only the
             # selected Telegram file, never the public website or arbitrary bytes.
@@ -405,12 +421,19 @@ class TelegramWriter:
                     if self.tell()+len(data)>limit:raise RuntimeError("Preview exceeds the bounded preservation limit")
                     return super().write(data)
             with LimitedBuffer() as buffer:
-                await asyncio.wait_for(download_client.download_media(file.media,file=buffer),timeout=120)
+                async def download():
+                    # A rate-limited download may have already written a prefix.
+                    buffer.seek(0);buffer.truncate(0)
+                    return await download_client.download_media(file.media,file=buffer)
+                await telegram_operation(download,timeout=120,flood_waiter=flood_waiter)
                 if not buffer.tell():raise RuntimeError("Preview download was empty")
-                buffer.seek(0)
-                uploaded=await asyncio.wait_for(self.client.upload_file(buffer,file_name=file.name or "preview.jpg"),timeout=120)
+                async def upload():
+                    buffer.seek(0)
+                    return await self.client.upload_file(buffer,file_name=file.name or "preview.jpg")
+                uploaded=await telegram_operation(upload,timeout=120,flood_waiter=flood_waiter)
                 media=types.InputMediaUploadedPhoto(uploaded) if isinstance(file.media,types.Photo) else types.InputMediaUploadedDocument(uploaded,mime_type=file.mime_type or "application/octet-stream",attributes=file.media.attributes)
-                result=await asyncio.wait_for(self.client(functions.messages.SendMediaRequest(media=media,**common)),timeout=30)
+                request=functions.messages.SendMediaRequest(media=media,**common)
+                result=await telegram_operation(lambda:self.client(request),timeout=30,flood_waiter=flood_waiter)
         destination_id=self.mapped_ids(result,[random_id],types)[0]
         self.store.save_media_destination(source_id,destination_id)
         return destination_id
@@ -639,12 +662,18 @@ async def repair_media(reader, writer, store, source_peer, progress=None):
     """Explicit operator repair of saved previews, without reimporting posts."""
     from telethon import functions,types
     from telethon.tl.custom.file import File
+    async def flood_waiter(seconds):
+        if progress:
+            await progress.wait(seconds)
+        else:
+            log.warning("Telegram rate limit; resuming this media repair in %ss",seconds)
+            await asyncio.sleep(seconds)
     rows=[row for row in store.db.execute("SELECT * FROM tg_messages WHERE status IN ('copied','pending') AND destination_id IS NOT NULL ORDER BY source_id") if json.loads(row["record"]).get("media_present")]
     counts={"checked":0,"healthy":0,"repaired":0,"unrecoverable":0,"failed":0}
     for start in range(0,len(rows),100):
         batch=rows[start:start+100]
         ids=[store.media_destination(row["source_id"]) for row in batch]
-        saved=await asyncio.wait_for(writer.client.get_messages(writer.destination,ids=ids),timeout=30)
+        saved=await telegram_operation(lambda:writer.client.get_messages(writer.destination,ids=ids),timeout=30,flood_waiter=flood_waiter)
         saved_by_id={message.id:message for message in saved if message}
         for row,destination_id in zip(batch,ids):
             source_id=row["source_id"];counts["checked"]+=1
@@ -659,7 +688,7 @@ async def repair_media(reader, writer, store, source_peer, progress=None):
                     file=message.file;download_client=writer.client
                     webpage=message.media.webpage
                 else:
-                    source=await asyncio.wait_for(reader.get_messages(source_peer,ids=source_id),timeout=20)
+                    source=await telegram_operation(lambda:reader.get_messages(source_peer,ids=source_id),timeout=20,flood_waiter=flood_waiter)
                     # Legacy records lack media_origin. Only classify them using
                     # the actual source type; missing attachments are not previews.
                     if not (preview or body.get("media_origin")=="link-preview" or isinstance(getattr(source,"media",None),types.MessageMediaWebPage)):
@@ -670,7 +699,8 @@ async def repair_media(reader, writer, store, source_peer, progress=None):
                     file=getattr(source,"file",None);download_client=reader
                     if not file:
                         for url in public_preview_urls(source,body):
-                            refreshed=await asyncio.wait_for(reader(functions.messages.GetWebPagePreviewRequest(message=url)),timeout=20)
+                            request=functions.messages.GetWebPagePreviewRequest(message=url)
+                            refreshed=await telegram_operation(lambda:reader(request),timeout=20,flood_waiter=flood_waiter)
                             media=getattr(refreshed,"media",refreshed)
                             webpage=getattr(media,"webpage",None)
                             blob=getattr(webpage,"document",None) or getattr(webpage,"photo",None)
@@ -688,7 +718,7 @@ async def repair_media(reader, writer, store, source_peer, progress=None):
                 # An earlier dedicated copy can be deleted externally. Preserve
                 # it until a new send succeeds, then atomically replace its ID.
                 old=store.db.execute("SELECT destination_id FROM tg_media_copies WHERE source_id=?",(source_id,)).fetchone()
-                await writer.save_preview_file(source_id,file,download_client,replace=bool(old))
+                await writer.save_preview_file(source_id,file,download_client,replace=bool(old),flood_waiter=flood_waiter)
                 counts["repaired"]+=1
                 if progress:progress.notice("REPAIRED",f"Post #{source_id} · permanent Telegram attachment saved")
             except Exception as exc:

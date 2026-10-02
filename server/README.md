@@ -214,6 +214,10 @@ article URLs. It prints repaired, healthy, unrecoverable and failed counts, and
 does not advance the mirror checkpoint or replace post text. Repeating it skips
 healthy attachment copies. A preview Telegram cannot regenerate remains an
 article card in the reader, with its saved title, site and link when available.
+Telegram rate limits show a countdown and resume the same repair request after
+the required wait, including download, upload and attachment-send operations.
+Let that countdown finish. If interrupted, rerun the repair: completed attachment
+mappings are saved and healthy copies are skipped.
 An expired preview returns HTTP 410 with `X-Media-Status: link-preview-unavailable`;
 missing attached files remain a distinct HTTP 404. The reader retains retry for
 transient media failures.
