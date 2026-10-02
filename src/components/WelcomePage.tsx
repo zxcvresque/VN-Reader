@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { THEMES, type ThemeId } from "../lib/preferences";
 import type { ArchiveManifest, MessageRecord } from "../types";
 import SignupCapacity from "./SignupCapacity";
@@ -87,6 +87,18 @@ export default function WelcomePage({ theme, onThemeChange, onGuest, onSignIn, o
   const themePicker=useRef<HTMLDivElement>(null);
   const themeTrigger=useRef<HTMLButtonElement>(null);
   const activeTheme=THEMES.find(t=>t.id===theme)??THEMES[0];
+  const tiltPages = (event: ReactPointerEvent<HTMLElement>) => {
+    if (event.pointerType !== "mouse" || !window.matchMedia("(hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference)").matches) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = Math.max(-1, Math.min(1, (event.clientX - rect.left) / rect.width * 2 - 1));
+    const y = Math.max(-1, Math.min(1, (event.clientY - rect.top) / rect.height * 2 - 1));
+    event.currentTarget.style.setProperty("--stack-tilt-x", `${-y * 3}deg`);
+    event.currentTarget.style.setProperty("--stack-tilt-y", `${x * 4}deg`);
+  };
+  const resetPages = (event: ReactPointerEvent<HTMLElement>) => {
+    event.currentTarget.style.removeProperty("--stack-tilt-x");
+    event.currentTarget.style.removeProperty("--stack-tilt-y");
+  };
   useEffect(()=>{if(!themeOpen)return;const outside=(e:PointerEvent)=>{if(!themePicker.current?.contains(e.target as Node))setThemeOpen(false);};const key=(e:KeyboardEvent)=>{if(e.key==="Escape"){setThemeOpen(false);themeTrigger.current?.focus();}};document.addEventListener("pointerdown",outside);document.addEventListener("keydown",key);return()=>{document.removeEventListener("pointerdown",outside);document.removeEventListener("keydown",key);};},[themeOpen]);
   // A real archive passage, not invented marketing copy or a simulated reader.
   const preview = messages.find(m => m.text.length > 240 && !/rules|guidelines/i.test(m.text.slice(0, 100)));
@@ -101,7 +113,7 @@ export default function WelcomePage({ theme, onThemeChange, onGuest, onSignIn, o
             <div className="welcome-entry-actions"><button type="button" className="welcome-primary" aria-describedby="welcome-guest-storage" onClick={onGuest}>Read as guest <ArrowRightIcon aria-hidden="true"/></button><button type="button" className="welcome-signin" aria-describedby="welcome-account-storage" onClick={onSignUp??onSignIn} disabled={capacity?.configured===false||capacity?.remaining===0}>Create an account</button></div>
             <SignupCapacity compact capacity={capacity} error={capacityError} onRetry={onRefreshCapacity}/>
           </div>
-          <aside className="welcome-pages" aria-label="Read, save and return"><div className="welcome-page-leaf welcome-leaf-context"><ReaderIcon aria-hidden="true"/><span>Follow the<br/>conversation.</span><i/><i/><i/></div><div className="welcome-page-leaf welcome-leaf-reading"><span className="welcome-leaf-label">From the archive</span>{excerpt ? <div className="welcome-leaf-text"><TelegramRichText text={excerpt} entities={[]}/></div> : <p>Read a little.<br/>Think a little.<br/>Come back.</p>}<span className="welcome-leaf-bottom">Your place, remembered.</span></div><div className="welcome-page-leaf welcome-leaf-save"><BookmarkIcon aria-hidden="true"/><span>Keep what<br/>stays with you.</span><i/><i/><i/></div></aside>
+          <aside className="welcome-pages" aria-label="Read, save and return" onPointerMove={tiltPages} onPointerLeave={resetPages} onPointerCancel={resetPages}><div className="welcome-page-leaf welcome-leaf-context"><ReaderIcon aria-hidden="true"/><span>Follow the<br/>conversation.</span><i/><i/><i/></div><div className="welcome-page-leaf welcome-leaf-reading"><span className="welcome-leaf-label">From the archive</span>{excerpt ? <div className="welcome-leaf-text"><TelegramRichText text={excerpt} entities={[]}/></div> : <p>Read a little.<br/>Think a little.<br/>Come back.</p>}<span className="welcome-leaf-bottom">Your place, remembered.</span></div><div className="welcome-page-leaf welcome-leaf-save"><BookmarkIcon aria-hidden="true"/><span>Keep what<br/>stays with you.</span><i/><i/><i/></div></aside>
         </section>
         <section className="welcome-storage" aria-label="Choose how your reading is saved">
           <p id="welcome-guest-storage">Guests save in this browser and can export a backup.</p>

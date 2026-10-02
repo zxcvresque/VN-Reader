@@ -1710,86 +1710,46 @@ a:hover {
    ========================================================= */
 
 .lightbox-overlay {
-  position: fixed;
-  inset: 0;
-  background: var(--overlay);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  z-index: 200;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  padding: 3rem 2rem;
-  animation: fadeIn 140ms ease;
+  position:fixed; inset:0; height:100dvh; box-sizing:border-box;
+  background:var(--overlay); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);
+  z-index:200; display:grid; grid-template-rows:44px minmax(0,1fr) 24px;
+  gap:12px; padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));
+  animation:fadeIn 140ms ease;
 }
-
-.lightbox-stage {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  max-width: 100%;
-  cursor: zoom-out;
+.lightbox-header { display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); align-items:center; gap:12px; min-width:0; }
+.lightbox-title { color:var(--text); font:500 13px/20px var(--sans); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.lightbox-zoom-controls { display:flex; align-items:center; gap:6px; }
+:root .lightbox-header button { display:flex; align-items:center; justify-content:center; min-width:44px; height:44px; padding:0; border:1px solid var(--border-strong); border-radius:8px; background:var(--bg-1); color:var(--text); box-shadow:none; font:500 13px/20px var(--sans); }
+:root .lightbox-header button:hover:not(:disabled) { background:var(--accent-soft); border-color:var(--accent); }
+:root .lightbox-header button:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+:root .lightbox-header button:disabled { opacity:.4; }
+:root .lightbox-header .lightbox-fit { gap:8px; min-width:96px; padding:0 12px; font-variant-numeric:tabular-nums; }
+.lightbox-fit span { color:var(--text-muted); }
+.lightbox-header button svg { width:20px; height:20px; }
+:root .lightbox-header .lightbox-close { justify-self:end; position:static; margin:0; width:44px; z-index:auto; }
+.lightbox-stage { position:relative; width:100%; height:100%; min-height:0; min-width:0; display:flex; align-items:center; justify-content:center; overflow:hidden; }
+.lightbox-image-stage { touch-action:none; cursor:default; user-select:none; -webkit-user-select:none; }
+.lightbox-image-stage[data-zoomed="true"] { cursor:grab; }
+.lightbox-image-stage[data-zoomed="true"][data-interacting="true"] { cursor:grabbing; }
+.lightbox-image-frame { flex:0 0 auto; transform-origin:center; transition:transform 120ms ease-out; }
+.lightbox-image-stage[data-interacting="true"] .lightbox-image-frame { transition:none; }
+.lightbox-media { display:block; max-width:100%; max-height:100%; width:auto; height:auto; object-fit:contain; border-radius:4px; }
+.lightbox-image-frame .lightbox-media { width:100%; height:100%; pointer-events:auto; -webkit-user-drag:none; box-shadow:0 12px 48px #0003; }
+video.lightbox-media { background:#000; }
+.lightbox-audio { width:min(640px,100%); }
+.lightbox-footer { display:flex; align-items:center; justify-content:center; min-width:0; color:var(--text-muted); font:400 12px/18px var(--sans); text-align:center; }
+.lightbox-mobile-hint { display:none; }
+@media(max-width:767px) {
+ .lightbox-overlay { gap:8px; padding:max(12px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left)); }
+ .lightbox-header { grid-template-columns:minmax(0,1fr) auto; gap:8px; }
+ .lightbox-title { display:none; }
+ .lightbox-zoom-controls { justify-self:start; }
+ .lightbox-header>span:not(.lightbox-title) { display:block; }
+ .lightbox-desktop-hint { display:none; }
+ .lightbox-mobile-hint { display:inline; }
 }
-
-.lightbox-media {
-  max-width: 100%;
-  max-height: 100%;
-  width: auto;
-  height: auto;
-  object-fit: contain;
-  cursor: default;
-  border-radius: var(--radius);
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
-}
-
-video.lightbox-media {
-  background: #000;
-}
-
-.lightbox-audio {
-  width: min(640px, 90vw);
-}
-
-.lightbox-close {
-  position: fixed;
-  top: 1.25rem;
-  right: 1.25rem;
-  width: 40px;
-  height: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  color: var(--text);
-  font-size: 1.5rem;
-  line-height: 1;
-  border-radius: 999px;
-  padding: 0;
-  z-index: 210;
-}
-
-.lightbox-close:hover {
-  background: rgba(255, 255, 255, 0.16);
-  border-color: rgba(255, 255, 255, 0.28);
-}
-
-.lightbox-caption {
-  position: absolute;
-  bottom: 1rem;
-  left: 50%;
-  transform: translateX(-50%);
-  max-width: 80vw;
-  font-family: var(--mono);
-  font-size: 0.78rem;
-  color: var(--text-muted);
-  background: rgba(0, 0, 0, 0.4);
-  padding: 0.4rem 0.8rem;
-  border-radius: var(--radius);
-}
+@media(pointer:coarse) { .lightbox-desktop-hint { display:none; } .lightbox-mobile-hint { display:inline; } }
+@media(prefers-reduced-motion:reduce) { .lightbox-overlay { animation:none; } .lightbox-image-frame { transition:none; } }
 
 /* Make message-card media clickable */
 .reader-media:not(.reader-media-placeholder):not(.reader-media-audio):not(.reader-media-file) {
@@ -1864,30 +1824,17 @@ video.lightbox-media {
 }
 
 .tg-quote-highlight {
-  background: color-mix(in srgb, var(--danger) 25%, transparent);
-  border-bottom: 2px solid var(--danger);
+  background: #ffe066;
+  color: #201b08;
+  border-bottom: 2px solid #c39c0a;
   padding: 0 2px;
   margin: 0 -2px;
   border-radius: 3px;
-  color: inherit;
-  animation: quote-highlight-pulse 1.6s ease-out;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
   scroll-margin-top: 7rem;
 }
-
-@keyframes quote-highlight-pulse {
-  0% {
-    background: color-mix(in srgb, var(--danger) 55%, transparent);
-    box-shadow: 0 0 0 4px color-mix(in srgb, var(--danger) 40%, transparent);
-  }
-  60% {
-    background: color-mix(in srgb, var(--danger) 35%, transparent);
-    box-shadow: 0 0 0 0 rgba(224, 122, 95, 0);
-  }
-  100% {
-    background: color-mix(in srgb, var(--danger) 25%, transparent);
-    box-shadow: 0 0 0 0 rgba(224, 122, 95, 0);
-  }
-}
+.tg-quote-highlight a { color: #132d73; text-decoration-color: currentColor; }
 
 @media (prefers-reduced-motion: reduce) {
   .top-bar,
@@ -3385,3 +3332,26 @@ body { isolation: isolate; background-attachment: fixed; }
 :root .reader-collection-choices button { display:flex; align-items:center; justify-content:space-between; gap:12px; min-width:0; text-align:left; }
 :root .reader-collection-choices button > span { min-width:0; overflow-wrap:anywhere; }
 :root .reader-collection-choices small { color:var(--text-muted); font-size:12px; flex:0 0 auto; }
+
+/* Quote context stays legible while reading, with its actions always reachable. */
+:root .reader-source-peek > header {
+  position:sticky; top:-24px; z-index:2; background:var(--bg-1);
+  display:grid; grid-template-columns:minmax(0,1fr) auto; gap:12px;
+  padding-block:12px; border-bottom:1px solid var(--border);
+}
+:root .reader-source-peek > header .eyebrow { margin:0 0 4px; font-size:10px; line-height:16px; }
+:root .reader-source-peek > header h2 { font-size:18px; }
+:root .reader-source-actions { display:flex; align-items:center; gap:8px; }
+:root .reader-source-actions button { min-height:44px; padding:10px 12px; display:inline-flex; align-items:center; justify-content:center; gap:8px; white-space:nowrap; font-size:13px; line-height:20px; }
+:root .reader-source-actions .reader-source-go { border-color:var(--border-strong); background:var(--accent-soft); color:var(--text); }
+:root .reader-source-actions .reader-source-close { width:44px; height:44px; min-width:44px; padding:0; }
+:root .reader-source-actions svg { width:18px; height:18px; flex-shrink:0; }
+:root .reader-source-peek > .reader-message-text { white-space:pre-wrap; }
+:root .reader-source-peek > .library-actions { margin-top:24px; }
+@media(max-width:767px) {
+  :root .reader-source-peek > header { top:-16px; }
+}
+@media(max-width:359px) {
+  :root .reader-source-peek > header { grid-template-columns:minmax(0,1fr); }
+  :root .reader-source-actions { justify-content:space-between; }
+}

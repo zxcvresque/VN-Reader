@@ -40,6 +40,26 @@ function binarySearch(values: number[], target: number): number {
   return Math.max(0, low - 1);
 }
 
+/** Empty space beside the narrow reader should scroll the same post viewport. */
+export function routeReaderMarginWheel(event: WheelEvent, node: HTMLElement, onUserScroll: () => void): boolean {
+  if (event.defaultPrevented || !event.cancelable || event.ctrlKey || event.metaKey || event.shiftKey || !Number.isFinite(event.deltaY) || Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return false;
+  const target = event.target as Element | null;
+  // Only background surfaces opt in. Native scrolling in cards, menus, inputs,
+  // side panels, and overlays remains under the browser's control.
+  if (!target?.matches?.("body, html, #root, .app-shell, .reading-stage")) return false;
+  if (document.body?.style.overflow === "hidden" || document.querySelector('[aria-modal="true"]')) return false;
+  const bounds = node.getBoundingClientRect();
+  if (bounds.height <= 0 || event.clientY < bounds.top || event.clientY > bounds.bottom || (event.clientX >= bounds.left && event.clientX <= bounds.right)) return false;
+  const lineHeight = Number.parseFloat(getComputedStyle(node).lineHeight) || 16;
+  const unit = event.deltaMode === 1 ? lineHeight : event.deltaMode === 2 ? node.clientHeight : 1;
+  const nextTop = Math.max(0, Math.min(node.scrollHeight - node.clientHeight, node.scrollTop + event.deltaY * unit));
+  if (nextTop === node.scrollTop) return false;
+  event.preventDefault();
+  onUserScroll();
+  node.scrollTop = nextTop;
+  return true;
+}
+
 function MeasuredRow({ children, messageKey, offsetTop, onMeasure }: {
   children: ReactNode;
   messageKey: string;
@@ -108,6 +128,24 @@ const VirtualizedMessageList = forwardRef<VirtualizedMessageListHandle, Virtuali
       const paragraph = locateParagraph(position);
       return paragraph ? { ...position, ...paragraph } : position;
     }, [locateParagraph]);
+
+    const cancelPendingNavigation = useCallback(() => {
+      pendingRestoreRef.current = null;
+      pendingNavigationRef.current = null;
+      if (navigationTimerRef.current !== null) clearTimeout(navigationTimerRef.current);
+      if (restoreTimerRef.current !== null) clearTimeout(restoreTimerRef.current);
+      anchorRef.current = getPosition();
+      captureParagraph(anchorRef.current);
+    }, [getPosition, captureParagraph]);
+
+    useEffect(() => {
+      if (!messages.length) return;
+      const onWheel = (event: WheelEvent) => {
+        if (containerRef.current) routeReaderMarginWheel(event, containerRef.current, cancelPendingNavigation);
+      };
+      document.addEventListener("wheel", onWheel, { passive: false });
+      return () => document.removeEventListener("wheel", onWheel);
+    }, [messages.length > 0, cancelPendingNavigation]);
 
     const notifyPosition = useCallback(() => {
       if (notificationFrameRef.current !== null) return;
@@ -278,15 +316,6 @@ const VirtualizedMessageList = forwardRef<VirtualizedMessageListHandle, Virtuali
       const index = messages.findIndex((message) => message.message_key === pendingNavigationRef.current?.messageKey);
       if (index >= 0) visibleIndices.add(index);
     }
-
-    const cancelPendingNavigation = () => {
-      pendingRestoreRef.current = null;
-      pendingNavigationRef.current = null;
-      if (navigationTimerRef.current !== null) clearTimeout(navigationTimerRef.current);
-      if (restoreTimerRef.current !== null) clearTimeout(restoreTimerRef.current);
-      anchorRef.current = getPosition();
-      captureParagraph(anchorRef.current);
-    };
 
     if (!messages.length) return <div className="empty-panel">{emptyState ?? "No messages match the current filter."}</div>;
     return (

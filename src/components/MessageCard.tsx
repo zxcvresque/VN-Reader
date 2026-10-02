@@ -5,6 +5,7 @@ import {BookmarkIcon,BookmarkFilledIcon,CheckIcon,DotsHorizontalIcon} from "@rad
 import { getMediaObjectUrl } from "../lib/media";
 import type { BookmarkRecord, MessageRecord } from "../types";
 import TelegramRichText, { extractMessageEntities } from "./TelegramRichText";
+import { resolveQuoteRange } from "../lib/quoteHighlight";
 
 interface MessageCardProps {
   collections?: Array<{ id: string; title: string; added: boolean }>;
@@ -349,26 +350,7 @@ export default function MessageCard({
   }, [message.external_urls]);
   const hiddenSources = useMemo(() => buildRelatedLinks(message), [message]);
 
-  // Compute the actual highlight range. Prefer raw offset; otherwise fall back
-  // to substring search of the quote text inside this message.
-  const effectiveHighlight = useMemo(() => {
-    if (!quoteHighlight) return null;
-    const text = message.text ?? "";
-    if (
-      quoteHighlight.offset >= 0 &&
-      quoteHighlight.length > 0 &&
-      quoteHighlight.offset + quoteHighlight.length <= text.length
-    ) {
-      return { offset: quoteHighlight.offset, length: quoteHighlight.length };
-    }
-    if (quoteHighlight.fallbackText) {
-      const idx = text.indexOf(quoteHighlight.fallbackText);
-      if (idx >= 0) {
-        return { offset: idx, length: quoteHighlight.fallbackText.length };
-      }
-    }
-    return null;
-  }, [quoteHighlight, message.text]);
+  const effectiveHighlight = useMemo(() => resolveQuoteRange(message.text ?? "", quoteHighlight), [quoteHighlight, message.text]);
 
   useEffect(() => {
     setTagInput(bookmark?.tags.join(", ") ?? "");
@@ -390,7 +372,6 @@ export default function MessageCard({
         <div className="reader-message-identifiers">
           <p className="reader-message-kicker">
             #{message.message_id}
-            {message.edit_date_utc ? "  Edited" : ""}
             {message.post_author ? `  ${message.post_author}` : ""}
           </p>
           <h3>{formatDate(message.date_utc)}</h3>

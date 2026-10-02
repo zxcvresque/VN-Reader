@@ -1,6 +1,7 @@
 import { Command } from "cmdk";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { BookmarkRecord, MessageRecord, ThreadRecord } from "../types";
+import { matchesMessageSearch } from "../lib/messageSearch";
 
 interface ParsedQuery {
   text: string;                     // remaining free-text after extracting filters
@@ -175,7 +176,7 @@ export default function CommandPalette({
     const hits: MessageRecord[] = [];
 
     for (const message of messages) {
-      if (lowerSearch && !message.search_text.includes(lowerSearch)) continue;
+      if (!matchesMessageSearch(message, parsed.text)) continue;
 
       if (parsed.mediaAny && !message.media_present) continue;
       if (parsed.mediaKind && message.media_kind !== parsed.mediaKind) continue;
@@ -204,7 +205,7 @@ export default function CommandPalette({
   ]);
 
   const bookmarkHits = useMemo(() => {
-    if (parsed.hasFilters) return [];
+    if (parsed.hasFilters || /^#\d+$/.test(lowerSearch)) return [];
     if (!lowerSearch) return bookmarks.slice(0, 6);
     return bookmarks
       .filter((bookmark) =>
@@ -217,7 +218,7 @@ export default function CommandPalette({
     if (parsed.hasFilters) return [];
     if (!lowerSearch || lowerSearch.length < 2) return [];
     return threads
-      .filter((thread) => thread.preview_text.toLowerCase().includes(lowerSearch))
+      .filter((thread) => matchesMessageSearch({ message_id: thread.root_message_id, search_text: thread.preview_text.toLowerCase() }, parsed.text))
       .slice(0, 6);
   }, [parsed.hasFilters, lowerSearch, threads]);
 
@@ -259,7 +260,7 @@ export default function CommandPalette({
             placeholder={
               inlineMode === "messageId"
                 ? "Loading…"
-                : "Search · try: media:photo  from:2024-01-01  unread:"
+                : "Search · try: #7  media:photo  from:2024-01-01  unread:"
             }
             disabled={inlineMode !== null}
           />
@@ -276,7 +277,7 @@ export default function CommandPalette({
           ) : null}
           {!inlineMode ? (
             <Command.List>
-              <Command.Empty>No matches. Try a message id, date, or text.</Command.Empty>
+              {messageHits.length === 0 && threadHits.length === 0 && bookmarkHits.length === 0 && <Command.Empty>No matches. Try a message id, date, or text.</Command.Empty>}
 
               <Command.Group heading="Reading paths">
                 <Command.Item

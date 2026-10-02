@@ -21,6 +21,7 @@ import { createBackup, parseBackup } from "./lib/backup";
 import CommandPalette, { type ViewName } from "./components/CommandPalette";
 import MediaLightbox, { type LightboxMedia } from "./components/MediaLightbox";
 import MessageCard from "./components/MessageCard";
+import QuotedSourcePanel from "./components/QuotedSourcePanel";
 import ThreadRail from "./components/ThreadRail";
 import TopBar from "./components/TopBar";
 import PostTimeline from "./components/PostTimeline";
@@ -44,6 +45,7 @@ import {
   replaceAllMessages, replaceAllThreads, saveManifest, saveDirectoryHandle,
 } from "./lib/idb";
 import { revokeAllMediaObjectUrls } from "./lib/media";
+import { matchesMessageSearch } from "./lib/messageSearch";
 import type {
   AppSnapshot,
   BookmarkRecord,
@@ -507,7 +509,7 @@ export default function App() {
       if (end >= 0) list = list.slice(0,end+1);
     }
     if (deferredSearch) {
-      list = list.filter((m) => m.search_text.includes(deferredSearch));
+      list = list.filter((m) => matchesMessageSearch(m, deferredSearch));
     }
     return list;
   }, [snapshot.messages, deferredSearch, session]);
@@ -515,9 +517,9 @@ export default function App() {
   const filteredThreads = useMemo(() => {
     if (!deferredSearch) return derivedThreads;
     return derivedThreads.filter((thread) => {
-      if (thread.preview_text.toLowerCase().includes(deferredSearch)) return true;
+      if (matchesMessageSearch({ message_id: thread.root_message_id, search_text: thread.preview_text.toLowerCase() }, deferredSearch)) return true;
       const messages = threadMessagesMap.get(thread.thread_key) ?? [];
-      return messages.some((m) => m.search_text.includes(deferredSearch));
+      return messages.some((m) => matchesMessageSearch(m, deferredSearch));
     });
   }, [derivedThreads, threadMessagesMap, deferredSearch]);
 
@@ -1027,13 +1029,6 @@ export default function App() {
   const settingsDialog = settingsOpen || (guideOpen && guideReturnRef.current?.settings) ? <div hidden={guideOpen && guideTopic !== "appearance"}><ReaderSettings preferences={preferences} onChange={changePreferences} onClose={() => setSettingsOpen(false)} onOpenGuide={openGuide} tourActive={guideOpen} onExportBackup={() => void exportBackup()} onImportBackup={importBackup} backupBusy={backupBusy} /></div> : null;
 
 
-  // Auto-clear the quote highlight if the user navigates away or stays a while
-  useEffect(() => {
-    if (!quoteHighlight) return undefined;
-    const timer = window.setTimeout(() => setQuoteHighlight(null), 6000);
-    return () => window.clearTimeout(timer);
-  }, [quoteHighlight]);
-
   // After the highlight mark renders, scroll it into view within the virtualizer
   useEffect(() => {
     if (!quoteHighlight) return;
@@ -1175,10 +1170,13 @@ export default function App() {
       {preferences.focusMode?<button type="button" className="reader-focus-exit" onClick={()=>changePreferences({...preferences,focusMode:false})}>Exit focus</button>:null}
       {libraryOpen?<aside hidden={guideOpen && guideTopic !== null} className="reader-side-panel" data-tour="library-panel" aria-label="Personal reading library"><header><h2>Your reading library</h2><button type="button" onClick={()=>setLibraryOpen(false)} aria-label="Close library">×</button></header><ReadingLibrary key={libraryInitialTab} initialTab={libraryInitialTab} savedPostKeys={snapshot.bookmarks.filter(bookmark=>bookmark.target_type==="message").map(bookmark=>bookmark.target_key)} state={personal} onChange={commitPersonal} messages={snapshot.messages} onOpenMessage={key=>{setLibraryOpen(false);focusMessage(key);}} onReadAround={readAround}/></aside>:null}
       {guideOpen && guideStep && ["library-queue", "library-collections", "library-work"].includes(guideStep.id) ? <aside className="reader-side-panel" data-tour="library-panel" aria-label="Library tour preview"><header><h2>Your reading library</h2><span className="eyebrow">Tour preview</span></header><ReadingLibrary idPrefix="guide-" state={personal} onChange={() => {}} messages={snapshot.messages} onOpenMessage={() => {}} onReadAround={() => {}} /></aside> : null}
-      {readerSearchOpen?<aside className="reader-side-panel reader-search-panel" data-tour="search-panel" aria-label="Search beside reading"><header><h2>Search & filter</h2><button type="button" onClick={toggleReaderSearch} aria-label="Close search and return to your place">×</button></header><input autoFocus type="search" aria-label="Search archive beside reading" placeholder="Search the archive…" value={readerSearch} onChange={e=>{setReaderSearch(e.target.value);if(readerSearchMode==="stream")setSearchQuery(e.target.value);}}/>
+      {readerSearchOpen?<aside className="reader-side-panel reader-search-panel" data-tour="search-panel" aria-label="Search beside reading"><header><h2>Search & filter</h2><button type="button" onClick={toggleReaderSearch} aria-label="Close search and return to your place">×</button></header><input autoFocus type="search" aria-label="Search archive beside reading" placeholder="Search words or a post ID, e.g. #7…" value={readerSearch} onChange={e=>{setReaderSearch(e.target.value);if(readerSearchMode==="stream")setSearchQuery(e.target.value);}}/>
       <div className="reader-search-modes" role="group" aria-label="Search display"><button type="button" aria-pressed={readerSearchMode==="results"} onClick={()=>{setReaderSearchMode("results");setSearchQuery("");if(searchReturnRef.current)restoreEntry(searchReturnRef.current);}}>Show results</button><button type="button" aria-pressed={readerSearchMode==="stream"} onClick={()=>{setReaderSearchMode("stream");setSearchQuery(readerSearch);}}>Filter stream</button></div>
-      <p>{readerSearchMode==="stream"?"Only matching posts appear in your reading stream. Close this panel to read them.":"Browse results here without losing your place. Close to return."}</p>{searchQuery&&<button type="button" className="reader-clear-filter" onClick={()=>{setSearchQuery("");setReaderSearchMode("results");if(searchReturnRef.current)restoreEntry(searchReturnRef.current);}}>Clear stream filter</button>}{readerSearch.trim()?snapshot.messages.filter(m=>m.search_text.includes(readerSearch.trim().toLowerCase())).slice(0,100).map(m=><article className="library-card" key={m.message_key}><p><strong>#{m.message_id}</strong> · {trimPreview(m.text,180)}</p><div className="library-actions"><button type="button" onClick={()=>focusMessage(m.message_key)}>Read post</button><button type="button" onClick={()=>readAround(m.message_key)}>Read around this</button></div></article>):<p>Search for a phrase, topic, or source.</p>}{readerSearch.trim()&&!snapshot.messages.some(m=>m.search_text.includes(readerSearch.trim().toLowerCase()))?<p>No posts match this phrase.</p>:null}</aside>:null}
-      {sourcePeek?<aside className="reader-side-panel reader-source-peek" role="dialog" aria-label="Quoted source preview"><header><div><p className="eyebrow">Quoted source</p><h2>Post #{sourcePeek.message.message_id}</h2></div><button type="button" onClick={()=>setSourcePeek(null)} aria-label="Close quoted source">×</button></header><p>Your place in post #{sourcePeek.origin.message_id} is preserved.</p><div className="reader-message-text" style={{whiteSpace:"pre-wrap"}}>{sourcePeek.message.text||"This source contains media without text."}</div><div className="library-actions"><button type="button" onClick={()=>{const peek=sourcePeek;setSourcePeek(null);focusMessage(peek.message.message_key);setQuoteHighlight({messageKey:peek.message.message_key,offset:peek.origin.quote_offset_utf16??-1,length:peek.origin.quote_text_length??0,fallbackText:peek.origin.quote_text});}}>Expand source</button><button type="button" onClick={()=>{const key=sourcePeek.message.message_key;setSourcePeek(null);readAround(key);}}>Read surrounding posts</button></div></aside>:null}
+      <p>{readerSearchMode==="stream"?"Only matching posts appear in your reading stream. Close this panel to read them.":"Browse results here without losing your place. Close to return."}</p>{searchQuery&&<button type="button" className="reader-clear-filter" onClick={()=>{setSearchQuery("");setReaderSearchMode("results");if(searchReturnRef.current)restoreEntry(searchReturnRef.current);}}>Clear stream filter</button>}{readerSearch.trim()?snapshot.messages.filter(m=>matchesMessageSearch(m,readerSearch)).slice(0,100).map(m=><article className="library-card" key={m.message_key}><p><strong>#{m.message_id}</strong> · {trimPreview(m.text,180)}</p><div className="library-actions"><button type="button" onClick={()=>focusMessage(m.message_key)}>Read post</button><button type="button" onClick={()=>readAround(m.message_key)}>Read around this</button></div></article>):<p>Search for a phrase, topic, source, or post ID such as #7.</p>}{readerSearch.trim()&&!snapshot.messages.some(m=>matchesMessageSearch(m,readerSearch))?<p>No posts match this search.</p>:null}</aside>:null}
+      {sourcePeek ? <QuotedSourcePanel source={sourcePeek.message} origin={sourcePeek.origin} onClose={() => setSourcePeek(null)} onGoToPost={(messageKey, highlight) => {
+        focusMessage(messageKey);
+        setQuoteHighlight({ messageKey, ...highlight });
+      }} onReadAround={readAround} /> : null}
       {accountDialog}
       {settingsDialog}
       {view === "read" ? (

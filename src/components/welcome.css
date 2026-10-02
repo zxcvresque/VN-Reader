@@ -95,3 +95,71 @@
 
 .welcome-header-brand{display:flex;align-items:center;gap:18px}.welcome-page .welcome-why{min-height:44px;display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:10px 12px;border:1px solid var(--border-strong);border-radius:10px;font-size:12px;line-height:20px;background:transparent;box-shadow:none;white-space:nowrap}.welcome-why svg{width:16px;height:16px}.welcome-footer{justify-content:center}.welcome-footer>span{max-width:none;text-align:center}
 @media(max-width:767px){.welcome-header-brand{gap:8px}.welcome-page .welcome-why{padding:10px 8px;font-size:11px;gap:6px}.welcome-why svg{width:14px;height:14px}.welcome-theme-trigger>span{display:none}.welcome-header{gap:8px}.welcome-page .welcome-header-signin{padding:10px 10px}.welcome-header .brand-logo{width:40px!important;height:40px!important}}
+
+/* The entrance runs once; reading and touch scrolling stay still afterwards. */
+.welcome-pages {
+  --stack-tilt-x: 0deg;
+  --stack-tilt-y: 0deg;
+  transform: perspective(900px) rotateX(var(--stack-tilt-x)) rotateY(var(--stack-tilt-y));
+  transition: transform 240ms ease-out;
+}
+.welcome-page-leaf {
+  --leaf-x: 0px;
+  --leaf-y: 0px;
+  --leaf-angle: 0deg;
+  transform: translate(var(--leaf-x), var(--leaf-y)) rotate(var(--leaf-angle));
+  animation: welcome-card-settle 850ms cubic-bezier(.2,.7,.2,1) both;
+}
+.welcome-leaf-context, .welcome-leaf-save {
+  background: color-mix(in srgb, var(--bg-2) 82%, var(--bg-0));
+  border-color: color-mix(in srgb, var(--text) 18%, transparent);
+  box-shadow: 0 8px 22px #00000014;
+}
+.welcome-leaf-context { --leaf-x: -139px; --leaf-angle: -10deg; animation-delay: 260ms; }
+.welcome-leaf-save { --leaf-x: 139px; --leaf-angle: 10deg; animation-delay: 380ms; }
+.welcome-leaf-reading {
+  --leaf-y: -6px;
+  background: color-mix(in srgb, var(--bg-1) 92%, var(--text));
+  border-color: color-mix(in srgb, var(--text) 28%, transparent);
+  box-shadow: 0 18px 40px #00000035, 0 3px 8px #00000020;
+  animation-delay: 500ms;
+}
+:root[data-theme="cobalt"] .welcome-leaf-reading,
+:root[data-theme="opal"] .welcome-leaf-reading { background: #fff; }
+.welcome-leaf-reading > p { font: 15px/1.65 var(--serif); margin: 0; }
+.welcome-product-name, .welcome-copy h1, .welcome-copy > p,
+.welcome-entry-actions, .welcome-copy .signup-capacity,
+.welcome-storage, .welcome-footer { animation: welcome-text-focus 700ms ease-out both; }
+.welcome-product-name { animation-delay: 40ms; }
+.welcome-copy h1 { animation-delay: 100ms; }
+.welcome-copy > p { animation-delay: 190ms; }
+.welcome-entry-actions { animation-delay: 260ms; }
+.welcome-copy .signup-capacity { animation-delay: 320ms; }
+.welcome-storage { animation-delay: 680ms; }
+.welcome-footer { animation-delay: 760ms; }
+@keyframes welcome-card-settle {
+  0% { opacity: 0; transform: translate(calc(var(--leaf-x) * .7), -76px) rotate(calc(var(--leaf-angle) * 1.6)) scale(.96); }
+  72% { opacity: 1; transform: translate(var(--leaf-x), calc(var(--leaf-y) + 5px)) rotate(var(--leaf-angle)) scale(1); }
+  100% { opacity: 1; transform: translate(var(--leaf-x), var(--leaf-y)) rotate(var(--leaf-angle)); }
+}
+@keyframes welcome-text-focus {
+  from { opacity: 0; filter: blur(5px); transform: translateY(8px); }
+  to { opacity: 1; filter: blur(0); transform: translateY(0); }
+}
+@media(max-width:767px) {
+  .welcome-pages { --stack-spread: min(105px, calc((100vw - 214px) / 2)); }
+  .welcome-leaf-context { --leaf-x: calc(var(--stack-spread) * -1); }
+  .welcome-leaf-save { --leaf-x: var(--stack-spread); }
+  .welcome-leaf-reading { --leaf-y: 0px; }
+}
+@media(prefers-reduced-motion:reduce) {
+  .welcome-pages { transform: none; }
+}
+@media(max-width:359px) {
+  .welcome-wrap { padding-inline: 16px; }
+  .welcome-header-brand, .welcome-header-actions { gap: 6px; }
+  .welcome-page .welcome-why { font-size: 10px; }
+  .welcome-page .welcome-theme-trigger { width: 44px; padding: 10px; }
+  .welcome-theme-trigger > svg:last-child { display: none; }
+  .welcome-page .welcome-header-signin { white-space: nowrap; }
+}
