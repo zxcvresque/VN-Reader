@@ -176,3 +176,9 @@ automatically with a delay capped at 60 seconds. Invalidated bot authorization i
 recreated with a fresh in-memory session, including `AuthKeyDuplicatedError` during
 media lookup. Critical connection failures notify the configured owner; recovery
 and routine events go to the existing Logs topic. No Telegram keys are logged.
+
+Photo streaming selects an explicit Telegram size variant and uses that same
+variant for Content-Length, byte ranges, and downloads. Telegram's heaviest JPEG
+can differ from its largest-dimension JPEG; using generic `File.size` with an
+implicit download can truncate HTTP responses. Cached thumbnails use their
+embedded bytes, and progressive photos use the final scan size.

@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Request
 from starlette.responses import Response, StreamingResponse
 from .mirror import MirrorStore, configuration, error_label
 from .notifications import notify, configure_topic
-from .streaming import parse_range, media_headers, telegram_chunks, RangeNotSatisfiable
+from .streaming import parse_range, media_headers, telegram_chunks, RangeNotSatisfiable, media_file_info
 
 router = APIRouter()
 log = logging.getLogger(__name__)
@@ -205,7 +205,7 @@ async def media(source_id: int, request: Request):
         message = await fetch()
         if not message or not message.file or message.file.size is None:
             raise HTTPException(404, "Stored media not found")
-        size = message.file.size
+        _, _, size = media_file_info(message)
         # If-Range mismatch falls back to the whole representation.
         # File.id uses an obsolete Bot API packing helper that fails on modern photo sizes.
         # The native Photo/Document ID is stable and works for both representations.

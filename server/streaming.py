@@ -48,7 +48,7 @@ def media_headers(size, start, end, partial, mime, name):
         "Accept-Ranges": "bytes", "Content-Length": str(max(0, end - start + 1)),
         "Content-Type": mime, "X-Content-Type-Options": "nosniff",
         "Content-Security-Policy": "sandbox; default-src 'none'",
-        "Cache-Control": "public, max-age=300",
+        "Cache-Control": "no-store",
         "Content-Disposition": ("inline" if inline else "attachment") + "; filename*=UTF-8''" + quote(name, safe=""),
     }
     if partial:
@@ -56,13 +56,40 @@ def media_headers(size, start, end, partial, mime, name):
     return headers
 
 
+def media_file_info(message):
+    """Choose one photo representation for both HTTP lengths and downloaded bytes."""
+    from telethon.tl import types
+    media = getattr(message.file, "media", None)
+    if isinstance(media, types.Photo):
+        variants = [size for size in media.sizes if isinstance(size, (types.PhotoSize, types.PhotoSizeProgressive, types.PhotoCachedSize))]
+        if not variants:
+            raise ValueError("Photo has no downloadable representation")
+        # Largest dimensions need not have the heaviest JPEG. File.size takes
+        # max(bytes), while Telethon's implicit download selects the last variant.
+        chosen = max(variants, key=lambda size: (size.w * size.h, size.w, size.h))
+        if isinstance(chosen, types.PhotoCachedSize):
+            return chosen.bytes, None, len(chosen.bytes)
+        size = max(chosen.sizes) if isinstance(chosen, types.PhotoSizeProgressive) else chosen.size
+        location = types.InputPhotoFileLocation(id=media.id, access_hash=media.access_hash,
+                                                file_reference=media.file_reference, thumb_size=chosen.type)
+        return location, media.dc_id, size
+    return getattr(message, "media", None), None, message.file.size
+
+
 async def telegram_chunks(client, message, start, end, disconnected=None, refresh=None, *, get_client=None):
     """Yield bounded exact bytes, release sender on disconnect and refresh stale references."""
     position, refresh_count, connection_retries = start, 0, 0
     while position <= end:
-        iterator = client.iter_download(message.media, offset=position,
-                                        request_size=CHUNK_SIZE, chunk_size=CHUNK_SIZE,
-                                        file_size=getattr(message.file, "size", None))
+        location, dc_id, file_size = media_file_info(message)
+        if isinstance(location, bytes):
+            if not disconnected or not await disconnected():
+                yield location[position:end + 1]
+            return
+        download_options = {"offset": position, "request_size": CHUNK_SIZE,
+                            "chunk_size": CHUNK_SIZE, "file_size": file_size}
+        if dc_id is not None:
+            download_options["dc_id"] = dc_id
+        iterator = client.iter_download(location, **download_options)
         try:
             async for chunk in iterator:
                 if disconnected and await disconnected():
