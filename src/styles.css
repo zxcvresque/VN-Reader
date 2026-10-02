@@ -3274,8 +3274,8 @@ body { isolation: isolate; background-attachment: fixed; }
 /* Keep Help support and dismissal together, with comfortable touch targets. */
 :root .guide-header > div:first-child { min-width:0; }
 :root .guide-header-actions { display:flex; align-items:center; flex-shrink:0; gap:8px; }
-:root .guide-support { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:44px; padding:10px 14px; box-sizing:border-box; border:1px solid var(--border-strong); border-radius:var(--radius-sm); background:var(--bg-1); color:var(--text); text-decoration:none; font:500 13px/20px var(--sans); white-space:nowrap; transition:background-color 160ms ease,border-color 160ms ease; }
-:root .guide-support svg { width:18px; height:18px; flex-shrink:0; color:var(--accent); }
+:root .guide-support { display:inline-flex; align-items:center; justify-content:center; gap:9px; min-height:44px; padding:9px 14px; box-sizing:border-box; border:1px solid var(--border-strong); border-radius:var(--radius-sm); background:var(--bg-1); color:var(--text); text-decoration:none; font:500 13px/20px var(--sans); white-space:nowrap; transition:background-color 160ms ease,border-color 160ms ease; }
+:root .guide-support-icon { display:block; width:24px; height:24px; flex:0 0 24px; align-self:center; color:var(--accent); background:currentColor; -webkit-mask:url("/telegram-outline-svgrepo-com.svg") center/contain no-repeat; mask:url("/telegram-outline-svgrepo-com.svg") center/contain no-repeat; }
 :root .guide-support:hover { background:var(--bg-2); border-color:var(--accent); }
 :root .guide-support:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
 @media (max-width:600px) {
@@ -3284,3 +3284,104 @@ body { isolation: isolate; background-attachment: fixed; }
   :root .guide-header-actions { order:-1; margin-left:auto; }
 }
 @media (prefers-reduced-motion:reduce) { :root .guide-support { transition:none; } }
+
+/* Session is a compact form; remove inherited toolbar form alignment and frames. */
+:root .reader-session-panel .session-controls{width:100%;max-width:none;box-shadow:none;border-radius:0;align-items:stretch;text-align:left;gap:16px}
+:root .reader-session-panel .session-controls>.eyebrow{align-self:flex-start;color:var(--text);margin:0;font:600 15px/22px var(--sans)}
+:root .reader-session-panel .session-controls>label{align-items:stretch;min-width:0;text-align:left;gap:8px;font:400 12px/18px var(--sans)}
+:root .reader-session-panel .custom-select-trigger{justify-content:space-between;width:100%;height:44px;padding:10px 12px;font:400 13px/20px var(--sans);text-align:left;background:var(--bg-0)}
+:root .reader-session-panel .session-quantity{display:grid;grid-template-columns:44px minmax(0,1fr) 44px;gap:8px;width:100%}
+:root .reader-session-panel .session-quantity-date{grid-template-columns:minmax(0,1fr)}
+:root .reader-session-panel .session-quantity input{width:100%;max-width:none;min-width:0;height:44px;box-sizing:border-box;margin:0;padding:10px 12px;text-align:center;border:1px solid var(--border-strong);border-radius:8px;background:var(--bg-0);font:400 14px/20px var(--sans);appearance:textfield;-moz-appearance:textfield}
+:root .reader-session-panel .session-quantity input::-webkit-inner-spin-button,:root .reader-session-panel .session-quantity input::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+:root .reader-session-panel .session-quantity-date input{text-align:left}
+:root .reader-session-panel .session-quantity button{height:44px;padding:0;font:400 20px/1 var(--sans);border:1px solid var(--border-strong);border-radius:8px;background:var(--bg-0)}
+:root .reader-session-panel .session-set-boundary{margin-top:4px;height:44px;background:var(--accent-soft);border:1px solid var(--border-hot);color:var(--accent);font:500 13px/20px var(--sans);border-radius:8px}
+:root .reader-session-panel .session-set-boundary:hover{border-color:var(--accent)}
+:root .reader-session-panel .session-boundary-status{font:400 12px/18px var(--sans);overflow-wrap:anywhere}
+:root .reader-toolbar{gap:8px}
+:root .reader-toolbar :is(.reader-quick-action,.reader-navigation-menu>summary,.reader-session-menu>summary,.reading-width-control>summary){height:44px;box-sizing:border-box;margin:0;border:1px solid var(--border);border-radius:8px;background:transparent}
+@media(max-width:480px){:root .reader-toolbar{gap:4px}}
+
+/* Small mobile reveal icon replaces the floating navigation label. */
+@media(max-width:767px){
+ :root .nav-reveal-edge{display:flex;align-items:center;justify-content:center;width:44px;height:44px;top:max(4px,env(safe-area-inset-top));padding:0;border-radius:50%;background:var(--bg-elevated);color:var(--text);border:1px solid var(--border-strong);box-shadow:var(--shadow-sm)}
+ :root .nav-reveal-edge span{display:flex;align-items:center;justify-content:center;width:20px;height:20px}
+ :root .nav-reveal-edge svg{width:20px;height:20px}
+ :root .nav-reveal-edge.is-revealed{display:none}
+}
+
+/* Reserve room for reading controls below the currently visible navigation dock. */
+:root{--reader-toolbar-top:100px}
+:root:has(.minimal-nav.nav-auto-hidden){--reader-toolbar-top:16px}
+:root:not([data-focus="true"]):is([data-nav-position="bottom"],[data-nav-position="left"],[data-nav-position="right"]){--reader-toolbar-top:16px}
+:root[data-focus="true"]{--reader-toolbar-top:84px}
+:root[data-focus="true"]:has(.minimal-nav.nav-auto-hidden){--reader-toolbar-top:16px}
+@media(max-width:767px){
+ :root{--reader-toolbar-top:112px}
+ :root:not([data-focus="true"]):is([data-nav-position="left"],[data-nav-position="right"]){--reader-toolbar-top:112px}
+ :root:has(.minimal-nav.nav-auto-hidden){--reader-toolbar-top:56px}
+ :root:not([data-focus="true"])[data-nav-position="bottom"]{--reader-toolbar-top:56px}
+ :root[data-focus="true"]{--reader-toolbar-top:112px}
+ :root[data-focus="true"]:has(.minimal-nav.nav-auto-hidden){--reader-toolbar-top:56px}
+}
+
+/* Reveal follows the physical dock; phone side rails become a top dock. */
+@media(min-width:768px){
+ :root .nav-reveal-edge[data-edge="bottom"]{top:auto;bottom:0}
+ :root .nav-reveal-edge[data-edge="bottom"] span{top:auto;bottom:4px}
+ :root .nav-reveal-edge:is([data-edge="left"],[data-edge="right"]){top:0;bottom:0;width:14px;height:100dvh}
+ :root .nav-reveal-edge[data-edge="left"]{left:0;right:auto}
+ :root .nav-reveal-edge[data-edge="right"]{left:auto;right:0}
+ :root .nav-reveal-edge:is([data-edge="left"],[data-edge="right"]) span{left:4px;top:50%;width:3px;height:40px;transform:translateY(-50%)}
+ :root .nav-reveal-edge[data-edge="right"] span{left:auto;right:4px}
+ :root .nav-reveal-edge:is([data-edge="left"],[data-edge="right"]):focus-visible{width:44px}
+}
+@media(max-width:767px){
+ :root .nav-reveal-edge[data-edge="bottom"]{top:auto;bottom:max(4px,env(safe-area-inset-bottom))}
+ :root:not([data-focus="true"])[data-nav-position="bottom"]{--reader-toolbar-top:16px}
+}
+
+@media(max-width:767px){:root:not([data-focus="true"]):not([data-nav-position="bottom"]):has(.minimal-nav.nav-auto-hidden){--reader-toolbar-top:56px}}
+
+/* Reading controls have their own row; only the post viewport scrolls. */
+:root[data-theme] .app-shell:has(>.reader-toolbar){display:flex;flex-direction:column;box-sizing:border-box;height:100dvh;min-height:0;padding-top:var(--reader-toolbar-top);transition:padding-top 180ms ease}
+:root[data-theme] .app-shell>.reader-toolbar{position:relative;top:auto;flex:0 0 auto;background:transparent;box-shadow:none;margin-bottom:16px;transition:none}
+:root[data-theme] .app-shell:has(>.reader-toolbar)>.reading-stage{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;width:100%;box-sizing:border-box}
+:root[data-theme] .app-shell:has(>.reader-toolbar) .reading-stage>.launchpad{flex:0 0 auto}
+:root[data-theme] .app-shell:has(>.reader-toolbar) .virtual-list-container{flex:1 1 auto;min-height:0;height:auto}
+@media(prefers-reduced-motion:reduce){:root[data-theme] .app-shell:has(>.reader-toolbar){transition:none}}
+
+/* Collections: distinct heading, management, and adding areas at every width. */
+:root .library-collection { display:flex; flex-direction:column; gap:20px; margin-top:24px; min-width:0; }
+:root .collection-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+:root .collection-heading h3 { margin:0; font-size:20px; line-height:1.35; overflow-wrap:anywhere; }
+:root .collection-item-count { flex:0 0 auto; font-size:12px; color:var(--text-muted); }
+:root .library-collection .collection-introduction { margin:0; font-size:14px; line-height:1.65; overflow-wrap:anywhere; }
+:root .collection-management { display:flex; flex-direction:column; gap:8px; }
+:root .collection-management .library-actions { margin:0; gap:8px; }
+:root .collection-management button { border-radius:8px; }
+:root .collection-order { padding-top:8px; border-top:1px solid var(--border); }
+:root .library-collection > :is(.library-card,.library-empty,.library-confirm) { margin:0; }
+:root .collection-add { padding:0 16px; }
+:root .collection-add > summary { min-height:44px; padding:12px 0; box-sizing:border-box; }
+:root .collection-add[open] > summary { border-bottom:1px solid var(--border); margin-bottom:16px; }
+:root .collection-add-section { display:flex; flex-direction:column; align-items:stretch; gap:12px; padding:0 0 16px; }
+:root .collection-add-section + .collection-add-section { border-top:1px solid var(--border); padding-top:16px; }
+:root .collection-add-section .library-field { margin:0; gap:8px; }
+:root .collection-add-section .custom-select-trigger { margin-top:0; }
+:root .collection-add-section .library-hint { margin:0; }
+:root .collection-add-section > button { align-self:flex-start; border-radius:8px; }
+:root .collection-add-section .collection-add-caption { margin:0; font-size:12px; font-weight:600; color:var(--text-muted); }
+:root .collection-editor { display:flex; flex-direction:column; gap:16px; margin:16px 0; }
+:root .collection-editor h3, :root .collection-editor .library-field, :root .collection-editor .library-actions { margin:0; }
+:root .collection-editor .custom-select-trigger { margin-top:0; }
+@media(max-width:479px) {
+  :root .collection-management .library-actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); }
+  :root .collection-management button { min-width:0; }
+}
+:root .reader-collection-picker header { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+:root .reader-collection-choices { display:grid; gap:8px; min-width:0; }
+:root .reader-collection-choices button { display:flex; align-items:center; justify-content:space-between; gap:12px; min-width:0; text-align:left; }
+:root .reader-collection-choices button > span { min-width:0; overflow-wrap:anywhere; }
+:root .reader-collection-choices small { color:var(--text-muted); font-size:12px; flex:0 0 auto; }

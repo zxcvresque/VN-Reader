@@ -134,6 +134,7 @@ export default function App() {
   const snapshotRef = useRef(snapshot); snapshotRef.current = snapshot;
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
+  const [libraryInitialTab, setLibraryInitialTab] = useState<"queue" | "collections" | "work">("queue");
   const [guideOpen, setGuideOpen] = useState(false);
   const [tourInvitation, setTourInvitation] = useState(shouldOfferTour);
   const basicTourStarted = useRef(false);
@@ -857,6 +858,9 @@ export default function App() {
   }
   function cardExtras(message:MessageRecord) {
     return {
+      collections:personal.collections.map(collection=>({id:collection.id,title:collection.title,added:collection.items.some(item=>item.messageKey===message.message_key&&!item.passageId)})),
+      onAddToCollection:(m:MessageRecord,collectionId:string)=>{const current=personalRef.current;const collection=current.collections.find(item=>item.id===collectionId);if(!collection||collection.items.some(item=>item.messageKey===m.message_key&&!item.passageId))return;commitPersonal({...current,collections:current.collections.map(item=>item.id===collectionId?{...item,items:[...item.items,{id:crypto.randomUUID(),messageKey:m.message_key}]}:item)});setNotice(`Added to “${collection.title}”.`);},
+      onOpenCollections:()=>{setLibraryInitialTab("collections");setLibraryOpen(true);},
       readingStatus:personal.statuses[message.message_key] ?? null,
       onSetReadingStatus:(m:MessageRecord,status:"in-progress"|"finished"|"revisit"|null)=>{
         const current=personalRef.current;const statuses={...current.statuses};
@@ -1139,6 +1143,7 @@ export default function App() {
         guideOpen={guideOpen}
         guideMenuOpen={Boolean(guideStep && (["basic-navigation","basic-help","reading-navigation","search-threads"].includes(guideStep.id) || guideStep.id.startsWith("account-")))}
         accountOpen={accountOpen}
+        navPosition={preferences.navPosition}
         focusMode={preferences.focusMode}
         onToggleFocus={()=>{if(!preferences.focusMode)setAppView("read");changePreferences({...preferences,focusMode:!preferences.focusMode});}}
       />
@@ -1155,16 +1160,20 @@ export default function App() {
           <p>{navStack.length?`Back returns to ${navStack.at(-1)?.label}.`:"Your reading trail starts when you open another post or view."}</p>
         </div></details>
         <details className="reader-session-menu"><summary aria-label="Session boundary"><TimerIcon aria-hidden/><span>Session</span>{session&&<i className="quick-active-dot" aria-label="Boundary active"/>}</summary><div className="reader-quick-panel reader-session-panel"><form className="session-controls" data-tour="session" onSubmit={e=>{e.preventDefault();startSession();const menu=document.querySelector<HTMLDetailsElement>(".reader-session-menu");if(menu)menu.open=false;}}>
-        <span className="eyebrow">Session boundary</span>
+        <h3 className="eyebrow">Session boundary</h3>
         <label>Session target <CustomSelect value={sessionMode} onChange={e=>{const mode=e.target.value as typeof sessionMode;setSessionMode(mode);setSessionValue(mode==="date"?(activeAnchorMessage?.date_utc?.slice(0,10)??new Date().toISOString().slice(0,10)):"5");}}><option value="posts">Posts</option><option value="minutes">Reading minutes</option><option value="date">Until date</option></CustomSelect></label>
-        <label className="session-value-label">{sessionMode==="date"?"End date":sessionMode==="minutes"?"Minutes":"Number of posts"}<input aria-label="Session target value" type={sessionMode==="date"?"date":"number"} min="1" max="500" value={sessionValue} onChange={e=>setSessionValue(e.target.value)}/></label>
-        <button type="submit">Set boundary</button>
+        <label className="session-value-label" htmlFor="session-target-value">{sessionMode==="date"?"End date":sessionMode==="minutes"?"Minutes":"Number of posts"}<div className={`session-quantity ${sessionMode==="date"?"session-quantity-date":""}`}>
+          {sessionMode!=="date"&&<button type="button" aria-label="Decrease session target" disabled={Number(sessionValue)<=1} onClick={()=>setSessionValue(String(Math.max(1,(Number(sessionValue)||1)-1)))}>−</button>}
+          <input id="session-target-value" aria-label="Session target value" type={sessionMode==="date"?"date":"number"} min="1" max="500" value={sessionValue} onChange={e=>setSessionValue(e.target.value)}/>
+          {sessionMode!=="date"&&<button type="button" aria-label="Increase session target" disabled={Number(sessionValue)>=500} onClick={()=>setSessionValue(String(Math.min(500,(Number(sessionValue)||1)+1)))}>+</button>}
+        </div></label>
+        <button type="submit" className="session-set-boundary">Set boundary</button>
         {session?<><span className="session-boundary-status">{session.label} · ending at #{messageByKey.get(session.endKey)?.message_id}</span><button type="button" className="btn-ghost session-boundary-clear" onClick={()=>{const pos=timelineRef.current?.getPosition();setSession(null);setSessionReached(false);pendingPositionRef.current=pos??null;setNavigationVersion(v=>v+1);}}>Clear boundary</button></>:null}
       </form></div></details>
         <ReadingWidth value={preferences.readingWidth} onChange={readingWidth=>changePreferences({...preferences,readingWidth})}/>
       </div>:null}
       {preferences.focusMode?<button type="button" className="reader-focus-exit" onClick={()=>changePreferences({...preferences,focusMode:false})}>Exit focus</button>:null}
-      {libraryOpen?<aside hidden={guideOpen && guideTopic !== null} className="reader-side-panel" data-tour="library-panel" aria-label="Personal reading library"><header><h2>Your reading library</h2><button type="button" onClick={()=>setLibraryOpen(false)} aria-label="Close library">×</button></header><ReadingLibrary state={personal} onChange={commitPersonal} messages={snapshot.messages} onOpenMessage={key=>{setLibraryOpen(false);focusMessage(key);}} onReadAround={readAround}/></aside>:null}
+      {libraryOpen?<aside hidden={guideOpen && guideTopic !== null} className="reader-side-panel" data-tour="library-panel" aria-label="Personal reading library"><header><h2>Your reading library</h2><button type="button" onClick={()=>setLibraryOpen(false)} aria-label="Close library">×</button></header><ReadingLibrary key={libraryInitialTab} initialTab={libraryInitialTab} savedPostKeys={snapshot.bookmarks.filter(bookmark=>bookmark.target_type==="message").map(bookmark=>bookmark.target_key)} state={personal} onChange={commitPersonal} messages={snapshot.messages} onOpenMessage={key=>{setLibraryOpen(false);focusMessage(key);}} onReadAround={readAround}/></aside>:null}
       {guideOpen && guideStep && ["library-queue", "library-collections", "library-work"].includes(guideStep.id) ? <aside className="reader-side-panel" data-tour="library-panel" aria-label="Library tour preview"><header><h2>Your reading library</h2><span className="eyebrow">Tour preview</span></header><ReadingLibrary idPrefix="guide-" state={personal} onChange={() => {}} messages={snapshot.messages} onOpenMessage={() => {}} onReadAround={() => {}} /></aside> : null}
       {readerSearchOpen?<aside className="reader-side-panel reader-search-panel" data-tour="search-panel" aria-label="Search beside reading"><header><h2>Search & filter</h2><button type="button" onClick={toggleReaderSearch} aria-label="Close search and return to your place">×</button></header><input autoFocus type="search" aria-label="Search archive beside reading" placeholder="Search the archive…" value={readerSearch} onChange={e=>{setReaderSearch(e.target.value);if(readerSearchMode==="stream")setSearchQuery(e.target.value);}}/>
       <div className="reader-search-modes" role="group" aria-label="Search display"><button type="button" aria-pressed={readerSearchMode==="results"} onClick={()=>{setReaderSearchMode("results");setSearchQuery("");if(searchReturnRef.current)restoreEntry(searchReturnRef.current);}}>Show results</button><button type="button" aria-pressed={readerSearchMode==="stream"} onClick={()=>{setReaderSearchMode("stream");setSearchQuery(readerSearch);}}>Filter stream</button></div>

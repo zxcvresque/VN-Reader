@@ -5,6 +5,8 @@ import { moveItem, type ReadingCollection, type ReadingState, type ReadingStatus
 
 interface ReadingLibraryProps {
   idPrefix?: string;
+  savedPostKeys?: string[];
+  initialTab?: Tab;
   state: ReadingState;
   onChange: (state: ReadingState) => void;
   messages: MessageRecord[];
@@ -32,14 +34,14 @@ function NoteEditor({ value, label, onSave }: { value: string; label: string; on
   </form>;
 }
 
-export default function ReadingLibrary({ idPrefix = "", state, onChange, messages, onOpenMessage, onReadAround }: ReadingLibraryProps) {
-  const [tab, setTab] = useState<Tab>("queue");
+export default function ReadingLibrary({ idPrefix = "", savedPostKeys = [], initialTab = "queue", state, onChange, messages, onOpenMessage, onReadAround }: ReadingLibraryProps) {
+  const [tab, setTab] = useState<Tab>(initialTab);
   const [query, setQuery] = useState("");
   const [selectedCollection, setSelectedCollection] = useState<string | null>(null);
   const [editor, setEditor] = useState<{ id: string | null; title: string; introduction: string } | null>(null);
   const [postQuery, setPostQuery] = useState("");
   const [postKey, setPostKey] = useState("");
-  const [passageId, setPassageId] = useState("");
+  const [savedItem, setSavedItem] = useState("");
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const messageMap = useMemo(() => new Map(messages.map((message) => [message.message_key, message])), [messages]);
   const passageMap = useMemo(() => new Map(state.passages.map((passage) => [passage.id, passage])), [state.passages]);
@@ -128,20 +130,44 @@ export default function ReadingLibrary({ idPrefix = "", state, onChange, message
         <div className="library-actions"><button type="submit" className="btn" disabled={!editor.title.trim()}>Save collection</button><button type="button" className="btn-ghost" onClick={() => setEditor(null)}>Cancel</button></div>
       </form>}
       {!state.collections.length && !editor && <p className="library-empty">Create your own reading paths from posts and saved passages.</p>}
-      {!!state.collections.length && <label className="library-field"><span>Your collections</span><CustomSelect value={collection?.id ?? ""} onChange={(event) => { setSelectedCollection(event.target.value); setConfirmDelete(null); setPostKey(""); setPassageId(""); }}>{state.collections.map((item) => <option value={item.id} key={item.id}>{item.title} ({item.items.length})</option>)}</CustomSelect></label>}
+      {!!state.collections.length && <label className="library-field"><span>Your collections</span><CustomSelect value={collection?.id ?? ""} onChange={(event) => { setSelectedCollection(event.target.value); setConfirmDelete(null); setPostKey(""); setSavedItem(""); }}>{state.collections.map((item) => <option value={item.id} key={item.id}>{item.title} ({item.items.length})</option>)}</CustomSelect></label>}
       {collection && <div className="library-collection">
-        <h3>{collection.title}</h3>{collection.introduction && <p className="collection-introduction">{collection.introduction}</p>}
-        <div className="library-actions"><button type="button" className="btn-ghost" onClick={() => setEditor({ id: collection.id, title: collection.title, introduction: collection.introduction })}>Edit details</button><button type="button" className="btn-ghost" onClick={() => setConfirmDelete(collection.id)}>Delete collection</button>
-          <button type="button" className="btn-ghost" disabled={state.collections.indexOf(collection) === 0} onClick={() => onChange({ ...state, collections: moveItem(state.collections, state.collections.indexOf(collection), state.collections.indexOf(collection) - 1) })}>↑ Move collection</button>
-          <button type="button" className="btn-ghost" disabled={state.collections.indexOf(collection) === state.collections.length - 1} onClick={() => onChange({ ...state, collections: moveItem(state.collections, state.collections.indexOf(collection), state.collections.indexOf(collection) + 1) })}>↓ Move collection</button>
+        <div className="collection-heading"><h3>{collection.title}</h3><span className="collection-item-count">{collection.items.length} {collection.items.length === 1 ? "item" : "items"}</span></div>
+        {collection.introduction && <p className="collection-introduction">{collection.introduction}</p>}
+        <div className="collection-management">
+          <div className="library-actions"><button type="button" className="btn-ghost" onClick={() => setEditor({ id: collection.id, title: collection.title, introduction: collection.introduction })}>Edit details</button><button type="button" className="btn-ghost" onClick={() => setConfirmDelete(collection.id)}>Delete collection</button></div>
+          {state.collections.length > 1 && <div className="library-actions collection-order" role="group" aria-label="Collection order">
+            <button type="button" className="btn-ghost" aria-label={`Move collection ${collection.title} earlier`} disabled={state.collections.indexOf(collection) === 0} onClick={() => onChange({ ...state, collections: moveItem(state.collections, state.collections.indexOf(collection), state.collections.indexOf(collection) - 1) })}>↑ Earlier</button>
+            <button type="button" className="btn-ghost" aria-label={`Move collection ${collection.title} later`} disabled={state.collections.indexOf(collection) === state.collections.length - 1} onClick={() => onChange({ ...state, collections: moveItem(state.collections, state.collections.indexOf(collection), state.collections.indexOf(collection) + 1) })}>↓ Later</button>
+          </div>}
         </div>
         {confirmDelete === collection.id && <div className="library-confirm" role="group" aria-label="Confirm collection deletion"><p>Delete “{collection.title}”? Your posts, notes, and saved passages will stay in your library.</p><button type="button" className="btn-ghost" onClick={() => { onChange({ ...state, collections: state.collections.filter((item) => item.id !== collection.id) }); setConfirmDelete(null); }}>Delete this collection</button><button type="button" className="btn-ghost" onClick={() => setConfirmDelete(null)}>Keep collection</button></div>}
-        <details className="library-card"><summary>Add a post or passage</summary>
-          <label className="library-field"><span>Find a post by ID or words</span><input value={postQuery} onChange={(event) => { setPostQuery(event.target.value); setPostKey(""); }} placeholder="Post ID or words from the post" /></label>
-          <label className="library-field"><span>Choose a post{availablePosts.length === 100 ? " (first 100 matches; refine your search)" : ""}</span><CustomSelect value={postKey} onChange={(event) => setPostKey(event.target.value)}><option value="">Select a post</option>{availablePosts.map((message) => <option key={message.message_key} value={message.message_key}>#{message.message_id} · {preview(message.text, 65)}</option>)}</CustomSelect></label>
-          <button type="button" className="btn-ghost" disabled={!messageMap.has(postKey) || collection.items.some((item) => item.messageKey === postKey && !item.passageId)} onClick={() => { if (!messageMap.has(postKey)) return; updateCollection({ ...collection, items: [...collection.items, { id: id(), messageKey: postKey }] }); setPostKey(""); }}>Add post</button>
-          <label className="library-field"><span>Or choose a saved passage</span><CustomSelect value={passageId} onChange={(event) => setPassageId(event.target.value)}><option value="">Select a saved passage</option>{state.passages.map((passage) => <option value={passage.id} key={passage.id}>#{passage.messageKey.split(":").pop()} · {preview(passage.text, 65)}</option>)}</CustomSelect></label>
-          <button type="button" className="btn-ghost" disabled={!passageMap.has(passageId) || collection.items.some((item) => item.passageId === passageId)} onClick={() => { const passage = passageMap.get(passageId); if (!passage) return; updateCollection({ ...collection, items: [...collection.items, { id: id(), messageKey: passage.messageKey, passageId }] }); setPassageId(""); }}>Add passage</button>
+        <details className="library-card collection-add"><summary>Add a post or passage</summary>
+          <div className="collection-add-section">
+            <label className="library-field"><span>Choose a saved post or passage</span><CustomSelect value={savedItem} onChange={(event) => setSavedItem(event.target.value)}><option value="">Select a saved post or passage</option>{[...new Set(savedPostKeys)].map((key) => {
+              const message = messageMap.get(key);
+              return <option value={`post:${key}`} key={`post:${key}`}>Saved post #{message?.message_id ?? key.split(":").pop()} · {preview(message?.text || message?.quote_text || "", 65)}</option>;
+            })}{state.passages.map((passage) => <option value={`passage:${passage.id}`} key={`passage:${passage.id}`}>Passage #{passage.messageKey.split(":").pop()} · {preview(passage.text, 65)}</option>)}</CustomSelect></label>
+            {!savedPostKeys.length && !state.passages.length && <p className="library-hint">Click Save on a post, or select text and save a passage while reading. It will appear here immediately.</p>}
+            <button type="button" className="btn-ghost" disabled={!savedItem || (savedItem.startsWith("post:") ? !savedPostKeys.includes(savedItem.slice(5)) || collection.items.some((item) => item.messageKey === savedItem.slice(5) && !item.passageId) : !passageMap.has(savedItem.slice(8)) || collection.items.some((item) => item.passageId === savedItem.slice(8)))} onClick={() => {
+              if (savedItem.startsWith("post:")) {
+                const key = savedItem.slice(5);
+                if (!savedPostKeys.includes(key) || collection.items.some((item) => item.messageKey === key && !item.passageId)) return;
+                updateCollection({ ...collection, items: [...collection.items, { id: id(), messageKey: key }] });
+              } else if (savedItem.startsWith("passage:")) {
+                const passage = passageMap.get(savedItem.slice(8));
+                if (!passage || collection.items.some((item) => item.passageId === passage.id)) return;
+                updateCollection({ ...collection, items: [...collection.items, { id: id(), messageKey: passage.messageKey, passageId: passage.id }] });
+              } else return;
+              setSavedItem("");
+            }}>Add saved item</button>
+          </div>
+          <div className="collection-add-section">
+            <p className="collection-add-caption">Or find another post</p>
+            <label className="library-field"><span>Find a post by ID or words</span><input value={postQuery} onChange={(event) => { setPostQuery(event.target.value); setPostKey(""); }} placeholder="Post ID or words from the post" /></label>
+            <label className="library-field"><span>Choose a post{availablePosts.length === 100 ? " (first 100 matches; refine your search)" : ""}</span><CustomSelect value={postKey} onChange={(event) => setPostKey(event.target.value)}><option value="">Select a post</option>{availablePosts.map((message) => <option key={message.message_key} value={message.message_key}>#{message.message_id} · {preview(message.text, 65)}</option>)}</CustomSelect></label>
+            <button type="button" className="btn-ghost" disabled={!messageMap.has(postKey) || collection.items.some((item) => item.messageKey === postKey && !item.passageId)} onClick={() => { if (!messageMap.has(postKey)) return; updateCollection({ ...collection, items: [...collection.items, { id: id(), messageKey: postKey }] }); setPostKey(""); }}>Add post</button>
+          </div>
         </details>
         {!collection.items.length && <p className="library-empty">Add a post or saved passage to begin this reading path.</p>}
         <ol className="library-list">{collection.items.map((item, index) => <li className="library-card" key={item.id}>{item.passageId ? <><span className="library-post-id">Passage from #{item.messageKey.split(":").pop()}</span><blockquote>{passageMap.get(item.passageId)?.text ?? "Saved passage unavailable"}</blockquote></> : postPreview(item.messageKey)}{postActions(item.messageKey)}<div className="library-actions"><button type="button" className="btn-ghost" aria-label={`Move item ${index + 1} earlier`} disabled={index === 0} onClick={() => updateCollection({ ...collection, items: moveItem(collection.items, index, index - 1) })}>↑ Earlier</button><button type="button" className="btn-ghost" aria-label={`Move item ${index + 1} later`} disabled={index === collection.items.length - 1} onClick={() => updateCollection({ ...collection, items: moveItem(collection.items, index, index + 1) })}>↓ Later</button><button type="button" className="btn-ghost" onClick={() => updateCollection({ ...collection, items: collection.items.filter((entry) => entry.id !== item.id) })}>Remove</button></div></li>)}</ol>

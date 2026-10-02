@@ -7,6 +7,9 @@ import type { BookmarkRecord, MessageRecord } from "../types";
 import TelegramRichText, { extractMessageEntities } from "./TelegramRichText";
 
 interface MessageCardProps {
+  collections?: Array<{ id: string; title: string; added: boolean }>;
+  onAddToCollection?: (message: MessageRecord, collectionId: string) => void;
+  onOpenCollections?: () => void;
   readingStatus?: "in-progress" | "finished" | "revisit" | null;
   onSetReadingStatus?: (message: MessageRecord, status: "in-progress" | "finished" | "revisit" | null) => void;
   queued?: boolean;
@@ -252,6 +255,7 @@ export default function MessageCard({
   readingStatus = null, onSetReadingStatus, queued = false, onToggleQueue,
   note = "", onSaveNote, savedPassages = [], onSavePassage, onRemovePassage,
   mediaMode = "compact", mediaPlayback, onSaveMediaPlayback, searchHighlight, onReadAround,
+  collections = [], onAddToCollection, onOpenCollections,
   bookmark,
   directoryHandle,
   hasManualReadOverride,
@@ -276,6 +280,7 @@ export default function MessageCard({
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
   const [labelsOpen, setLabelsOpen] = useState(false);
+  const [collectionOpen, setCollectionOpen] = useState(false);
   const actionsRef = useRef<HTMLDetailsElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -501,6 +506,7 @@ export default function MessageCard({
               {actionsOpen && createPortal(<div ref={panelRef} id={`post-actions-${message.message_key}`} className="post-more-panel post-more-portal" style={panelPosition} role="group" aria-label={`Additional actions for post ${message.message_id}`}>
                 {onSetReadingStatus&&<label className="reader-status-control">Reading state<CustomSelect aria-label={`Reading state for post ${message.message_id}`} value={readingStatus??""} onChange={e=>onSetReadingStatus(message,e.target.value?e.target.value as "in-progress"|"finished"|"revisit":null)}><option value="">Not started</option><option value="in-progress">In progress</option><option value="finished">Finished</option><option value="revisit">Revisit</option></CustomSelect></label>}
                 {onToggleQueue&&<button type="button" onClick={()=>{onToggleQueue(message);closeActions();}}>{queued?"Remove from queue":"Read later"}</button>}
+                {onAddToCollection && <button type="button" onClick={()=>{setCollectionOpen(true);closeActions();}}>Add to collection</button>}
                 {onSaveNote?<button type="button" onClick={()=>{setNoteOpen(o=>!o);closeActions();}}>{note?"Edit note":"Add note"}</button>:null}
                 {onReadAround?<button type="button" onClick={()=>{closeActions();onReadAround(message);}}>Read nearby posts</button>:null}
                 <button type="button" onClick={()=>{closeActions();onMarkReadTillHere(message);}}>Mark everything up to here seen</button>
@@ -512,6 +518,10 @@ export default function MessageCard({
             </details>
           </div>
         </div>
+        {collectionOpen && onAddToCollection && <section className="reader-collection-picker reader-note-editor" aria-label={`Add post ${message.message_id} to a collection`}>
+          <header><strong>Add to collection</strong><button type="button" className="reader-text-button" aria-label="Close collection picker" onClick={()=>setCollectionOpen(false)}>×</button></header>
+          {collections.length ? <div className="reader-collection-choices">{collections.map(collection=><button type="button" key={collection.id} disabled={collection.added} onClick={()=>{onAddToCollection(message,collection.id);setCollectionOpen(false);}}><span>{collection.title}</span><small>{collection.added ? "Already added" : "Add post"}</small></button>)}</div> : <><p>Create your first collection in <strong>My library → Collections → New collection</strong>, then add posts here.</p>{onOpenCollections && <button type="button" onClick={()=>{setCollectionOpen(false);onOpenCollections();}}>Create your first collection</button>}</>}
+        </section>}
         {noteOpen && onSaveNote ? <div className="reader-note-editor">
           <label>Personal note<textarea autoFocus aria-label={`Note for post ${message.message_id}`} value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} placeholder="What do you want to remember?" rows={3} /></label>
           <button type="button" onClick={() => { onSaveNote(message, noteDraft.trim()); setNoteOpen(false); }}>Save note</button>
