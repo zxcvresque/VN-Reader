@@ -79,10 +79,22 @@ test('pointer drag commits once on release while popup coordinates remain stable
     act(() => slider().props.onLostPointerCapture());
     assert.equal(slider().props.value, 108);
     assert.deepEqual(changes, [108]);
-    window.innerWidth = 300; window.innerHeight = 260;
+    window.innerWidth = 768; window.innerHeight = 260;
     act(() => env.listeners.get('resize')());
-    assert.equal(popup().props.style.width, 276);
-    assert.equal(popup().props.style.left, 12);
+    assert.equal(popup().props.style.width, 340);
+    assert.ok(popup().props.style.left >= 12);
     assert.equal(popup().props.style.top, 12);
+    window.innerWidth = 767;
+    act(() => env.listeners.get('resize')());
+    assert.equal(root.root.findAllByProps({ id: 'reading-width-popup' }).length, 0);
+    assert.equal(env.details.open, false);
+    assert.deepEqual(changes, [108], 'resizing preserves the saved tablet/desktop width');
+    env.details.open = true;
+    act(() => root.root.findByType('details').props.onToggle({ currentTarget: env.details }));
+    assert.equal(env.details.open, false, 'mobile viewport cannot reopen the popup');
+    window.innerWidth = 1000;
+    env.details.open = true;
+    act(() => root.root.findByType('details').props.onToggle({ currentTarget: env.details }));
+    assert.equal(slider().props.value, 108, 'returning to desktop restores the latest saved width');
   } finally { env.restore(); }
 });

@@ -11,11 +11,12 @@ export default function ReadingWidth({ value, onChange }: { value: number; onCha
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<Position | null>(null);
   const [draft, setDraft] = useState(value);
+  const valueRef = useRef(value); valueRef.current = value;
   const draftRef = useRef(value);
   const dragging = useRef<number | null>(null);
   const updateDraft = (next: number) => { draftRef.current = next; setDraft(next); };
   const close = () => {
-    dragging.current = null; updateDraft(value);
+    dragging.current = null; updateDraft(valueRef.current);
     if (details.current) details.current.open = false;
     setOpen(false);
   };
@@ -24,12 +25,15 @@ export default function ReadingWidth({ value, onChange }: { value: number; onCha
   // when opening it or when the viewport changes.
   useLayoutEffect(() => {
     if (!open) return;
-    const clamp = () => setPosition(previous => {
-      if (!previous) return previous;
-      const width = Math.min(340, Math.max(0, window.innerWidth - 24));
-      const height = panel.current?.getBoundingClientRect().height ?? 244;
-      return { width, left: Math.max(12, Math.min(previous.left, window.innerWidth - width - 12)), top: Math.max(12, Math.min(previous.top, window.innerHeight - height - 12)) };
-    });
+    const clamp = () => {
+      if (window.innerWidth < 768) { close(); return; }
+      setPosition(previous => {
+        if (!previous) return previous;
+        const width = Math.min(340, Math.max(0, window.innerWidth - 24));
+        const height = panel.current?.getBoundingClientRect().height ?? 244;
+        return { width, left: Math.max(12, Math.min(previous.left, window.innerWidth - width - 12)), top: Math.max(12, Math.min(previous.top, window.innerHeight - height - 12)) };
+      });
+    };
     clamp();
     window.addEventListener("resize", clamp);
     return () => window.removeEventListener("resize", clamp);
@@ -58,6 +62,7 @@ export default function ReadingWidth({ value, onChange }: { value: number; onCha
   };
   return <details className="reading-width-control" ref={details} data-tour="reading-width" onToggle={event => {
     const nextOpen = event.currentTarget.open;
+    if (nextOpen && window.innerWidth < 768) { close(); return; }
     if (nextOpen) {
       const bounds = event.currentTarget.querySelector("summary")!.getBoundingClientRect();
       const width = Math.min(340, Math.max(0, window.innerWidth - 24));

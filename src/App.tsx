@@ -117,6 +117,7 @@ export default function App() {
   const [notice, setNotice] = useState<string | null>(null);
   const [view, setView] = useState<ViewName>("read");
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [navigationRestoreTarget, setNavigationRestoreTarget] = useState<HTMLDivElement | null>(null);
   const [selectedThreadKey, setSelectedThreadKey] = useState<string | null>(null);
   const [highlightedMessageKey, setHighlightedMessageKey] = useState<string | null>(null);
   const [threadRailOpen, setThreadRailOpen] = useState(false);
@@ -1139,6 +1140,7 @@ export default function App() {
         guideMenuOpen={Boolean(guideStep && (["basic-navigation","basic-help","reading-navigation","search-threads"].includes(guideStep.id) || guideStep.id.startsWith("account-")))}
         accountOpen={accountOpen}
         navPosition={preferences.navPosition}
+        restoreTarget={navigationRestoreTarget}
         focusMode={preferences.focusMode}
         onToggleFocus={()=>{if(!preferences.focusMode)setAppView("read");changePreferences({...preferences,focusMode:!preferences.focusMode});}}
       />
@@ -1166,6 +1168,7 @@ export default function App() {
         {session?<><span className="session-boundary-status">{session.label} · ending at #{messageByKey.get(session.endKey)?.message_id}</span><button type="button" className="btn-ghost session-boundary-clear" onClick={()=>{const pos=timelineRef.current?.getPosition();setSession(null);setSessionReached(false);pendingPositionRef.current=pos??null;setNavigationVersion(v=>v+1);}}>Clear boundary</button></>:null}
       </form></div></details>
         <ReadingWidth value={preferences.readingWidth} onChange={readingWidth=>changePreferences({...preferences,readingWidth})}/>
+        <div className="reader-navigation-restore" ref={setNavigationRestoreTarget}/>
       </div>:null}
       {preferences.focusMode?<button type="button" className="reader-focus-exit" onClick={()=>changePreferences({...preferences,focusMode:false})}>Exit focus</button>:null}
       {libraryOpen?<aside hidden={guideOpen && guideTopic !== null} className="reader-side-panel" data-tour="library-panel" aria-label="Personal reading library"><header><h2>Your reading library</h2><button type="button" onClick={()=>setLibraryOpen(false)} aria-label="Close library">×</button></header><ReadingLibrary key={libraryInitialTab} initialTab={libraryInitialTab} savedPostKeys={snapshot.bookmarks.filter(bookmark=>bookmark.target_type==="message").map(bookmark=>bookmark.target_key)} state={personal} onChange={commitPersonal} messages={snapshot.messages} onOpenMessage={key=>{setLibraryOpen(false);focusMessage(key);}} onReadAround={readAround}/></aside>:null}

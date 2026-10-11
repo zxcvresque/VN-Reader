@@ -3020,6 +3020,7 @@ body { isolation: isolate; background-attachment: fixed; }
 
 /* Column width is available beside the stream controls and in focus mode. */
 .reading-width-control{font-size:12px;color:var(--text-muted);flex-shrink:0}
+@media(max-width:767px){.reading-width-control,.reading-width-panel,.reading-width-setting{display:none!important}}
 .reading-width-control>summary{display:flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:10px 12px;list-style:none;cursor:pointer;border:1px solid var(--border-strong);border-radius:var(--radius);white-space:nowrap}
 .reading-width-control>summary::-webkit-details-marker{display:none}
 .reading-width-control>summary svg{width:16px;height:16px;flex-shrink:0}
@@ -3191,6 +3192,18 @@ body { isolation: isolate; background-attachment: fixed; }
 
 .nav-reveal-edge.is-revealed span{opacity:0}
 
+/* Restore hidden navigation beside the reading tools on touch screens. */
+:root .reader-toolbar>.reader-navigation-restore{display:none;position:relative;flex-shrink:0;margin-left:auto}
+:root .reader-toolbar>.reader-navigation-restore:has(.nav-restore-button:not(.is-revealed),.navigation-restore-hint){display:flex}
+.nav-restore-button{display:flex;align-items:center;justify-content:center;flex-shrink:0;width:44px;height:44px;box-sizing:border-box;padding:0;border:1px solid var(--border);border-radius:8px;background:transparent;color:var(--text)}
+.nav-restore-button span{display:flex;align-items:center;justify-content:center}
+.nav-restore-button svg{width:20px;height:20px}
+.nav-restore-button.is-revealed{display:none}
+.navigation-restore-hint{position:fixed;right:16px;top:calc(16px + env(safe-area-inset-top));z-index:60;box-sizing:border-box;width:min(300px,calc(100vw - 32px));padding:16px;border:1px solid var(--border-strong);border-radius:var(--radius);background:var(--bg-elevated);box-shadow:var(--shadow-pop);color:var(--text)}
+.navigation-restore-hint.is-inline{position:absolute;top:calc(100% + 8px);right:0}
+.navigation-restore-hint p{margin:0 0 12px;font-size:13px;line-height:1.6}
+.navigation-restore-hint button{min-height:44px;padding:10px 14px;font-size:13px;border:1px solid var(--border-strong);border-radius:var(--radius-sm)}
+
 /* Custom selection menus stay clear of viewport edges in every theme. */
 .custom-select-trigger { display: inline-flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 44px; width: 100%; padding: 10px 14px; border: 1px solid var(--border-strong); border-radius: 9px; background: var(--bg-elevated); color: var(--text); font: inherit; text-align: left; cursor: pointer; }
 .custom-select-trigger > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -3267,10 +3280,10 @@ body { isolation: isolate; background-attachment: fixed; }
 @media(max-width:767px){
  :root{--reader-toolbar-top:112px}
  :root:not([data-focus="true"]):is([data-nav-position="left"],[data-nav-position="right"]){--reader-toolbar-top:112px}
- :root:has(.minimal-nav.nav-auto-hidden){--reader-toolbar-top:56px}
+ :root:has(.minimal-nav.nav-auto-hidden){--reader-toolbar-top:16px}
  :root:not([data-focus="true"])[data-nav-position="bottom"]{--reader-toolbar-top:56px}
  :root[data-focus="true"]{--reader-toolbar-top:112px}
- :root[data-focus="true"]:has(.minimal-nav.nav-auto-hidden){--reader-toolbar-top:56px}
+ :root[data-focus="true"]:has(.minimal-nav.nav-auto-hidden){--reader-toolbar-top:16px}
 }
 
 /* Reveal follows the physical dock; phone side rails become a top dock. */
@@ -3289,7 +3302,7 @@ body { isolation: isolate; background-attachment: fixed; }
  :root:not([data-focus="true"])[data-nav-position="bottom"]{--reader-toolbar-top:16px}
 }
 
-@media(max-width:767px){:root:not([data-focus="true"]):not([data-nav-position="bottom"]):has(.minimal-nav.nav-auto-hidden){--reader-toolbar-top:56px}}
+@media(max-width:767px){:root:not([data-focus="true"]):not([data-nav-position="bottom"]):has(.minimal-nav.nav-auto-hidden){--reader-toolbar-top:16px}}
 
 /* Reading controls have their own row; only the post viewport scrolls. */
 :root[data-theme] .app-shell:has(>.reader-toolbar){display:flex;flex-direction:column;box-sizing:border-box;height:100dvh;min-height:0;padding-top:var(--reader-toolbar-top);transition:padding-top 180ms ease}
