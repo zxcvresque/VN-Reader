@@ -76,9 +76,9 @@ def media_file_info(message):
     return getattr(message, "media", None), None, message.file.size
 
 
-async def telegram_chunks(client, message, start, end, disconnected=None, refresh=None, *, get_client=None):
+async def telegram_chunks(client, message, start, end, disconnected=None, refresh=None, *, get_client=None, flood_wait=None):
     """Yield bounded exact bytes, release sender on disconnect and refresh stale references."""
-    position, refresh_count, connection_retries = start, 0, 0
+    position, refresh_count, connection_retries, flood_retries = start, 0, 0, 0
     while position <= end:
         location, dc_id, file_size = media_file_info(message)
         if isinstance(location, bytes):
@@ -118,6 +118,13 @@ async def telegram_chunks(client, message, start, end, disconnected=None, refres
             if position <= end:
                 raise IOError("Telegram media ended before the requested range")
         except Exception as exc:
+            if exc.__class__.__name__ == "FloodWaitError" and flood_wait:
+                # Always register the final cooldown even when retries are exhausted.
+                resume = await flood_wait(exc)
+                if not resume or flood_retries >= 2:
+                    raise
+                flood_retries += 1
+                continue
             stale_reference = exc.__class__.__name__ in {"FileReferenceExpiredError", "FilerefUpgradeNeededError"}
             connection_failure = isinstance(exc, (ConnectionError, asyncio.TimeoutError)) or exc.__class__.__name__ in {"AuthKeyDuplicatedError", "AuthKeyUnregisteredError", "SessionRevokedError", "SessionExpiredError"}
             if not refresh or not (stale_reference or connection_failure):

@@ -1,13 +1,34 @@
-"""Best-effort operator events; never includes credentials or reader content."""
+"""Private operator events with account identity; never credentials or reader content."""
 import asyncio
 import json
 import os
 import time
 import urllib.request
 import logging
+from html import escape
+from pathlib import Path
+
+_schema = json.loads(Path(__file__).with_name("operatorEvents.json").read_text())
+FIELD_SCHEMA = _schema["fields"]
+
+
+def format_operator_event(event, detail="", severity="routine", fields=None):
+    tags = (["critical"] if severity == "critical" else []) + _schema["events"].get(event, ["system"])
+    lines = [f"<b>vn reader · {escape(event[:80], quote=False)}</b>", " ".join(f"#{tag}" for tag in tags)]
+    if detail:
+        lines += ["", f"<blockquote>{escape(detail[:200], quote=False)}</blockquote>"]
+    values = []
+    for key, definition in FIELD_SCHEMA.items():
+        value = (fields or {}).get(key)
+        if isinstance(value, str) and value:
+            value = value.replace("\r", " ").replace("\n", " ").replace("\t", " ")[:definition["limit"]]
+            values.append(f"<b>{definition['label']}:</b> {escape(value, quote=False)}")
+    if values:
+        lines += [""] + values
+    return "\n".join(lines)
 
 _last = {}
-async def notify(event, detail="", cooldown=300, *, severity="routine"):
+async def notify(event, detail="", cooldown=300, *, severity="routine", fields=None):
     """Send routine events to Logs and explicit critical events to the owner too."""
     if severity not in {"routine", "critical"}:
         raise ValueError("Unsupported notification severity")
@@ -24,17 +45,17 @@ async def notify(event, detail="", cooldown=300, *, severity="routine"):
                 row = db.execute("SELECT value FROM tg_meta WHERE key='logs_topic_id'").fetchone()
                 topic = json.loads(row[0]) if row else None
         except Exception: pass
-    text = f"vn reader · {event}\n{detail}"[:1000]
+    text = format_operator_event(event, detail, severity, fields)
 
     async def deliver(route, payload, interval):
-        key = (route, event)
+        key = (route, severity, event)
         now = time.monotonic()
         if now - _last.get(key, -float("inf")) < interval: return
         # Set before awaiting so simultaneous failures cannot flood the operator.
         _last[key] = now
         def send():
             req = urllib.request.Request(f"https://api.telegram.org/bot{token}/sendMessage",
-                data=json.dumps({**payload, "text": ("CRITICAL · " + text)[:1000] if route == "owner" else text}).encode(),
+                data=json.dumps({**payload, "text": text, "parse_mode": "HTML"}).encode(),
                 headers={"Content-Type": "application/json"})
             with urllib.request.urlopen(req, timeout=8) as response:
                 if not json.load(response).get("ok"): raise RuntimeError("Notification rejected")

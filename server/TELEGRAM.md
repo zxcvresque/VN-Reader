@@ -115,6 +115,24 @@ copy of those projects. The relevant protocols are
 
 ### Operator logs topic
 
-The archive service automatically creates a private Logs topic and saves its ID in the existing archive database. Enable Manage Topics for the bot. Optionally set `TELEGRAM_LOG_TOPIC_ID` in `.env.production` to reuse an existing topic. The bot must be able to post in that topic. Notifications cover startup, archive catch-up, mirror and media failures/recovery, new accounts, email verification, and OTP delivery failures. They exclude passwords, OTPs, email addresses and reader content. Repeated operational failures are throttled to one event per category every five minutes; signup and verification events are individual. Delivery is best effort and does not block reader requests; Docker logs remain the fallback if Telegram itself is unavailable. Account events use an authenticated internal endpoint; this endpoint is not routed through the public web proxy. Rebuild and recreate accounts, archive and mirror when deploying this update.
+Set `TELEGRAM_LOG_TOPIC_ID` in `.env.production` to the existing private Logs topic (`4523` by default). The archive saves this ID in its database and never creates competing topics. The bot must be able to post there. Notifications cover startup, archive catch-up, mirror and media failures/recovery, new accounts, email verification, password login (successful and rejected), and OTP delivery failures. Reader events include name, email and account ID when available; they exclude passwords, OTPs, session tokens and reader content. These identities belong only in the private operator topic/owner alerts. Repeated operational failures and rejected logins are throttled to one event per type every five minutes; successful signup, verification and login events are individual. Delivery is best effort and does not block reader requests; Docker logs remain the fallback if Telegram itself is unavailable. Account events use an authenticated internal endpoint with bounded, allowlisted fields; this endpoint is not routed through the public web proxy. Rebuild and recreate accounts, archive and mirror when deploying this update.
+
+Both services read `server/operatorEvents.json` for consistent tags and field labels. Main titles and field subtitles are bold; summaries use Telegram block quotes, with all user values HTML-escaped. Core tags are `#critical`, `#signup`, `#login`, `#media`, `#archive`, `#account`, `#email`, `#verification`, `#system`, `#recovery` and `#ratelimit`. Critical severity survives the internal relay and appears in both the Logs topic and owner DM.
+
+Media FloodWaits are routine `#media #ratelimit` notices, with the post ID, lookup/download stage and retry delay. The service shares the cooldown across new media requests and returns HTTP 503 with `Retry-After` and `X-Media-Status: rate-limited`. A short download pause (up to five seconds including the safety margin) resumes the same byte range, with at most two retries; longer pauses terminate the stream and subsequent requests advertise the cooldown. An HTTP stream whose headers have already been sent cannot change its status to 503. Telegram authorization is retained, and FloodWait alone does not trigger critical owner alerts.
+
+Media message metadata is cached for 30 seconds, with at most 256 entries;
+simultaneous requests for the same client, destination and saved message share
+one lookup. Errors are not cached. Stream recovery bypasses stale metadata and
+retains its byte offset. File bytes are still relayed per HTTP request. FloodWait
+logs include the RPC request class when available, without request contents.
+The reader respects advertised cooldowns and retries visible failed media at
+most twice automatically, preserving audio/video playback position.
+
+`GET /api/archive` uses a durable SQLite revision and weak ETag. Clients send
+`If-None-Match`; unchanged archives return HTTP 304 without rebuilding their
+JSON body. Caddy permits revalidation with `Cache-Control: public, no-cache`.
+Revision tracking upgrades existing databases automatically without deleting
+posts. Checkpoint-only changes do not invalidate the public archive.
 
 Critical failures also notify bot owner `5988446905` directly (`TELEGRAM_OWNER_ID`). The owner must have started the bot. Routine signup, verification, startup and recovery updates remain in Logs topic `4523`. Alerts are throttled per event for at least five minutes; recovered retries do not generate critical DMs. Owner delivery is independent of the Logs topic and the account-to-archive relay. Notification failures never expose credentials or stop user requests.

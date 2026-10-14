@@ -146,6 +146,21 @@ test('weekly bar tap previews and never navigates directly',()=>{
  }finally{f.close();}
 });
 
+test('phone filters disclose available types and report the selected count',()=>{
+ const f=fixture(true);
+ try{
+  const disclosure=()=>f.root.root.findByProps({'aria-label':'Timeline filters'});
+  assert.equal(disclosure().props['aria-expanded'],false);
+  act(()=>disclosure().props.onClick());assert.equal(disclosure().props['aria-expanded'],true);
+  const legend=f.root.root.findByProps({'aria-label':'Filter timeline content types'});
+  assert.match(legend.props.className,/is-open/);
+  act(()=>legend.findAllByType('button')[0].props.onClick());
+  assert.equal(legend.findAllByType('button')[0].props['aria-pressed'],false);
+  assert.match(disclosure().children.join(''),/7/);
+  act(()=>disclosure().props.onClick());assert.equal(disclosure().props['aria-expanded'],false);
+ }finally{f.close();}
+});
+
  test('clicked week stays open when the pointer leaves and crosses another week',async()=>{
  const f=fixture(false);try{
   const bars=()=>f.root.root.findAll(node=>node.props.className?.startsWith('post-timeline-week-bar'));

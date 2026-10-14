@@ -178,7 +178,14 @@ function MediaPreview({
   const [previewUnavailable, setPreviewUnavailable] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [failedSource, setFailedSource] = useState<{ messageKey: string; url: string | null } | null>(null);
+  const [retryDeadline,setRetryDeadline] = useState<number|null>(null);
+  const [retrySeconds,setRetrySeconds] = useState(0);
+  const retryNode = useRef<HTMLDivElement|null>(null);
+  const automaticRetries = useRef(0);
+  useEffect(()=>{automaticRetries.current=0;},[message.message_key]);
   const failedMedia = () => {
+    const player=mediaRef.current;
+    if(player&&Number.isFinite(player.currentTime))onSaveMediaPlayback?.(message,{time:player.currentTime,rate:player.playbackRate});
     setFailedSource({ messageKey: message.message_key, url: objectUrl });
     setError("This media could not be loaded. Try again.");
   };
@@ -190,6 +197,7 @@ function MediaPreview({
       setPreviewUnavailable(false);
       setError(null);
       setFailedSource(null);
+      setRetryDeadline(null);setRetrySeconds(0);
       if (!collapsed && message.media_path && /^\/api\/media\/\d+$/.test(message.media_path)) {
         setObjectUrl(attempt ? `${message.media_path}?retry=${attempt}` : message.media_path);
         return;
@@ -226,21 +234,59 @@ function MediaPreview({
   useEffect(() => {
     if (!error || collapsed || !objectUrl || failedSource?.messageKey !== message.message_key || failedSource.url !== objectUrl || !/^\/api\/media\/\d+$/.test(message.media_path ?? '')) return;
     const controller = new AbortController();
+    const timeout=setTimeout(()=>controller.abort(),10000);
     let cancelled = false;
     // Native image/video errors hide HTTP details. Only inspect failed hosted
     // media, so successful images never need an extra API request.
     void fetch(objectUrl, { method: 'HEAD', cache: 'no-store', signal: controller.signal })
       .then((response) => {
+        if(cancelled)return;
         if (!cancelled && response.status === 410 && response.headers.get('X-Media-Status') === 'link-preview-unavailable') {
           setPreviewUnavailable(true);
         }
+        if(response.status===503||response.status===429){
+          const header=response.headers.get('Retry-After')?.trim();
+          const delay=header&&/^\d+$/.test(header)?Number(header)*1000:header?Date.parse(header)-Date.now():NaN;
+          if(Number.isFinite(delay)&&delay>=0&&delay<=7*86400000){
+            const deadline=Date.now()+Math.max(1000,delay);
+            setRetryDeadline(deadline);setRetrySeconds(Math.ceil((deadline-Date.now())/1000));
+          }
+        }
       })
-      .catch(() => { /* A failed diagnostic request leaves the normal retry available. */ });
+      .catch(() => { /* A failed diagnostic request leaves the normal retry available. */ })
+      .finally(()=>clearTimeout(timeout));
     return () => {
       cancelled = true;
+      clearTimeout(timeout);
       controller.abort();
     };
   }, [error, failedSource, objectUrl, message.media_path, message.message_key, collapsed]);
+
+  useEffect(()=>{
+    if(retryDeadline===null||collapsed)return;
+    let cancelled=false;let timer:ReturnType<typeof setTimeout>|undefined;
+    const visible=()=>{
+      if(typeof document!=="undefined"&&document.visibilityState==="hidden")return false;
+      const node=retryNode.current;if(!node)return false;
+      const bounds=node.getBoundingClientRect();
+      return bounds.height>0&&bounds.bottom>0&&bounds.top<(typeof window!=="undefined"?window.innerHeight:Infinity);
+    };
+    const tick=()=>{
+      if(cancelled)return;
+      if(timer!==undefined)clearTimeout(timer);
+      const remaining=Math.max(0,Math.ceil((retryDeadline-Date.now())/1000));setRetrySeconds(remaining);
+      if(!remaining&&automaticRetries.current<2&&visible()){
+        automaticRetries.current++;setRetryDeadline(null);setAttempt(value=>value+1);return;
+      }
+      if(remaining)timer=setTimeout(tick,Math.min(1000,Math.max(1,retryDeadline-Date.now())));
+    };
+    const observer=typeof IntersectionObserver!=="undefined"?new IntersectionObserver(tick):null;
+    if(retryNode.current)observer?.observe(retryNode.current);
+    if(typeof window!=="undefined")window.addEventListener("scroll",tick,{passive:true,capture:true});
+    if(typeof document!=="undefined")document.addEventListener("visibilitychange",tick);
+    tick();
+    return()=>{cancelled=true;if(timer!==undefined)clearTimeout(timer);observer?.disconnect();if(typeof window!=="undefined")window.removeEventListener("scroll",tick,true);if(typeof document!=="undefined")document.removeEventListener("visibilitychange",tick);};
+  },[retryDeadline,collapsed]);
 
   const metadataOnlyPreview = !message.media_present && Boolean(safeArticleUrl(message.media_preview?.url));
   if (!message.media_present && !metadataOnlyPreview) {
@@ -274,14 +320,14 @@ function MediaPreview({
 
   if ((!directoryHandle && !message.media_path?.startsWith("/api/media/")) || !message.media_path || error) {
     return (
-      <div className="reader-media reader-media-placeholder">
+      <div ref={retryNode} className="reader-media reader-media-placeholder">
         <div>
           <p className="reader-media-kicker">{message.media_kind ?? "Media"}</p>
           <strong>{message.media_path?.startsWith("/api/media/") ? "Media temporarily unavailable" : message.media_path ?? "Metadata only"}</strong>
-          {error?<button type="button" className="reader-inline-button" onClick={()=>setAttempt(v=>v+1)}>Retry media</button>:null}
+          {error?<button type="button" disabled={retrySeconds>0} className="reader-inline-button" onClick={()=>{automaticRetries.current=0;setAttempt(v=>v+1);}}>{retrySeconds>0?`Retry in ${retrySeconds}s`:"Retry media"}</button>:null}
 
         </div>
-        {error ? <small>{error}</small> : null}
+        {error ? <small role="status">{retrySeconds>0?"Media delivery is paused. It will retry after this wait when visible.":retryDeadline!==null&&automaticRetries.current<2?"Ready to retry when this media is visible.":error}</small> : null}
       </div>
     );
   }

@@ -21,15 +21,17 @@ const Preview = module.exports.MediaPreview;
 const response = (status, marker = null) => ({ status, headers: new Headers(marker ? { 'X-Media-Status': marker } : {}) });
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
 
-function fixture(fetcher, overrides = {}, directoryHandle = null) {
+function fixture(fetcher, overrides = {}, directoryHandle = null, extra = {}) {
   const originalFetch = globalThis.fetch, calls = [];
   globalThis.fetch = (url, options) => { calls.push({ url, options }); return fetcher(url, options); };
   let message = { message_id: 4336, message_key: 'vn:4336', media_present: true, media_kind: 'photo', media_path: '/api/media/4336', external_urls: ['https://t.me/VidurNeeti', 'https://example.org/article'], ...overrides };
-  const props = () => ({ message, directoryHandle });
+  let visible=extra.visible??true;
+  const props = () => ({ message, directoryHandle,...extra.props });
   let tree;
-  act(() => { tree = Renderer.create(React.createElement(Preview, props())); });
+  act(() => { tree = Renderer.create(React.createElement(Preview, props()),{createNodeMock:element=>element.type==='video'?extra.player??null:element.props.className==='reader-media reader-media-placeholder'?{getBoundingClientRect:()=>({height:100,top:visible?0:2000,bottom:visible?100:2100})}:null}); });
   return {
     tree, calls,
+    setVisible(value){visible=value;},
     async fail(type = 'img') { await act(async () => { tree.root.findByType(type).props.onError(); }); },
     async update(next) { message = { ...message, ...next }; await act(async () => tree.update(React.createElement(Preview, props()))); },
     dispose() { act(() => tree.unmount()); globalThis.fetch = originalFetch; }
@@ -57,6 +59,52 @@ test('only an expired-preview response changes failed image into an article prev
     assert.equal(link.props.rel, 'noopener noreferrer');
     assert.equal(link.children[0], 'Open article');
   } finally { f.dispose(); }
+});
+
+test('a cooldown disables early retry and automatically reloads visible media at its deadline',async(t)=>{
+ t.mock.timers.enable({apis:['setTimeout','Date'],now:Date.UTC(2026,9,13)});
+ const f=fixture(async()=>({status:503,headers:new Headers({'Retry-After':'3','X-Media-Status':'rate-limited'})}));
+ try{
+  await f.fail();const button=()=>f.tree.root.findAllByType('button').find(b=>b.props.className==='reader-inline-button');
+  assert.equal(button().props.disabled,true);assert.match(text(f.tree),/Retry in 3s/);
+  await act(async()=>t.mock.timers.tick(2000));assert.match(text(f.tree),/Retry in 1s/);assert.equal(f.calls.length,1);
+  await act(async()=>t.mock.timers.tick(1000));assert.match(f.tree.root.findByType('img').props.src,/\?retry=1$/);assert.equal(f.calls.length,1);
+ }finally{f.dispose();}
+});
+
+test('expired cooldown waits until offscreen media is visible and stops after two automatic retries',async(t)=>{
+ t.mock.timers.enable({apis:['setTimeout','Date'],now:Date.UTC(2026,9,13)});
+ const originalWindow=globalThis.window,listeners=new Map();
+ globalThis.window={innerHeight:800,addEventListener:(name,fn)=>listeners.set(name,fn),removeEventListener:name=>listeners.delete(name)};
+ const f=fixture(async()=>({status:503,headers:new Headers({'Retry-After':'1'})}),{},null,{visible:false});
+ try{
+  await f.fail();await act(async()=>t.mock.timers.tick(1000));assert.match(text(f.tree),/Ready to retry when/);assert.equal(f.tree.root.findAllByType('img').length,0);
+  f.setVisible(true);await act(async()=>listeners.get('scroll')());assert.match(f.tree.root.findByType('img').props.src,/\?retry=1$/);
+  await f.fail();await act(async()=>t.mock.timers.tick(1000));assert.match(f.tree.root.findByType('img').props.src,/\?retry=2$/);
+  await f.fail();await act(async()=>t.mock.timers.tick(5000));assert.equal(f.tree.root.findAllByType('img').length,0);assert.equal(f.calls.length,3);
+  assert.equal(f.tree.root.findAllByType('button').find(b=>b.props.className==='reader-inline-button').props.disabled,false);
+ }finally{f.dispose();globalThis.window=originalWindow;}
+});
+
+test('HTTP date cooldowns are honored and a changed post cannot inherit a pending retry',async(t)=>{
+ const now=Date.UTC(2026,9,13);t.mock.timers.enable({apis:['setTimeout','Date'],now});
+ const f=fixture(async()=>({status:503,headers:new Headers({'Retry-After':new Date(now+5000).toUTCString()})}));
+ try{
+  await f.fail();assert.match(text(f.tree),/Retry in 5s/);
+  await f.update({message_key:'vn:43',message_id:43,media_path:'/api/media/43'});
+  await act(async()=>t.mock.timers.tick(10000));assert.equal(f.tree.root.findByType('img').props.src,'/api/media/43');
+ }finally{f.dispose();}
+});
+
+test('video failure captures the last playback position for retry restoration',async()=>{
+ const saved=[],player={currentTime:72,playbackRate:1.5};
+ const f=fixture(async()=>response(503),{media_kind:'video'},null,{player,props:{mediaPlayback:{time:72,rate:1.5},onSaveMediaPlayback:(_,state)=>saved.push(state)}});
+ try{
+  await f.fail('video');assert.deepEqual(saved,[{time:72,rate:1.5}]);
+  await act(async()=>f.tree.root.findAllByType('button').find(b=>b.props.className==='reader-inline-button').props.onClick());
+  const reloaded={currentTime:0,playbackRate:1,duration:100};
+  act(()=>f.tree.root.findByType('video').props.onLoadedMetadata({currentTarget:reloaded}));assert.equal(reloaded.currentTime,72);assert.equal(reloaded.playbackRate,1.5);
+ }finally{f.dispose();}
 });
 
 test('transient errors and unmarked 410s keep Retry media, which changes the actual media URL', async () => {

@@ -10,6 +10,8 @@ export function useReaderAccount(document: ReadingBackup, onApply: (data: Readin
   const [configError, setConfigError] = useState("");
   const [configReady, setConfigReady] = useState(false);
   const [configAttempt, setConfigAttempt] = useState(0);
+  const [sessionError, setSessionError] = useState("");
+  const sessionDiscovery = useRef({ generation: 0, failed: false, pending: false });
   const [status, setStatus] = useState<SyncStatus>("guest");
   const [message, setMessage] = useState("");
   const [conflicts, setConflicts] = useState<string[]>([]);
@@ -24,15 +26,42 @@ export function useReaderAccount(document: ReadingBackup, onApply: (data: Readin
   const changed = JSON.stringify(canonical(document));
   const apply = (data: ReadingBackup, restorePosition = false) => {current.current=data;handlers.current.onApply(data,restorePosition);};
 
+  const beginAuthentication = useCallback(() => {
+    sessionDiscovery.current.generation++;sessionDiscovery.current.pending=false;sessionDiscovery.current.failed=false;setSessionError("");
+  },[]);
   const initialize = useCallback(async (account: AccountUser) => {
+    beginAuthentication();
+    // Signing in again or changing a profile must preserve current unsynced work.
+    if(state.current.user?.id===account.id){state.current.user=account;setUser(account);return;}
+    const previous=state.current;
+    if(previous.user&&previous.chat!==null&&previous.base){
+      try{localStorage.setItem(cacheKey(previous.user.id,previous.chat),JSON.stringify({base:previous.base,data:canonical(current.current),revision:previous.revision}));}catch{throw new Error("Your current reading could not be saved on this device. Sync or export it before switching accounts.");}
+    }
     const s=state.current; s.generation++; s.user=account; s.chat=null; s.base=null; s.running=false; s.conflictRemote=null; s.conflictRevision=0;
     setConflicts([]);
     setUser(account); setReady(false); setStatus("loading"); setMessage(""); setTrigger(v=>v+1);
-  },[]);
-  useEffect(()=>{ let active=true;
-    void api<{user:AccountUser|null}|null>("/auth/get-session").then(result=>{if(active&&result?.user)void initialize(result.user);}).catch(()=>{});
-    return()=>{active=false;state.current.generation++;};
+  },[beginAuthentication]);
+  const discoverSession = useCallback(async () => {
+    const discovery=sessionDiscovery.current;
+    if(state.current.user||discovery.pending)return;
+    discovery.pending=true;const generation=++discovery.generation;
+    try{
+      const result=await api<{user:AccountUser|null}|null>("/auth/get-session");
+      if(discovery.generation!==generation)return;
+      discovery.failed=false;setSessionError("");
+      if(result?.user)await initialize(result.user);
+    }catch{
+      if(discovery.generation!==generation)return;
+      discovery.failed=true;setSessionError("Your saved sign-in could not be checked. Retry connection to restore it; your guest reading is kept separately.");
+    }finally{if(discovery.generation===generation)discovery.pending=false;}
   },[initialize]);
+  useEffect(()=>{
+    void discoverSession();
+    const recover=()=>{if(sessionDiscovery.current.failed)void discoverSession();};
+    const visible=()=>{if(window.document.visibilityState==="visible")recover();};
+    window.addEventListener("online",recover);window.document.addEventListener("visibilitychange",visible);
+    return()=>{sessionDiscovery.current.generation++;state.current.generation++;window.removeEventListener("online",recover);window.document.removeEventListener("visibilitychange",visible);};
+  },[discoverSession]);
   useEffect(()=>{let active=true;setConfigReady(false);setConfigError("");
     void api<SiteConfig>("/config").then(c=>{if(active)setConfig(c);}).catch(error=>{if(active)setConfigError(error instanceof Error?error.message:"Could not connect to the reader.");}).finally(()=>{if(active)setConfigReady(true);});
     return()=>{active=false;};
@@ -106,6 +135,7 @@ export function useReaderAccount(document: ReadingBackup, onApply: (data: Readin
     }catch(error){if(s.generation!==generation)return;setMessage(error instanceof Error?error.message:"Please retry sync.");if(error instanceof ApiError&&[409,412].includes(error.status)){s.conflictRemote=null;setConflicts([]);void sync();}}
   };
   const logout=async()=>{
+    beginAuthentication();
     // Do not discard pending work merely because logout was pressed.
     if(status==="conflict")throw new Error("Resolve the sync conflict before signing out, or export a reading backup first.");
     await sync();if(state.current.conflictRemote)throw new Error("Both devices changed the same information. Resolve the conflict before signing out.");if(state.current.running)throw new Error("Sync is still saving. Try signing out in a moment.");
@@ -113,11 +143,19 @@ export function useReaderAccount(document: ReadingBackup, onApply: (data: Readin
     state.current.generation++;state.current.user=null;state.current.chat=null;state.current.base=null;state.current.conflictRemote=null;
     setUser(null);setReady(false);setStatus("guest");setGuestImport(null);setMessage("");handlers.current.onGuest();
   };
+  const updateName=async(name:string)=>{
+    const account=state.current.user;if(!account)throw new Error("Sign in before updating your name.");
+    const trimmed=name.trim();if(trimmed.length>80)throw new Error("Use a display name of 80 characters or fewer.");
+    const generation=state.current.generation;
+    await authRequest("update-user",{name:trimmed||"Reader"});
+    if(state.current.generation!==generation||state.current.user?.id!==account.id)return;
+    const updated={...account,name:trimmed||"Reader"};state.current.user=updated;setUser(updated);
+  };
   const flush=(data:ReadingBackup)=>{
     const s=state.current;if(!s.user||s.chat===null||!s.base||data.chatId!==s.chat)return;
     const copy=canonical(data);
     try{localStorage.setItem(cacheKey(s.user.id,s.chat),JSON.stringify({base:s.base,data:copy,revision:s.revision}));}catch{/* Normal saving surfaces storage errors. */}
     if(!s.running&&!s.conflictRemote&&JSON.stringify(copy).length<60000)void saveCloudState(s.chat,copy,s.revision,true).catch(()=>{});
   };
-  return {user,config,configError,configReady,refreshConfig:()=>setConfigAttempt(v=>v+1),status,message,ready,conflicts,guestImport,initialize,logout,flush,sync:()=>{if(!state.current.base)setTrigger(v=>v+1);else void sync();},resolve,importGuest:()=>{if(guestImport){apply(guestImport);setGuestImport(null);}}};
+  return {user,config,configError,configReady,sessionError,refreshConfig:()=>{setConfigAttempt(v=>v+1);void discoverSession();},status,message,ready,conflicts,guestImport,beginAuthentication,initialize,updateName,logout,flush,sync:()=>{if(!state.current.base)setTrigger(v=>v+1);else void sync();},resolve,importGuest:()=>{if(guestImport){apply(guestImport);setGuestImport(null);}}};
 }

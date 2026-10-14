@@ -13,7 +13,11 @@
     Referrer-Policy same-origin
     Permissions-Policy "camera=(), microphone=(), geolocation=()"
   }
-  @telegram path /api/archive /api/media/* /api/archive-health
+  handle /api/archive {
+    header Cache-Control "public, no-cache"
+    reverse_proxy archive:8000
+  }
+  @telegram path /api/media/* /api/archive-health
   handle @telegram {
     header Cache-Control "no-store"
     reverse_proxy archive:8000

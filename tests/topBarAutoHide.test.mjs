@@ -21,10 +21,11 @@ function fixture(props={},touch=false){
  globalThis.requestAnimationFrame=callback=>callback();
  let keyboardFocus=false;let tree;
  const shell={querySelector:()=>keyboardFocus?{}:null,contains:()=>false};
- act(()=>{tree=Renderer.create(React.createElement(mod.exports.default,{channelTitle:'vn reader',channelMeta:'',anchorLabel:'#4',progressPercent:0,view:'read',onSetView:()=>{},onOpenPalette:()=>{},...props}),{createNodeMock:element=>element.type==='header'?shell:null});});
+ const defaults={channelTitle:'vn reader',channelMeta:'',anchorLabel:'#4',progressPercent:0,view:'read',onSetView:()=>{},onOpenPalette:()=>{},...props};
+ act(()=>{tree=Renderer.create(React.createElement(mod.exports.default,defaults),{createNodeMock:element=>element.type==='header'?shell:null});});
  const header=()=>tree.root.findByType('header');
  const toggle=()=>tree.root.findAllByType('button').find(b=>b.props['aria-pressed']!==undefined);
- return{tree,stored,header,toggle,setFocus:value=>{keyboardFocus=value;},restore:()=>{act(()=>tree.unmount());Object.assign(globalThis,original);}};
+ return{tree,stored,header,toggle,setView:view=>act(()=>tree.update(React.createElement(mod.exports.default,{...defaults,view}))),setFocus:value=>{keyboardFocus=value;},restore:()=>{act(()=>tree.unmount());Object.assign(globalThis,original);}};
 }
 const pause=()=>new Promise(resolve=>setTimeout(resolve,380));
 test('navigation starts pinned and persists explicit auto hide preference',()=>{const f=fixture();try{assert.equal(f.toggle().props['aria-label'],'Hide navigation while reading');act(()=>f.toggle().props.onClick());assert.equal(f.stored.get('vn-reader-nav-auto-hide'),'true');assert.equal(f.toggle().props['aria-label'],'Keep navigation visible');act(()=>f.toggle().props.onClick());assert.equal(f.stored.get('vn-reader-nav-auto-hide'),'false');assert.ok(!f.header().props.className.includes('nav-auto-hidden'));}finally{f.restore();}});
@@ -69,5 +70,50 @@ test('restore hint follows desktop edges and closes when navigation is restored'
   assert.equal(f.tree.root.findAllByProps({role:'status'}).length,0);
   act(()=>f.toggle().props.onClick());
   assert.equal(f.tree.root.findAllByProps({'aria-label':'Show navigation'}).length,0);
+ }finally{f.restore();}
+});
+
+test('mobile restore hamburger stays in the shared toolbar across every view and dock position',()=>{
+ for(const navPosition of ['top','bottom','left','right']){
+  const target={};const f=fixture({restoreTarget:target,navPosition},true);
+  try{
+   act(()=>f.toggle().props.onClick());
+   for(const view of ['progress','threads','bookmarks','read']){
+    f.setView(view);
+    const restore=f.tree.root.findByProps({'aria-label':'Show navigation'});
+    assert.match(restore.props.className,/nav-restore-button/);
+    assert.ok(!restore.props.className.includes('nav-reveal-edge'));
+    assert.equal(portals.at(-1),target);
+    assert.ok(f.header().props.className.includes('nav-auto-hidden'));
+    assert.equal(restore.props['aria-describedby'],'navigation-restore-hint');
+   }
+   act(()=>f.tree.root.findByProps({'aria-label':'Show navigation'}).props.onClick());
+   assert.ok(!f.header().props.className.includes('nav-auto-hidden'));
+  }finally{f.restore();}
+ }
+});
+
+test('Focus is a reading control and never appears on Progress, Threads or Bookmarks',()=>{
+ for(const touch of [true,false]){
+  let clicks=0;const f=fixture({onToggleFocus:()=>clicks++},touch);
+  try{
+   const focus=()=>f.tree.root.findAllByProps({'data-tour':'focus'});
+   assert.equal(focus().length,1);
+   act(()=>focus()[0].props.onClick());assert.equal(clicks,1);
+   for(const view of ['progress','threads','bookmarks']){f.setView(view);assert.equal(focus().length,0);}
+   f.setView('read');assert.equal(focus().length,1);
+  }finally{f.restore();}
+ }
+});
+
+test('auto-hidden mobile navigation closes on page selection even on an empty page',()=>{
+ const f=fixture({restoreTarget:{}},true);
+ try{
+  act(()=>f.toggle().props.onClick());
+  act(()=>f.tree.root.findByProps({'aria-label':'Show navigation'}).props.onClick());
+  assert.ok(!f.header().props.className.includes('nav-auto-hidden'));
+  f.setView('bookmarks');
+  assert.ok(f.header().props.className.includes('nav-auto-hidden'));
+  assert.match(f.tree.root.findByProps({'aria-label':'Show navigation'}).props.className,/nav-restore-button/);
  }finally{f.restore();}
 });

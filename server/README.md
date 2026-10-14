@@ -182,6 +182,17 @@ bot authorization replaces only the affected role's key, including
 `AuthKeyDuplicatedError` during media lookup. Critical connection failures notify the configured owner; recovery
 and routine events go to the existing Logs topic. No Telegram keys are logged.
 
+Media lookup/download FloodWaits use a separate shared cooldown and routine
+`#media #ratelimit` notification with post, stage and retry delay. New media
+requests return HTTP 503 with `Retry-After` while that deadline is active.
+Download pauses of at most five seconds (including a one-second safety margin)
+resume the exact byte range up to twice; longer pauses terminate the stream.
+Already-sent HTTP headers cannot be changed to 503. Genuine delivery failures
+still send `#critical #media` alerts. Account operator events include reader
+name, email and ID when available, with bold titles/labels and quoted summaries;
+passwords, OTPs and session tokens remain excluded. The shared tag/field schema
+is `server/operatorEvents.json`; see [TELEGRAM.md](TELEGRAM.md#operator-logs-topic).
+
 Photo streaming selects an explicit Telegram size variant and uses that same
 variant for Content-Length, byte ranges, and downloads. Telegram's heaviest JPEG
 can differ from its largest-dimension JPEG; using generic `File.size` with an

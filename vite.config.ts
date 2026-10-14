@@ -6,6 +6,6 @@ export default defineConfig({
   server: {
     host: "127.0.0.1",
     port: 5173,
-    proxy: { "/api/archive": "http://127.0.0.1:8000", "/api/media": "http://127.0.0.1:8000", "/api": "http://127.0.0.1:3005" }
+    proxy: { "/api/admin/r2-stats": "http://127.0.0.1:3005", "/api/archive": "http://127.0.0.1:8000", "/api/media": "http://127.0.0.1:8000", "/api/r2-stats": "http://127.0.0.1:8000", "/api": "http://127.0.0.1:3005" }
   }
 });

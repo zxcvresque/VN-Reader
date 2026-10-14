@@ -16,6 +16,8 @@ import time
 import sys
 import copy
 import io
+import secrets
+from contextlib import contextmanager
 from pathlib import Path
 import sqlite3
 from datetime import datetime, timezone, timedelta
@@ -132,8 +134,40 @@ class MirrorStore:
             CREATE TABLE IF NOT EXISTS tg_quote_parts(source_id INTEGER NOT NULL,part INTEGER NOT NULL,
                 destination_id INTEGER,PRIMARY KEY(source_id,part));
             CREATE TABLE IF NOT EXISTS tg_media_copies(source_id INTEGER PRIMARY KEY,destination_id INTEGER NOT NULL);
+            CREATE TABLE IF NOT EXISTS tg_r2_media(source_id INTEGER PRIMARY KEY,r2_key TEXT NOT NULL,r2_bucket TEXT NOT NULL,r2_url TEXT NOT NULL,bytes INTEGER,etag TEXT,uploaded_at TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS tg_archive_state(id INTEGER PRIMARY KEY CHECK(id=1),epoch TEXT NOT NULL,revision INTEGER NOT NULL);
+            CREATE TRIGGER IF NOT EXISTS tg_archive_message_insert AFTER INSERT ON tg_messages
+                WHEN NEW.status='copied' BEGIN
+                UPDATE tg_archive_state SET revision=revision+1 WHERE id=1;
+            END;
+            CREATE TRIGGER IF NOT EXISTS tg_archive_message_update AFTER UPDATE ON tg_messages
+                WHEN (OLD.status='copied' OR NEW.status='copied')
+                    AND (OLD.status IS NOT NEW.status OR OLD.record IS NOT NEW.record) BEGIN
+                UPDATE tg_archive_state SET revision=revision+1 WHERE id=1;
+            END;
+            CREATE TRIGGER IF NOT EXISTS tg_archive_message_delete AFTER DELETE ON tg_messages
+                WHEN OLD.status='copied' BEGIN
+                UPDATE tg_archive_state SET revision=revision+1 WHERE id=1;
+            END;
+            CREATE TRIGGER IF NOT EXISTS tg_archive_source_insert AFTER INSERT ON tg_meta
+                WHEN NEW.key='source' BEGIN
+                UPDATE tg_archive_state SET revision=revision+1 WHERE id=1;
+            END;
+            CREATE TRIGGER IF NOT EXISTS tg_archive_source_update AFTER UPDATE ON tg_meta
+                WHEN (OLD.key='source' OR NEW.key='source')
+                    AND (OLD.key IS NOT NEW.key OR OLD.value IS NOT NEW.value) BEGIN
+                UPDATE tg_archive_state SET revision=revision+1 WHERE id=1;
+            END;
+            CREATE TRIGGER IF NOT EXISTS tg_archive_source_delete AFTER DELETE ON tg_meta
+                WHEN OLD.key='source' BEGIN
+                UPDATE tg_archive_state SET revision=revision+1 WHERE id=1;
+            END;
         """)
+        # Seed once, including for databases created before revision tracking.
+        # An epoch avoids validators colliding after switching to a different archive.
+        self.db.execute("INSERT OR IGNORE INTO tg_archive_state VALUES(1,?,0)", (secrets.token_hex(16),))
         self.db.commit()
+        self._archive_payload_cache = None
 
     def close(self): self.db.close()
     def meta(self, key, default=None):
@@ -157,6 +191,30 @@ class MirrorStore:
     def save_media_destination(self, source_id, destination_id):
         with self.db:
             self.db.execute("INSERT INTO tg_media_copies VALUES(?,?) ON CONFLICT(source_id) DO UPDATE SET destination_id=excluded.destination_id", (source_id, destination_id))
+
+    # ─────────────── R2 durable media ───────────────
+    def r2_row(self, source_id):
+        return self.db.execute("SELECT * FROM tg_r2_media WHERE source_id=?", (source_id,)).fetchone()
+
+    def save_r2_media(self, source_id, r2_key, r2_bucket, r2_url, byte_count=None, etag=None):
+        now = datetime.now(timezone.utc).isoformat()
+        with self.db:
+            self.db.execute(
+                "INSERT INTO tg_r2_media(source_id,r2_key,r2_bucket,r2_url,bytes,etag,uploaded_at) VALUES(?,?,?,?,?,?,?) "
+                "ON CONFLICT(source_id) DO UPDATE SET r2_key=excluded.r2_key,r2_bucket=excluded.r2_bucket,r2_url=excluded.r2_url,bytes=excluded.bytes,etag=excluded.etag,uploaded_at=excluded.uploaded_at",
+                (source_id, r2_key, r2_bucket, r2_url, byte_count, etag, now),
+            )
+            # Keep tg_archive_state revision monotonic so /api/archive ETag changes.
+            self.db.execute("UPDATE tg_archive_state SET revision=revision+1 WHERE id=1")
+
+    def delete_r2_media(self, source_id):
+        with self.db:
+            self.db.execute("DELETE FROM tg_r2_media WHERE source_id=?", (source_id,))
+            self.db.execute("UPDATE tg_archive_state SET revision=revision+1 WHERE id=1")
+
+    def r2_counts(self):
+        row = self.db.execute("SELECT count(*), coalesce(sum(bytes),0) FROM tg_r2_media").fetchone()
+        return int(row[0] or 0), int(row[1] or 0)
     def prepare(self, message, source):
         body = record(message, source)
         identity = self.meta("identity")
@@ -197,10 +255,57 @@ class MirrorStore:
     def queue_edit(self, source_id):
         self.db.execute("INSERT OR IGNORE INTO tg_edit_queue VALUES (?)", (source_id,))
         self.db.commit()
+    @contextmanager
+    def archive_snapshot(self):
+        """Keep the cheap revision and any subsequently read records consistent."""
+        own_transaction = not self.db.in_transaction
+        if own_transaction:
+            self.db.execute("BEGIN")
+        try:
+            source = self.meta("source")
+            state = self.db.execute("SELECT epoch,revision FROM tg_archive_state WHERE id=1").fetchone()
+            yield f"{state['epoch']}-{state['revision']}" if source else None
+        finally:
+            if own_transaction:
+                self.db.rollback()
+    def archive_json(self, revision):
+        """Reuse one serialized public archive until its durable revision changes.
+
+        Call inside archive_snapshot(), using its revision. The generated export
+        timestamp stays at the time this revision was first served by the process.
+        """
+        cached = self._archive_payload_cache
+        if cached is None or cached[0] != revision:
+            body = json.dumps(self.archive(), ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode("utf-8")
+            self._archive_payload_cache = (revision, body)
+        return self._archive_payload_cache[1]
+    def _attach_r2(self, messages: list[dict]) -> None:
+        """Overlay durable R2 URLs over media_path for messages that have been migrated."""
+        if not messages:
+            return
+        ids = [m.get("message_id") for m in messages if m.get("message_id")]
+        if not ids:
+            return
+        placeholders = ",".join("?" for _ in ids)
+        rows = {r[0]: r for r in self.db.execute(f"SELECT source_id,r2_url,r2_key,r2_bucket FROM tg_r2_media WHERE source_id IN ({placeholders})", ids)}
+        for m in messages:
+            mid = m.get("message_id")
+            r = rows.get(mid)
+            if r and r[2]:  # r2_url present
+                # Keep original Telegram fallback in r2_telegram_fallback so reader
+                # can degrade gracefully if R2 is temporarily unavailable.
+                if m.get("media_path"):
+                    m["r2_telegram_fallback"] = m["media_path"]
+                m["media_path"] = r[2]  # r2_url is col index 2
+                m["r2_key"] = r[1]
+                m["r2_bucket"] = r[3]
+                m["media_origin"] = "r2"
+
     def archive(self):
         source = self.meta("source")
         if not source: return None
         messages = [json.loads(r[0]) for r in self.db.execute("SELECT record FROM tg_messages WHERE status='copied' ORDER BY source_id")]
+        self._attach_r2(messages)
         first, last = (messages[0], messages[-1]) if messages else ({}, {})
         manifest = {
             "archive_version": 1, "exported_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -288,6 +393,13 @@ class Mirror:
             if hasattr(self.writer, "preserve_link_previews"):
                 await self.writer.preserve_link_previews(messages)
             self.store.complete(ids, messages, self.source)
+            # Best-effort R2 archival — does not block checkpoint on failure
+            for _m in messages:
+                if getattr(_m, "file", None):
+                    try:
+                        await self.writer.upload_to_r2(_m, _m.id)
+                    except Exception:
+                        pass
             if self.progress: self.progress("Copied", messages[-1])
         except Exception as exc:
             self.store.fail(messages, exc)
@@ -593,6 +705,97 @@ class TelegramWriter:
                 await self.client.delete_messages(self.destination,[r[0] for r in obsolete])
                 self.store.db.execute("DELETE FROM tg_caption_parts WHERE source_id=? AND part>=?",(message.id,max(1,len(parts))));self.store.db.commit()
     @staticmethod
+    async def upload_to_r2(self, message, source_id: int) -> str | None:
+        """Best-effort R2 upload — multilayer hard-cap prevents any billing."""
+        try:
+            from . import r2_store as r2
+        except Exception:
+            return None
+        cfg = r2.load_r2_config()
+        if not cfg.enabled:
+            return None
+        file = getattr(message, "file", None)
+        if not file or not getattr(file, "media", None):
+            return None
+        # Pre-count upcoming bytes for storage-headroom check (soft; strict check inside chooser)
+        size_hint = int(getattr(file, "size", 0) or 0)
+        LIMIT = 64 * 1024 * 1024
+        if size_hint > LIMIT:
+            log.info("R2 skip post #%s — %s bytes exceeds limit", source_id, size_hint)
+            return None
+
+        # Download first so we know exact byte length for the pre-flight cap
+        import io as _io
+        try:
+            buf = _io.BytesIO()
+            await self.client.download_media(file.media, file=buf)  # type: ignore[arg-type]
+            data = buf.getvalue()
+        except Exception as exc:
+            log.warning("R2 download failed for post #%s: %s", source_id, exc)
+            return None
+        if not data:
+            return None
+        if len(data) > LIMIT:
+            log.info("R2 skip post #%s — downloaded %s bytes exceeds limit", source_id, len(data))
+            return None
+
+        # Choose account AFTER we know exact size (storage ceiling is precise)
+        try:
+            acct = r2.choose_account_for_write(cfg, db=self.store.db, upcoming_bytes=len(data))
+        except Exception:
+            return None
+        if not acct:
+            log.warning("R2 write blocked for post #%s — all buckets at cap; will retry on next watch/backfill", source_id)
+            return None
+
+        fname = getattr(file, "name", None) or f"{getattr(file, 'mime_type', 'media').split('/')[-1]}"
+        date_utc = getattr(message, "date", None)
+        year = str(getattr(date_utc, "year", "")) or "unknown"
+        if not year.isdigit():
+            year = "unknown"
+        key = r2.r2_key(year, source_id, fname)
+
+        try:
+            ct = getattr(file, "mime_type", None)
+            url = await __import__("asyncio").to_thread(r2.upload_bytes, acct, key, data, ct)
+            # Record Class A (PUT) for monthly cap
+            try:
+                r2.record_class_a(self.store.db, acct.bucket, 1)
+                r2.invalidate_stats_cache(acct)
+            except Exception:
+                pass
+            self.store.save_r2_media(source_id, key, acct.bucket, url, len(data))
+            log.info("R2 uploaded post #%s -> %s (%s bytes)", source_id, key, len(data))
+            # Post-write threshold alerts (90/95/100)
+            try:
+                stats = await __import__("asyncio").to_thread(r2.bucket_stats, acct, force=True)
+                from .r2_store import check_thresholds as _ct
+                state = _ct(stats, "primary" if acct is cfg.primary else "secondary")
+                if state:
+                    from .notifications import notify as _notify
+                    pct = round(stats.percent, 1)
+                    if state.crossed_100:
+                        await _notify("R2 storage full — switched to secondary bucket",
+                                      f"Primary R2 at {pct}% — new uploads now use {acct.bucket}. Add capacity or free space.",
+                                      severity="critical",
+                                      fields={"post": f"#{source_id}", "stage": "R2 auto-switch"})
+                    elif state.crossed_95:
+                        await _notify("R2 storage 95% full",
+                                      f"Primary R2 bucket {acct.bucket} is {pct}% full. Prepare the secondary account.",
+                                      severity="critical",
+                                      fields={"post": f"#{source_id}", "stage": "R2 95% threshold"})
+                    elif state.crossed_90:
+                        await _notify("R2 storage 90% full",
+                                      f"Primary R2 bucket {acct.bucket} is {pct}% full.",
+                                      fields={"post": f"#{source_id}", "stage": "R2 90% threshold"})
+            except Exception:
+                pass
+            return url
+        except Exception as exc:
+            log.warning("R2 upload failed for post #%s: %s", source_id, exc)
+            return None
+
+    @staticmethod
     def mapped_ids(result, random_ids, types):
         mapping = {u.random_id: u.id for u in getattr(result, "updates", []) if isinstance(u, types.UpdateMessageID)}
         # UpdateShortSentMessage is possible for basic groups.
@@ -846,7 +1049,7 @@ async def _run(command, state):
                     asyncio.create_task(notify("Archive mirror recovered", f"Checkpoint {checkpoint}"))
                     was_paused = False
                 if checkpoint != last_notified_checkpoint:
-                    asyncio.create_task(notify("Archive updated", f"Copied through post #{checkpoint}"))
+                    asyncio.create_task(notify("Archive updated", "New posts copied to the reader archive.", fields={"checkpoint": f"Post #{checkpoint}", "previousCheckpoint": f"Post #{last_notified_checkpoint}", "source": str(config["source"])}))
                     last_notified_checkpoint = checkpoint
                 progress(("Backfill complete" if command=="backfill" else "Caught up · listening for new posts") if complete else "Waiting for the latest album to finish arriving", complete=complete)
                 if command == "backfill": return

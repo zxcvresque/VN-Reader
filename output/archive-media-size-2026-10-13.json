@@ -1,0 +1,44 @@
+{
+  "source": "https://vidurneeti.xyz/api/archive",
+  "archive_json_bytes": 7753807,
+  "manifest_counts": {
+    "messages": 4504,
+    "media_downloaded": 3891,
+    "media_download_failures": 0
+  },
+  "post_count": 4504,
+  "highest_post_id": 4792,
+  "manifest_exported_at": "2026-10-13T15:21:44.348959+00:00",
+  "media_posts": 3891,
+  "known_size_files": 3891,
+  "missing_size_files": 0,
+  "total_recorded_media_bytes": 4956644592,
+  "total_recorded_media_GB": 4.9566,
+  "total_recorded_media_GiB": 4.6162,
+  "over_512_MB_files": 0,
+  "largest_file_bytes": 167496410,
+  "by_kind": {
+    "video": {
+      "files": 514,
+      "bytes": 4482751575,
+      "unknown": 0
+    },
+    "photo": {
+      "files": 3354,
+      "bytes": 413339942,
+      "unknown": 0
+    },
+    "document": {
+      "files": 22,
+      "bytes": 59772343,
+      "unknown": 0
+    },
+    "animation": {
+      "files": 1,
+      "bytes": 780732,
+      "unknown": 0
+    }
+  },
+  "link_preview_files": 8,
+  "missing_size_post_ids": []
+}

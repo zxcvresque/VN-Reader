@@ -26,12 +26,12 @@ const { default: Welcome, WELCOME_SLIDES, FeatureWalkthrough } = compile('../src
 });
 function environment() {
   const original = Object.fromEntries(['window', 'document', 'localStorage', 'CustomEvent'].map(key => [key, globalThis[key]]));
-  const storage = new Map(), keys = new Map();
+  const storage = new Map(), keys = new Map(),intervals=new Map();let nextInterval=0;
   globalThis.localStorage = { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) };
-  globalThis.window = { localStorage, matchMedia: () => ({ matches: false }), addEventListener() {}, removeEventListener() {}, dispatchEvent() {}, setTimeout: () => 1, clearTimeout() {}, setInterval: () => 1, clearInterval() {}, requestAnimationFrame: () => 1, cancelAnimationFrame() {}, scrollTo() {} };
+  globalThis.window = { localStorage, matchMedia: () => ({ matches: false }), addEventListener() {}, removeEventListener() {}, dispatchEvent() {}, setTimeout: () => 1, clearTimeout() {}, setInterval: fn=>{intervals.set(++nextInterval,fn);return nextInterval;}, clearInterval:id=>intervals.delete(id), requestAnimationFrame: () => 1, cancelAnimationFrame() {}, scrollTo() {} };
   globalThis.document = { body: { style: { overflow: '' } }, activeElement: null, visibilityState: 'visible', documentElement: { dataset: {}, style: { setProperty() {} } }, addEventListener: (key, fn) => keys.set(key, fn), removeEventListener: key => keys.delete(key), querySelector: () => null, querySelectorAll: () => [] };
   globalThis.CustomEvent = class {};
-  return { storage, keys, restore() { for (const [key, value] of Object.entries(original)) if (value === undefined) delete globalThis[key]; else globalThis[key] = value; } };
+  return { storage, keys, intervals, restore() { for (const [key, value] of Object.entries(original)) if (value === undefined) delete globalThis[key]; else globalThis[key] = value; } };
 }
 const props = () => ({ theme: 'opal', messages: [], manifest: null, onThemeChange() {}, onGuest() {}, onSignIn() {} });
 const textOf = node => typeof node==='string'?node:(node.children??[]).map(textOf).join('');
@@ -83,36 +83,39 @@ test('guest entry persists separately from authentication and tolerates blocked 
   } finally { env.restore(); }
 });
 
-async function appFixture({ cached = false, cacheFails = false, archiveFails = false, savedPosition = false } = {}) {
+async function appFixture({ cached = false, cacheFails = false, archiveFails = false, savedPosition = false, archiveFetcher, skipTour=false } = {}) {
   const env = environment();
+  if(skipTour)entry.rememberTourInvitation();
   const demo = compile('../src/lib/demo.ts', { './idb': {} });
   const messages = demo.DEMO_MESSAGES;
   const manifest = { source: { chat_id: messages[0].chat_id }, range: {}, counts: {} };
   const snapshot = { manifest: cached ? manifest : null, messages: cached ? messages : [], threads: [], bookmarks: [], readOverrides: [], readCursor: null, importSessions: [], directoryHandle: null };
-  const idb = { loadAppSnapshot: async () => snapshot, replaceAllMessages: async () => { if (cacheFails) throw Error('storage blocked'); }, replaceAllThreads: async () => {}, saveManifest: async () => {}, saveDirectoryHandle: async () => {} };
+  let cacheWrites=0;
+  const idb = { loadAppSnapshot: async () => snapshot, replaceAllMessages: async () => { cacheWrites++;if (cacheFails) throw Error('storage blocked'); }, replaceAllThreads: async () => {}, saveManifest: async () => {}, saveDirectoryHandle: async () => {} };
   const archive = compile('../src/lib/archive.ts', { './idb': idb });
   const state = compile('../src/lib/readingState.ts');
-  const positions = [];
+  const positions = [],jumps=[];
   if (savedPosition) {
     const saved = state.createReadingState(messages[0].chat_id);
     saved.positions[messages[2].message_key] = { offset: 125, updatedAt: '2026-09-30T00:00:00Z' };
     state.saveReadingState(saved);
   }
   const backup = compile('../src/lib/backup.ts', { './readingState': state, './preferences': preferences });
-  const api = { fetchSiteArchive: async () => { if (archiveFails) throw Error('Archive network failed'); return { manifest, messages }; } };
+  const api = { fetchSiteArchive: async etag => { if (archiveFails) throw Error('Archive network failed'); return archiveFetcher?archiveFetcher(etag,{manifest,messages}):{ manifest, messages }; } };
   const account = { user: null, config: { accountsEnabled: false, archiveEnabled: true }, configReady: true, configError: '', status: 'guest', flush() {}, refreshConfig() {}, initialize() {} };
   const component = name => ({ default: props => React.createElement('div', { 'data-component': name }, props.children) });
   const deps = { './components/CustomSelect': customSelect, './lib/customFont': {restoreCustomFont:async()=>''}, './lib/useTouchLayout': touchLayout, './lib/demo': demo, './lib/entry': entry, './lib/preferences': preferences, './lib/readingState': state, './lib/backup': backup, './lib/idb': idb, './lib/archive': { ...archive, getDirectoryPermission: async () => 'unsupported' }, './lib/api': api, './lib/useReaderAccount': { useReaderAccount: () => account }, './lib/useSignupCapacity': {useSignupCapacity:()=>({capacity:null,error:'',refresh(){}})}, './lib/media': { revokeAllMediaObjectUrls() {} }, './components/WelcomePage': { default: Welcome, FeatureWalkthrough } };
   for (const name of ['AdminDashboard', 'ReaderSettings', 'ReadingWidth', 'ReaderGuide', 'ReaderAccount', 'ReadingLibrary', 'CommandPalette', 'MediaLightbox', 'QuotedSourcePanel', 'MessageCard', 'ThreadRail', 'TopBar', 'PostTimeline', 'VirtualizedMessageList']) deps[`./components/${name}`] = component(name);
   deps['./components/VirtualizedMessageList'] = { default: React.forwardRef((props, ref) => {
-    React.useImperativeHandle(ref, () => ({ restorePosition: p => positions.push(p), scrollToIndex() {}, getPosition: () => null }), []);
+    React.useImperativeHandle(ref, () => ({ restorePosition: p => positions.push(p), scrollToIndex(index,align) {jumps.push({index,align});}, getPosition: () => null }), []);
     return React.createElement('div', { 'data-component': 'VirtualizedMessageList' });
   }) };
   deps['./lib/messageSearch'] = messageSearch;
   const { default: App } = compile('../src/App.tsx', deps);
+  const restoreTarget={};
   let root;
-  await act(async () => { root = Renderer.create(React.createElement(App)); });
-  return { root, account, positions, async guest() { await act(async () => findButton(root, 'Read as guest').props.onClick()); }, async rerender() { await act(async () => root.update(React.createElement(App))); }, close() { act(() => root.unmount()); env.restore(); } };
+  await act(async () => { root = Renderer.create(React.createElement(App),{createNodeMock:element=>element.props.className==='reader-navigation-restore'?restoreTarget:null}); });
+  return { root, account, positions,jumps,messages,restoreTarget,get cacheWrites(){return cacheWrites;},async poll(){await act(async()=>{for(const update of env.intervals.values())await update();});}, async guest() { await act(async () => findButton(root, 'Read as guest').props.onClick()); }, async rerender() { await act(async () => root.update(React.createElement(App))); }, close() { act(() => root.unmount()); env.restore(); } };
 }
 test('cached and hosted archives both wait for a deliberate guest choice', async () => {
   for (const cached of [false, true]) {
@@ -129,6 +132,64 @@ test('a failed offline cache write never blocks reading the hosted archive', asy
   const f = await appFixture({ cacheFails: true });
   try { await f.guest(); assert.equal(f.root.root.findAllByProps({ 'data-component': 'TopBar' }).length, 1); }
   finally { f.close(); }
+});
+
+test('unchanged archive revalidation skips rewriting the offline cache',async()=>{
+ const requested=[];
+ const f=await appFixture({archiveFetcher:(etag,data)=>{requested.push(etag);return etag?null:{...data,etag:'W/"revision-1"'};}});
+ try{
+  await f.guest();assert.equal(f.cacheWrites,1);await f.poll();await f.poll();assert.equal(f.cacheWrites,1);
+  assert.deepEqual(requested,[undefined,'W/"revision-1"','W/"revision-1"']);
+ }finally{f.close();}
+});
+
+test('opening a post clears filtering and restores full earlier and later feed context',async()=>{
+ const f=await appFixture({skipTour:true});
+ try{
+  await f.guest();
+  act(()=>f.root.root.findByProps({'aria-label':'Search and filter'}).props.onClick());
+  await act(async()=>f.root.root.findByProps({'aria-label':'Search archive beside reading'}).props.onChange({target:{value:'#5'}}));
+  await act(async()=>findButton(f.root,'Filter stream').props.onClick());
+  const virtual=()=>f.root.root.findAll(node=>typeof node.props.renderMessage==='function')[0];
+  assert.equal(virtual().props.messages.length,1);f.jumps.length=0;
+  await act(async()=>findButton(f.root,'Read post').props.onClick());
+  assert.equal(virtual().props.messages.length,f.messages.length);
+  assert.ok(virtual().props.messages.some(message=>message.message_id===4));assert.ok(virtual().props.messages.some(message=>message.message_id===6));
+  assert.deepEqual(f.jumps.at(-1),{index:4,align:'start'});
+  assert.match(textOf(f.root.root.findByProps({className:'reading-current-position'})),/#5 22 Sept, 2026/);
+  act(()=>virtual().props.onVisibleMessageChange(f.messages[5].message_key));
+  assert.match(textOf(f.root.root.findByProps({className:'reading-current-position'})),/#6 22 Sept, 2026/);
+ }finally{f.close();}
+});
+test('every main page mounts the same toolbar navigation restore target',async()=>{
+ const f=await appFixture();
+ try{
+  await f.guest();
+  const topBar=()=>f.root.root.findAll(node=>node.props.onSetView&&'restoreTarget' in node.props)[0];
+  for(const view of ['progress','threads','bookmarks','read']){
+   await act(async()=>topBar().props.onSetView(view));
+   assert.equal(topBar().props.restoreTarget,f.restoreTarget);
+   assert.equal(f.root.root.findAllByProps({className:'reader-navigation-restore'}).length,1);
+   const toolbar=f.root.root.findByProps({'data-view':view});
+   assert.equal(toolbar.props.className,view==='read'?'reader-toolbar':'view-toolbar');
+  }
+ }finally{f.close();}
+});
+test('leaving Read exits focus and removes its floating control from the destination page',async()=>{
+ const f=await appFixture();
+ try{
+  await f.guest();
+  const topBar=()=>f.root.root.findAll(node=>node.props.onSetView&&'restoreTarget' in node.props)[0];
+  for(const view of ['progress','threads','bookmarks']){
+   await act(async()=>topBar().props.onToggleFocus());
+   assert.equal(topBar().props.focusMode,true);
+   await act(async()=>topBar().props.onSetView(view));
+   assert.equal(topBar().props.view,view);
+   assert.equal(topBar().props.focusMode,false);
+   assert.equal(f.root.root.findAllByProps({className:'reader-focus-exit'}).length,0);
+   await act(async()=>topBar().props.onSetView('read'));
+  }
+ }finally{f.close();}
 });
 test('archive failures retain a retry screen after guest entry, rather than an import page', async () => {
   const f = await appFixture({ archiveFails: true });

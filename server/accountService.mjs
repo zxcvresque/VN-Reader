@@ -43,6 +43,18 @@ export async function createAccountApp(settings=accountSettings(),sendEmail) {
       try {res.json(accounts.admin.dashboard(day,Number(page)));}catch {res.status(422).json({detail:"Invalid day or page. Use YYYY-MM-DD and a positive page number."});}
     }catch {res.status(401).json({detail:"Your session has expired. Sign in again."});}
   });
+  app.get("/api/admin/r2-stats",async(req,res)=>{
+    try {
+      const session=accounts.enabled?await accounts.auth.api.getSession({headers:fromNodeHeaders(req.headers)}):null;
+      if(!session?.user?.emailVerified)return res.status(401).json({detail:"Sign in with a verified email to view administration."});
+      if(!accounts.admin.allowed(session.user))return res.status(403).json({detail:"This account does not have administrator access."});
+      const target=settings.archiveEnabled?"http://127.0.0.1:8000/api/r2-stats":"";
+      if(!target)return res.status(503).json({detail:"Archive service is not available."});
+      const botToken=settings.botToken;
+      const r=await fetch(target,{headers:{Authorization:`Bearer ${botToken}`,"X-VN-Internal":"account-service"}});
+      const body=await r.text();try {res.status(r.status).type("json").send(body);} catch {res.status(502).json({detail:"Could not read storage status."});}
+    } catch {res.status(401).json({detail:"Your session has expired. Sign in again."});}
+  });
   app.use("/api/state",async(req,res,next)=>{
     if(!accounts.enabled)return res.status(503).json({detail:"Accounts are not configured."});
     try{const session=await accounts.auth.api.getSession({headers:fromNodeHeaders(req.headers)});if(!session?.user?.emailVerified)return res.status(401).json({detail:"Sign in with a verified email to sync your reading state."});req.readerUser=session.user;next();}catch{res.status(401).json({detail:"Your session has expired. Sign in again."});}
@@ -58,7 +70,7 @@ export async function createAccountApp(settings=accountSettings(),sendEmail) {
     const revision=String(match).replace(/^"|"$/g,"");if(!/^\d+$/.test(revision))return res.status(422).json({detail:"Invalid revision."});
     try{const state=accounts.states.put(req.readerUser.id,req.params.chatId,req.body?.data,Number(revision));res.set("ETag",`"${state.revision}"`).json(state);}catch(e){next(e);}
   });
-  app.use((error,req,res,next)=>{if(!(error instanceof StateError)&&!error.type&&!(error instanceof SyntaxError))void accounts.notify("Account request failed","An internal request could not be completed.",300000,{severity:"critical"});res.status(error instanceof StateError?error.status:error.type==="entity.too.large"?413:error instanceof SyntaxError?422:500).json({detail:error instanceof StateError?error.message:error.type==="entity.too.large"?"Request too large.":error instanceof SyntaxError?"Invalid JSON.":"The account service could not complete this request."});});
+  app.use((error,req,res,next)=>{if(!(error instanceof StateError)&&!error.type&&!(error instanceof SyntaxError))void accounts.notify("Account request failed","An internal request could not be completed.",300000,{severity:"critical",fields:{route:`${req.method} ${req.path}`,email:req.readerUser?.email,readerId:req.readerUser?.id,error:"Internal error"}});res.status(error instanceof StateError?error.status:error.type==="entity.too.large"?413:error instanceof SyntaxError?422:500).json({detail:error instanceof StateError?error.message:error.type==="entity.too.large"?"Request too large.":error instanceof SyntaxError?"Invalid JSON.":"The account service could not complete this request."});});
   return {app,accounts};
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){

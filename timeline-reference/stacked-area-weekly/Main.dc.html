@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Posting timeline – stacked area and weekly activity</title>
+<script src="./vendor/react.js"></script>
+<script src="./vendor/react-dom.js"></script>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+button{font-family:inherit}
+</style>
+</helmet>
+<div style="width: 1260px; height: 960px; box-sizing: border-box; padding: 32px; background: #0b0c0e; color: #eceef1; font-family: 'IBM Plex Sans', system-ui, sans-serif">
+<div style="box-sizing: border-box; padding: 28px; background: #121316; border: 1px solid #25272c; border-radius: 16px">
+
+<div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 24px">
+<div>
+<div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.14em; color: #9499a3">THE ARCHIVE, OVER TIME</div>
+<h1 style="margin: 8px 0 6px; font-size: 32px; font-weight: 600; letter-spacing: -0.01em">VN’s posting timeline</h1>
+<div style="font-size: 14px; color: #9499a3">894 dated posts · India Standard Time</div>
+</div>
+<div role="group" aria-label="Time range" style="display: flex; border: 1px solid #25272c; border-radius: 12px; background: #0f1012; overflow: hidden">
+<button style="height: 44px; min-width: 76px; padding: 0 14px; border: 0; background: #2a2d34; color: #ffffff; font-size: 14px; font-weight: 500">All time</button>
+<button style="height: 44px; min-width: 76px; padding: 0 14px; border: 0; background: transparent; color: #9499a3; font-size: 14px">By year</button>
+<button style="height: 44px; min-width: 76px; padding: 0 14px; border: 0; background: transparent; color: #9499a3; font-size: 14px">6 mo</button>
+<button style="height: 44px; min-width: 76px; padding: 0 14px; border: 0; background: transparent; color: #9499a3; font-size: 14px">3 mo</button>
+<button style="height: 44px; min-width: 76px; padding: 0 14px; border: 0; background: transparent; color: #9499a3; font-size: 14px">Month</button>
+<button style="height: 44px; min-width: 76px; padding: 0 14px; border: 0; background: transparent; color: #9499a3; font-size: 14px">Week</button>
+</div>
+</div>
+
+<div style="margin-top: 20px; font-size: 18px; line-height: 1.4; color: #eceef1">Mostly <strong style="color: #3ecf9e; font-weight: 600">images (75%)</strong>. Busiest week: <strong style="font-weight: 600">20 Jul</strong>, with 83 posts.</div>
+
+<div style="margin-top: 18px; display: flex; flex-wrap: wrap; gap: 10px">
+<button style="display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 16px; border-radius: 999px; border: 1px solid rgba(62,207,158,0.55); background: rgba(62,207,158,0.14); color: #eceef1; font-size: 14px">
+<span style="width: 10px; height: 10px; border-radius: 50%; background: #3ecf9e"></span>Images<span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #b4b8c0">667 · 75%</span>
+</button>
+<button style="display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 16px; border-radius: 999px; border: 1px solid rgba(240,111,168,0.55); background: rgba(240,111,168,0.14); color: #eceef1; font-size: 14px">
+<span style="width: 10px; height: 10px; border-radius: 50%; background: #f06fa8"></span>Videos<span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #b4b8c0">134 · 15%</span>
+</button>
+<button style="display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 16px; border-radius: 999px; border: 1px solid rgba(110,168,254,0.55); background: rgba(110,168,254,0.14); color: #eceef1; font-size: 14px">
+<span style="width: 10px; height: 10px; border-radius: 50%; background: #6ea8fe"></span>Text only<span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #b4b8c0">78 · 9%</span>
+</button>
+<button style="display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 16px; border-radius: 999px; border: 1px solid rgba(245,196,81,0.55); background: rgba(245,196,81,0.12); color: #eceef1; font-size: 14px">
+<span style="width: 14px; height: 0; border-top: 2px dashed #f5c451"></span>Has links<span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #b4b8c0">131 · 15%</span>
+</button>
+<button style="display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 16px; border-radius: 999px; border: 1px dashed #3a3d44; background: transparent; color: #9499a3; font-size: 14px">GIFs, Polls, Audio, Other<span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px">1</span></button>
+</div>
+
+<div style="margin-top: 22px; display: flex; justify-content: space-between; align-items: center">
+<div>
+<div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.14em; color: #9499a3">TOTAL POSTS SO FAR</div>
+<div style="margin-top: 4px; font-size: 13px; color: #9499a3">Areas stack by type. Dashed line = posts with links, which also count under their own type.</div>
+</div>
+<label style="display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 13px; color: #9499a3"><input type="checkbox" style="width: 18px; height: 18px; accent-color: #3ecf9e">Show individual posts</label>
+</div>
+
+<div style="position: relative; width: 1140px; margin-top: 6px">
+<svg width="1140" height="290" viewBox="0 0 1140 290" style="display: block" role="img" aria-label="Stacked area chart of cumulative posts by type, 13 July to 6 October">
+<path d="{{areaGrid}}" stroke="#22252a" stroke-width="1" fill="none"></path>
+<path d="M50 270H986" stroke="#3a3d44" stroke-width="1" fill="none"></path>
+<text x="42" y="43" text-anchor="end" font-size="11" fill="#9499a3" font-family="IBM Plex Mono, monospace">800</text>
+<text x="42" y="101" text-anchor="end" font-size="11" fill="#9499a3" font-family="IBM Plex Mono, monospace">600</text>
+<text x="42" y="158" text-anchor="end" font-size="11" fill="#9499a3" font-family="IBM Plex Mono, monospace">400</text>
+<text x="42" y="216" text-anchor="end" font-size="11" fill="#9499a3" font-family="IBM Plex Mono, monospace">200</text>
+<text x="42" y="274" text-anchor="end" font-size="11" fill="#9499a3" font-family="IBM Plex Mono, monospace">0</text>
+<path d="{{txtArea}}" fill="#6ea8fe" fill-opacity="0.3"></path>
+<path d="{{vidArea}}" fill="#f06fa8" fill-opacity="0.3"></path>
+<path d="{{imgArea}}" fill="#3ecf9e" fill-opacity="0.3"></path>
+<rect x="554" y="10" width="72" height="260" fill="#ffffff" fill-opacity="0.04"></rect>
+<path d="{{txtLine}}" fill="none" stroke="#6ea8fe" stroke-width="2" stroke-linejoin="round"></path>
+<path d="{{vidLine}}" fill="none" stroke="#f06fa8" stroke-width="2" stroke-linejoin="round"></path>
+<path d="{{imgLine}}" fill="none" stroke="#3ecf9e" stroke-width="2" stroke-linejoin="round"></path>
+<path d="{{lnkLine}}" fill="none" stroke="#f5c451" stroke-width="1.75" stroke-dasharray="5 4" stroke-linejoin="round"></path>
+<path d="M626 10V270" stroke="#eceef1" stroke-opacity="0.45" stroke-width="1" stroke-dasharray="3 3" fill="none"></path>
+<circle cx="626" cy="{{dotT}}" r="4.5" fill="#6ea8fe" stroke="#121316" stroke-width="2"></circle>
+<circle cx="626" cy="{{dotV}}" r="4.5" fill="#f06fa8" stroke="#121316" stroke-width="2"></circle>
+<circle cx="626" cy="{{dotI}}" r="4.5" fill="#3ecf9e" stroke="#121316" stroke-width="2"></circle>
+<text x="994" y="31" font-size="13" font-weight="600" fill="#6ea8fe" font-family="IBM Plex Sans, sans-serif">Text only<tspan dx="8" font-weight="400" fill="#9499a3">78</tspan></text>
+<text x="994" y="62" font-size="13" font-weight="600" fill="#f06fa8" font-family="IBM Plex Sans, sans-serif">Videos<tspan dx="8" font-weight="400" fill="#9499a3">134</tspan></text>
+<text x="994" y="178" font-size="13" font-weight="600" fill="#3ecf9e" font-family="IBM Plex Sans, sans-serif">Images<tspan dx="8" font-weight="400" fill="#9499a3">667</tspan></text>
+<text x="994" y="236" font-size="13" font-weight="600" fill="#f5c451" font-family="IBM Plex Sans, sans-serif">Has links<tspan dx="8" font-weight="400" fill="#9499a3">131</tspan></text>
+</svg>
+
+<div style="position: absolute; left: 642px; top: 20px; width: 250px; box-sizing: border-box; padding: 14px 16px; background: #1b1d22; border: 1px solid #33363d; border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.45)">
+<div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.1em; color: #9499a3">WEEK OF 31 AUG</div>
+<div style="margin: 2px 0 10px; font-size: 22px; font-weight: 600">81 posts</div>
+<div style="display: flex; align-items: center; justify-content: space-between; font-size: 13px; line-height: 1.9">
+<span style="display: flex; align-items: center; gap: 8px"><span style="width: 8px; height: 8px; border-radius: 50%; background: #3ecf9e"></span>Images</span>
+<span style="font-family: 'IBM Plex Mono', monospace">62 <span style="color: #9499a3">· 483 total</span></span>
+</div>
+<div style="display: flex; align-items: center; justify-content: space-between; font-size: 13px; line-height: 1.9">
+<span style="display: flex; align-items: center; gap: 8px"><span style="width: 8px; height: 8px; border-radius: 50%; background: #f06fa8"></span>Videos</span>
+<span style="font-family: 'IBM Plex Mono', monospace">12 <span style="color: #9499a3">· 76 total</span></span>
+</div>
+<div style="display: flex; align-items: center; justify-content: space-between; font-size: 13px; line-height: 1.9">
+<span style="display: flex; align-items: center; gap: 8px"><span style="width: 8px; height: 8px; border-radius: 50%; background: #6ea8fe"></span>Text only</span>
+<span style="font-family: 'IBM Plex Mono', monospace">7 <span style="color: #9499a3">· 47 total</span></span>
+</div>
+<div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #2b2e34; font-size: 12px; color: #9499a3">12 contain links · Click to read this week’s posts</div>
+</div>
+</div>
+
+<div style="margin-top: 14px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.14em; color: #9499a3">POSTS PER WEEK</div>
+<svg width="1140" height="132" viewBox="0 0 1140 132" style="display: block; margin-top: 4px" role="img" aria-label="Bar chart of posts per week by type">
+<path d="{{barGrid}}" stroke="#22252a" stroke-width="1" fill="none"></path>
+<rect x="554" y="0" width="72" height="104" fill="#ffffff" fill-opacity="0.04"></rect>
+<text x="42" y="104" text-anchor="end" font-size="11" fill="#9499a3" font-family="IBM Plex Mono, monospace">0</text>
+<text x="42" y="66" text-anchor="end" font-size="11" fill="#9499a3" font-family="IBM Plex Mono, monospace">40</text>
+<text x="42" y="28" text-anchor="end" font-size="11" fill="#9499a3" font-family="IBM Plex Mono, monospace">80</text>
+<path d="{{barImg}}" fill="#3ecf9e" fill-opacity="0.9" stroke="#121316" stroke-width="1"></path>
+<path d="{{barVid}}" fill="#f06fa8" fill-opacity="0.9" stroke="#121316" stroke-width="1"></path>
+<path d="{{barTxt}}" fill="#6ea8fe" fill-opacity="0.9" stroke="#121316" stroke-width="1"></path>
+<path d="{{barImgP}}" fill="#3ecf9e" fill-opacity="0.4" stroke="#121316" stroke-width="1"></path>
+<path d="{{barVidP}}" fill="#f06fa8" fill-opacity="0.4" stroke="#121316" stroke-width="1"></path>
+<path d="{{barTxtP}}" fill="#6ea8fe" fill-opacity="0.4" stroke="#121316" stroke-width="1"></path>
+<text x="158" y="14" text-anchor="middle" font-size="11" font-weight="600" fill="#eceef1" font-family="IBM Plex Sans, sans-serif">Peak · 83</text>
+<text x="86" y="122" text-anchor="middle" font-size="11" fill="#9499a3" font-family="IBM Plex Mono, monospace">13 Jul</text>
+<text x="302" y="122" text-anchor="middle" font-size="11" fill="#9499a3" font-family="IBM Plex Mono, monospace">3 Aug</text>
+<text x="518" y="122" text-anchor="middle" font-size="11" fill="#9499a3" font-family="IBM Plex Mono, monospace">24 Aug</text>
+<text x="734" y="122" text-anchor="middle" font-size="11" fill="#9499a3" font-family="IBM Plex Mono, monospace">14 Sep</text>
+<text x="950" y="122" text-anchor="middle" font-size="11" fill="#9499a3" font-family="IBM Plex Mono, monospace">5 Oct · so far</text>
+</svg>
+
+<div style="margin-top: 18px; display: flex; justify-content: space-between; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #9499a3">
+<span>Entire stored archive</span>
+<span>← → explore · Enter read · Esc dismiss</span>
+</div>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1260,"height":960}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const img = [65, 70, 60, 58, 55, 58, 55, 62, 52, 48, 42, 32, 10];
+    const vid = [6, 8, 9, 9, 10, 11, 11, 12, 12, 13, 13, 13, 7];
+    const txt = [5, 5, 6, 6, 6, 6, 6, 7, 7, 7, 7, 6, 4];
+    const lnk = [3, 4, 4, 5, 6, 7, 8, 12, 14, 16, 18, 18, 16];
+    const X0 = 50, W = 72, N = 13, BASE = 270, PH = 260, MAXV = 900;
+    const r = (n) => Math.round(n * 10) / 10;
+    const xx = (i) => X0 + i * W;
+    const yy = (v) => r(BASE - v / MAXV * PH);
+    const cum = (a) => { let s = 0; return [0].concat(a.map((v) => { s += v; return s; })); };
+    const ci = cum(img), cv = cum(vid), ct = cum(txt), cl = cum(lnk);
+    const topV = ci.map((v, i) => v + cv[i]);
+    const topT = topV.map((v, i) => v + ct[i]);
+    const zero = ci.map(() => 0);
+    const pt = (arr) => arr.map((v, i) => xx(i) + ' ' + yy(v));
+    const line = (arr) => 'M' + pt(arr).join('L');
+    const area = (up, low) => 'M' + pt(up).join('L') + 'L' + pt(low).reverse().join('L') + 'Z';
+    const areaGrid = [200, 400, 600, 800].map((v) => 'M' + X0 + ' ' + yy(v) + 'H' + xx(N)).join('');
+
+    const rp = (x, y, w, h) => 'M' + x + ' ' + y + 'h' + w + 'v' + h + 'h' + (-w) + 'Z';
+    const series = [img, vid, txt];
+    const full = ['', '', ''], part = ['', '', ''];
+    for (let i = 0; i < N; i++) {
+      let b = 100;
+      series.forEach((a, k) => {
+        const h = r(a[i] / 90 * 86);
+        b = r(b - h);
+        const p = rp(xx(i) + 11, b, 50, h);
+        if (i === N - 1) { part[k] += p; } else { full[k] += p; }
+      });
+    }
+    const barGrid = [0, 40, 80].map((v) => 'M' + X0 + ' ' + r(100 - v / 90 * 86) + 'H' + xx(N)).join('');
+
+    return {
+      areaGrid,
+      imgArea: area(ci, zero),
+      vidArea: area(topV, ci),
+      txtArea: area(topT, topV),
+      imgLine: line(ci),
+      vidLine: line(topV),
+      txtLine: line(topT),
+      lnkLine: line(cl),
+      dotI: yy(ci[8]),
+      dotV: yy(topV[8]),
+      dotT: yy(topT[8]),
+      barGrid,
+      barImg: full[0], barVid: full[1], barTxt: full[2],
+      barImgP: part[0], barVidP: part[1], barTxtP: part[2]
+    };
+  }
+}
+</script>
+</body>
+</html>

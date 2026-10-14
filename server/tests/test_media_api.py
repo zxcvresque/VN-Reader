@@ -125,12 +125,25 @@ class MediaAPITests(unittest.IsolatedAsyncioTestCase):
         headers = {"Authorization":"Bearer test-secret"}
         with patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN":"test-secret"}), patch.object(telegram,"notify",AsyncMock()) as notification:
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url="http://test") as client:
-                for payload in [{"event":[]}, {"event":"OTP email delivery failed","severity":[]}, {"event":"Account created","severity":"critical"}, {"event":"OTP email delivery failed","severity":"unknown"}, {"event":"OTP email delivery failed","detail":"x"*201}]:
+                for payload in [{"event":[]}, {"event":"OTP email delivery failed","severity":[]}, {"event":"Account created","severity":"critical"}, {"event":"OTP email delivery failed","severity":"unknown"}, {"event":"OTP email delivery failed","detail":"x"*201}, {"event":"Account created","fields":[]}, {"event":"Account created","fields":{"password":"secret"}}, {"event":"Account created","fields":{"email":123}}, {"event":"Account created","fields":{"reader":"x"*129}}]:
                     self.assertEqual((await client.post("/internal/events",headers=headers,json=payload)).status_code,422)
                 response = await client.post("/internal/events",headers=headers,json={"event":"Account service startup failed","detail":"Error","severity":"critical"})
                 self.assertEqual(response.status_code,200)
                 await asyncio.sleep(0)
                 notification.assert_awaited_once_with("Account service startup failed","Error",cooldown=300,severity="critical")
+
+    async def test_internal_relay_preserves_reader_fields_and_individual_login_events(self):
+        import asyncio
+        app = FastAPI(); app.include_router(telegram.router)
+        fields = {"reader":"Reader <name>", "email":"reader@example.com", "readerId":"reader-123", "method":"Email and password"}
+        with patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN":"test-secret"}), patch.object(telegram,"notify",AsyncMock()) as notification:
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url="http://test") as client:
+                for _ in range(2):
+                    response = await client.post("/internal/events", headers={"Authorization":"Bearer test-secret"}, json={"event":"Reader signed in", "detail":"Reader signed in successfully.", "severity":"routine", "fields":fields})
+                    self.assertEqual(response.status_code,200)
+                await asyncio.sleep(0)
+        self.assertEqual(notification.await_count,2)
+        notification.assert_awaited_with("Reader signed in","Reader signed in successfully.",cooldown=0,severity="routine",fields=fields)
 
     async def test_invalid_stream_auth_resumes_with_the_replacement_client(self):
         from server.streaming import telegram_chunks

@@ -10,6 +10,8 @@ import nodemailer from "nodemailer";
 import { createAuthMiddleware, APIError } from "better-auth/api";
 import { AdminStore, AllowanceError, deliveryFailureIsDefinitive } from "./adminStore.mjs";
 
+const readerFields=user=>({reader:user.name||"Unnamed reader",email:user.email,readerId:user.id});
+
 export function accountSettings(env=process.env) {
   return { ownerId:env.TELEGRAM_OWNER_ID,eventUrl:env.VN_OPERATOR_EVENT_URL,botToken:env.TELEGRAM_BOT_TOKEN,logTopicId:env.TELEGRAM_LOG_TOPIC_ID,logDestination:env.TELEGRAM_DESTINATION, database:env.VN_ACCOUNT_DATABASE_PATH??"data/accounts.sqlite3", secret:env.BETTER_AUTH_SECRET,
     baseURL:env.BETTER_AUTH_URL??"http://127.0.0.1:5173", production:env.VN_ENV!=="development",
@@ -56,10 +58,19 @@ export async function createAccounts(settings=accountSettings(), sendEmail) {
       const id=ctx.context.vnEmailReservation??ctx.request?.headers.get("x-vn-email-reservation");
       if(id&&["failed","unknown"].includes(admin.deliveryStatus(id)))throw new APIError("SERVICE_UNAVAILABLE",{message:"The verification email could not be sent. Please try again shortly."});
       if(id)admin.complete(id,"rejected"); // Unsent admission (validation/duplicate errors) is released.
-      if(ctx.path==="/sign-up/email"&&ctx.context.returned?.user?.id)void notify("Account created","A new reader signed up.",0);
+      const created=ctx.path==="/sign-up/email"&&ctx.context.returned?.user;
+      // Better Auth deliberately returns a synthetic user for duplicate emails.
+      // Only a persisted user with the returned ID represents a real signup.
+      if(created?.id&&database.prepare("SELECT id FROM user WHERE id=? AND email=?").get(created.id,created.email))void notify("Account created","Reader account created; verification email sent.",0,{fields:{...readerFields(created),status:"Awaiting email verification"}});
       const kind=ctx.path==="/sign-in/email"?"password":ctx.path==="/email-otp/verify-email"?"verification":null;
       if(kind)admin.recordSession(ctx.context.newSession,kind);
-      if(kind==="verification"&&ctx.context.newSession)void notify("Email verified","A reader completed verification.",0);
+      const user=ctx.context.newSession?.user;
+      if(kind==="verification"&&user)void notify("Email verified","Email verified; reader signed in automatically.",0,{fields:{...readerFields(user),status:"Verified",method:"Email verification OTP"}});
+      if(kind==="password"&&user)void notify("Reader signed in","Reader signed in successfully.",0,{fields:{...readerFields(user),method:"Email and password"}});
+      if(kind==="password"&&!user&&ctx.context.returned instanceof APIError){
+        const code=ctx.context.returned.body?.code;
+        void notify("Reader login rejected","Sign-in attempt was rejected.",300000,{fields:{email:String(ctx.body?.email??"").toLowerCase(),method:"Email and password",error:/^[A-Z0-9_]{1,80}$/.test(code??"")?code:"Authentication rejected"}});
+      }
     })},
     plugins:[emailOTP({otpLength:6,expiresIn:600,allowedAttempts:5,storeOTP:"hashed",disableSignUp:true,
       overrideDefaultEmailVerification:true,sendVerificationOnSignUp:true,
@@ -76,7 +87,7 @@ export async function createAccounts(settings=accountSettings(), sendEmail) {
             text:`Your VN Reader code is ${otp}. Use it to ${purpose}. It expires in 10 minutes. If you didn't request this, ignore this email.`});
           admin.complete(id,"accepted");
         }catch(error){
-          void notify("OTP email delivery failed",/^[A-Z0-9_]{1,40}$/.test(error.code??"")?error.code:"SMTP error",300000,{severity:"critical"});
+          void notify("OTP email delivery failed","The email provider could not deliver the reader's code.",300000,{severity:"critical",fields:{email,purpose:type==="forget-password"?"Password reset":"Email verification",error:/^[A-Z0-9_]{1,40}$/.test(error.code??"")?error.code:"SMTP error"}});
           const definitive=deliveryFailureIsDefinitive(error);admin.complete(id,definitive?"failed":"unknown");
           if(definitive&&admission===id)database.prepare("DELETE FROM user WHERE email=? AND emailVerified=0").run(email.toLowerCase());
           throw new APIError("SERVICE_UNAVAILABLE",{message:"The verification email could not be sent. Please try again shortly."});

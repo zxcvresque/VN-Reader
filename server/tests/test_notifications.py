@@ -37,6 +37,12 @@ class NotificationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0]["message_thread_id"], 4523)
         self.assertEqual(calls[0]["chat_id"], "-1004434351194")
+        with patch.dict(os.environ, {"TELEGRAM_BOT_TOKEN":"test", "TELEGRAM_LOG_TOPIC_ID":"4523", "TELEGRAM_DESTINATION":"-1004434351194"}), patch("urllib.request.urlopen", side_effect=send), patch.object(notifications, "_last", {}):
+            await notifications.notify("Archive mirror paused", "Temporary connection problem")
+            await notifications.notify("Archive mirror paused", "Persistent connection problem", severity="critical")
+            await notifications.notify("Archive mirror paused", "Still unavailable", severity="critical")
+        self.assertEqual(len(calls), 3)
+        self.assertIn("#critical #archive", calls[-1]["text"])
 
     async def test_only_explicit_critical_events_reach_owner_and_are_throttled(self):
         import json
@@ -56,7 +62,8 @@ class NotificationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(owner),1)
         self.assertNotIn("message_thread_id",owner[0])
         self.assertIn("Media delivery failed",owner[0]["text"])
-        self.assertTrue(owner[0]["text"].startswith("CRITICAL · "))
+        self.assertIn("#critical #media", owner[0]["text"])
+        self.assertEqual(owner[0]["parse_mode"], "HTML")
         self.assertEqual(len([c for c in calls if "message_thread_id" in c]),3)
 
     async def test_owner_delivery_survives_missing_or_failing_topic(self):
@@ -83,6 +90,11 @@ class NotificationTests(unittest.IsolatedAsyncioTestCase):
             with self.assertLogs("server.notifications", level="WARNING") as captured:
                 await notifications.notify("Archive startup failed", severity="critical")
             self.assertNotIn("private-token",str(captured.output))
+
+    def test_formatting_escapes_markup_and_uses_shared_tags_and_bold_fields(self):
+        text = notifications.format_operator_event("Account created", "Signed up <today> & verified.", fields={"reader": "A <b> B\nC", "email": "a@example.com", "readerId": "123", "otp": "secret"})
+        self.assertEqual(text, '<b>vn reader · Account created</b>\n#signup\n\n<blockquote>Signed up &lt;today&gt; &amp; verified.</blockquote>\n\n<b>Reader:</b> A &lt;b&gt; B C\n<b>Email:</b> a@example.com\n<b>Reader ID:</b> 123')
+        self.assertTrue(notifications.format_operator_event("Account created", fields={"reader": "<" * 500}).endswith("&lt;"))
 
     async def test_mirror_startup_failure_alert_is_awaited_before_exit(self):
         from server import mirror

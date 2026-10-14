@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 120" fill="none" role="img" aria-labelledby="title">
+  <title id="title">VN Reader — Counsel seal logo</title>
+  <path d="M80 12c-20 12-31 26-31 42 0 17 11 28 31 28s31-11 31-28c0-16-11-30-31-42Z" fill="var(--logo-teal, #307a73)"/>
+  <path d="M80 30c-10 7-16 15-16 24 0 9 6 15 16 15s16-6 16-15c0-9-6-17-16-24Z" fill="var(--logo-gold, #b99048)"/>
+  <ellipse cx="80" cy="53" rx="9" ry="12" fill="var(--logo-indigo, #373e72)"/>
+  <path d="M80 79v28m-48-8h23c10 0 18 3 25 8 7-5 15-8 25-8h23m-91-12h20m46 0h20" stroke="var(--logo-ink, currentColor)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

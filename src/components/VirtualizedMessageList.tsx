@@ -26,6 +26,8 @@ interface VirtualizedMessageListProps {
   overscan?: number;
   renderMessage: (message: MessageRecord, index: number) => ReactNode;
   onPositionChange?: (position: ReadingPosition) => void;
+  /** Post occupying most of the viewport; separate from the exact resume anchor. */
+  onVisibleMessageChange?: (messageKey: string) => void;
   layoutKey?: string;
 }
 
@@ -80,7 +82,7 @@ function MeasuredRow({ children, messageKey, offsetTop, onMeasure }: {
 }
 
 const VirtualizedMessageList = forwardRef<VirtualizedMessageListHandle, VirtualizedMessageListProps>(
-  function VirtualizedMessageList({ emptyState, estimateHeight = 260, messages, overscan = 6, renderMessage, onPositionChange, layoutKey }, ref) {
+  function VirtualizedMessageList({ emptyState, estimateHeight = 260, messages, overscan = 6, renderMessage, onPositionChange, onVisibleMessageChange, layoutKey }, ref) {
     const containerRef = useRef<HTMLDivElement | null>(null);
     const [scrollTop, setScrollTop] = useState(0);
     const [viewportHeight, setViewportHeight] = useState(640);
@@ -116,6 +118,8 @@ const VirtualizedMessageList = forwardRef<VirtualizedMessageListHandle, Virtuali
     }, [locateParagraph]);
     const onPositionChangeRef = useRef(onPositionChange);
     onPositionChangeRef.current = onPositionChange;
+    const onVisibleMessageChangeRef = useRef(onVisibleMessageChange);
+    onVisibleMessageChangeRef.current = onVisibleMessageChange;
     const notificationFrameRef = useRef<number | null>(null);
     const restoreTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -128,6 +132,27 @@ const VirtualizedMessageList = forwardRef<VirtualizedMessageListHandle, Virtuali
       const paragraph = locateParagraph(position);
       return paragraph ? { ...position, ...paragraph } : position;
     }, [locateParagraph]);
+
+    const getVisibleMessage = useCallback((): string | null => {
+      const node = containerRef.current;
+      const currentMessages = messagesRef.current;
+      if (!node || !currentMessages.length) return null;
+      const { offsets } = metricsRef.current;
+      const viewportStart = node.scrollTop;
+      const viewportEnd = viewportStart + node.clientHeight;
+      let visibleKey: string | null = null;
+      let greatestOverlap = 0;
+      for (let index = binarySearch(offsets, viewportStart); index < currentMessages.length && offsets[index] < viewportEnd; index += 1) {
+        const message = currentMessages[index];
+        const end = offsets[index] + (heightCacheRef.current.get(message.message_key) ?? estimateHeight);
+        const overlap = Math.max(0, Math.min(end, viewportEnd) - Math.max(offsets[index], viewportStart));
+        if (overlap > greatestOverlap) {
+          greatestOverlap = overlap;
+          visibleKey = message.message_key;
+        }
+      }
+      return visibleKey;
+    }, [estimateHeight]);
 
     const cancelPendingNavigation = useCallback(() => {
       pendingRestoreRef.current = null;
@@ -153,8 +178,10 @@ const VirtualizedMessageList = forwardRef<VirtualizedMessageListHandle, Virtuali
         notificationFrameRef.current = null;
         const position = pendingRestoreRef.current ?? getPosition();
         if (position) onPositionChangeRef.current?.(position);
+        const visibleKey = getVisibleMessage();
+        if (visibleKey) onVisibleMessageChangeRef.current?.(visibleKey);
       });
-    }, [getPosition]);
+    }, [getPosition, getVisibleMessage]);
 
     const applyPosition = useCallback((position: ReadingPosition) => {
       const node = containerRef.current;
@@ -225,11 +252,16 @@ const VirtualizedMessageList = forwardRef<VirtualizedMessageListHandle, Virtuali
           node.scrollTo({ top: nextTop, behavior: "instant" as ScrollBehavior });
           lastScrollTopRef.current = node.scrollTop;
           setScrollTop(node.scrollTop);
+          // A programmatic jump may not produce a scroll event (including a
+          // repeat jump to the current post). Report the actual clamped viewport.
+          notifyPosition();
           if (navigationTimerRef.current !== null) clearTimeout(navigationTimerRef.current);
           navigationTimerRef.current = setTimeout(() => {
+            navigationTimerRef.current = null;
             pendingNavigationRef.current = null;
             anchorRef.current = getPosition();
             captureParagraph(anchorRef.current);
+            notifyPosition();
           }, 180);
         } else pendingNavigationRef.current = null;
       } else {

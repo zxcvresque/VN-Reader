@@ -90,6 +90,13 @@ function formatDate(value: string | null): string {
   }).format(new Date(value));
 }
 
+function formatReadingDate(value: string | null): string {
+  if(!value||!Number.isFinite(Date.parse(value)))return "Undated";
+  const parts=new Intl.DateTimeFormat("en-GB",{day:"numeric",month:"short",year:"numeric",timeZone:"Asia/Kolkata"}).formatToParts(new Date(value));
+  const part=(type:string)=>parts.find(item=>item.type===type)?.value??"";
+  return `${part("day")} ${part("month")}, ${part("year")}`;
+}
+
 function formatDayDivider(value: string | null): string {
   if (!value) return "Undated";
   return new Intl.DateTimeFormat(undefined, { dateStyle: "full" }).format(new Date(value));
@@ -120,6 +127,7 @@ export default function App() {
   const [navigationRestoreTarget, setNavigationRestoreTarget] = useState<HTMLDivElement | null>(null);
   const [selectedThreadKey, setSelectedThreadKey] = useState<string | null>(null);
   const [highlightedMessageKey, setHighlightedMessageKey] = useState<string | null>(null);
+  const [visibleMessageKey,setVisibleMessageKey] = useState<string|null>(null);
   const [threadRailOpen, setThreadRailOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [navStack, setNavStack] = useState<NavEntry[]>([]);
@@ -167,6 +175,8 @@ export default function App() {
   const positionTimerRef = useRef<number | null>(null);
   const [navigationVersion, setNavigationVersion] = useState(0);
   const appliedNavigationRef = useRef(-1);
+  const fullFeedNavigationRef = useRef(false);
+  const archiveETagRef = useRef<string|undefined>(undefined);
   const [backupBusy, setBackupBusy] = useState(false);
   const restoringBackupRef=useRef(false);
   const [sessionMode, setSessionMode] = useState<"posts"|"minutes"|"date">("posts");
@@ -194,6 +204,11 @@ export default function App() {
     if(!preferences.focusMode)return;
     setView("read");setLibraryOpen(false);setReaderSearchOpen(false);setSourcePeek(null);setThreadRailOpen(false);
   },[preferences.focusMode]);
+  useEffect(()=>{
+    // Focus belongs to the reading view. Leaving it must also remove the
+    // focus layout and floating Exit focus control from the destination page.
+    if(view!=="read"&&preferences.focusMode)changePreferences({...preferences,focusMode:false});
+  },[view,preferences,changePreferences]);
   const [lightboxMedia, setLightboxMedia] = useState<LightboxMedia | null>(null);
   const [quoteHighlight, setQuoteHighlight] = useState<{
     messageKey: string;
@@ -232,7 +247,7 @@ export default function App() {
   const accountDocument=useMemo(()=>({...createBackup(snapshot,personal,preferences),exportedAt:"2000-01-01T00:00:00.000Z"}),[snapshot,personal,preferences]);
   const account=useReaderAccount(accountDocument,applyAccountDocument,restoreGuest,(data)=>parseBackup(data,snapshotRef.current));
   const continueAsGuest=useCallback(()=>{rememberGuestEntry();setEntered(true);setAccountOpen(false);},[]);
-  useEffect(()=>{if(account.user){setEntered(true);setAccountOpen(false);}},[account.user]);
+  useEffect(()=>{if(account.user){setEntered(true);setAccountOpen(false);}},[account.user?.id]);
   const accountFlushRef=useRef(account.flush);accountFlushRef.current=account.flush;
   accountActiveRef.current=account.user!==null;
   const accountDialog=accountOpen?<ReaderAccount account={account} onClose={()=>setAccountOpen(false)} onGuest={!entered?continueAsGuest:undefined} initialMode={accountMode} capacity={signupCapacity.capacity} capacityError={signupCapacity.error} onRefreshCapacity={signupCapacity.refresh} onOpenAdmin={()=>{setAccountOpen(false);setAdminOpen(true);}}/>:null;
@@ -262,7 +277,8 @@ export default function App() {
     const update=async()=>{
       if(running)return;running=true;setArchiveLoading(true);setArchiveError("");
       try{
-        const data=await fetchSiteArchive();if(stopped)return;
+        const data=await fetchSiteArchive(archiveETagRef.current);if(stopped||data===null)return;
+        if(data.etag&&data.etag===archiveETagRef.current)return;
         const messages=recomputeThreadLinks(data.messages);const threads=buildThreadRecords(messages);
         if(!messages.length)throw new Error("The Vidurneeti archive is being prepared. Please try again shortly.");
         if(stopped)return;
@@ -275,6 +291,7 @@ export default function App() {
         // must not prevent a visitor from reading the public archive.
         try{await replaceAllMessages(messages);await replaceAllThreads(threads);await saveManifest(data.manifest);await saveDirectoryHandle(null);}
         catch{if(!stopped)setNotice("Posts are available, but this browser could not cache the archive for offline use.");}
+        if(!stopped)archiveETagRef.current=data.etag;
       }catch(e){if(!stopped)setArchiveError(e instanceof Error?e.message:"The archive could not be reached.");}
       finally{running=false;if(!stopped)setArchiveLoading(false);}
     };
@@ -304,7 +321,7 @@ export default function App() {
     // in the current render and then jump to the post start in the next one.
     appliedNavigationRef.current = navigationVersion;
     if(positionTimerRef.current){window.clearTimeout(positionTimerRef.current);positionTimerRef.current=null;}
-    lastPositionRef.current=null;pendingPositionRef.current=null;
+    lastPositionRef.current=null;pendingPositionRef.current=null;setVisibleMessageKey(null);
     setNavStack([]);setForwardStack([]);setHighlightedMessageKey(null);setSelectedThreadKey(null);
     setSession(null);setSessionReached(false);
     try {
@@ -537,6 +554,9 @@ export default function App() {
 
   useEffect(() => {
     if (view !== "read" || appliedNavigationRef.current === navigationVersion || !timelineRef.current) return;
+    // A deferred search may still contain this target at a different index.
+    // Wait for the full feed before consuming an explicit navigation request.
+    if(fullFeedNavigationRef.current&&(deferredSearch||session||filteredMessages.length!==snapshot.messages.length))return;
     const pending = pendingPositionRef.current;
     const targetKey = pending?.messageKey ?? highlightedMessageKey;
     if (!targetKey) {appliedNavigationRef.current = navigationVersion;return;}
@@ -545,7 +565,8 @@ export default function App() {
     if (pending) {timelineRef.current.restorePosition(pending);pendingPositionRef.current=null;}
     else timelineRef.current.scrollToIndex(index,"start");
     appliedNavigationRef.current=navigationVersion;
-  }, [view, navigationVersion, filteredMessages, highlightedMessageKey, entered]);
+    fullFeedNavigationRef.current=false;
+  }, [view, navigationVersion, filteredMessages, highlightedMessageKey, entered,deferredSearch,session,snapshot.messages.length]);
 
   // Stats
   const stats = useMemo(() => {
@@ -609,6 +630,7 @@ export default function App() {
   }, [snapshot.messages, snapshot.readCursor]);
 
   const activeAnchorMessage = useMemo(() => {
+    if(visibleMessageKey){const visible=messageByKey.get(visibleMessageKey);if(visible)return visible;}
     if (highlightedMessageKey) {
       return snapshot.messages.find((m) => m.message_key === highlightedMessageKey) ?? null;
     }
@@ -618,7 +640,7 @@ export default function App() {
       );
     }
     return snapshot.messages[0] ?? null;
-  }, [highlightedMessageKey, snapshot.messages, snapshot.readCursor]);
+  }, [highlightedMessageKey, snapshot.messages, snapshot.readCursor,visibleMessageKey,messageByKey]);
 
   const anchorIndex = activeAnchorMessage
     ? snapshot.messages.findIndex(
@@ -774,11 +796,13 @@ export default function App() {
     if (!target) {setError(`Message ${messageKey} not in archive.`);return;}
     if (!options?.skipTrail) recordNavigation();
     setSession(null);setSessionReached(false);
-    setSearchQuery(""); setReaderSearchMode("results"); setView("read"); setHighlightedMessageKey(target.message_key);
+    setSearchQuery(""); setReaderSearchMode("results");setReaderSearchOpen(false);setLibraryOpen(false);setSourcePeek(null);searchReturnRef.current=null;
+    fullFeedNavigationRef.current=true;
+    setView("read"); setHighlightedMessageKey(target.message_key);setVisibleMessageKey(target.message_key);
     setSelectedThreadKey(target.thread_key);
     pendingPositionRef.current = options?.position ?? null;
     setNavigationVersion(v => v+1);
-    if (options?.openRail && (threadMessagesMap.get(target.thread_key)?.length ?? 0)>1) setThreadRailOpen(true);
+    setThreadRailOpen(Boolean(options?.openRail && (threadMessagesMap.get(target.thread_key)?.length ?? 0)>1));
     setPaletteOpen(false);
   };
   const focusThread = (threadKey:string) => {
@@ -837,6 +861,7 @@ export default function App() {
     setLibraryOpen(false);setReaderSearchOpen(false);setSourcePeek({message:target,origin:currentMessage});
   };
   function restoreEntry(target: NavEntry):void {
+    fullFeedNavigationRef.current=target.view==="read";setVisibleMessageKey(target.messageKey);
     setView(target.view);setSelectedThreadKey(target.threadKey);setHighlightedMessageKey(target.messageKey);
     setSearchQuery("");setQuoteHighlight(null);setSession(null);setSessionReached(false);
     pendingPositionRef.current=target.position;setNavigationVersion(v=>v+1);
@@ -1146,8 +1171,9 @@ export default function App() {
       />
 
       {account.user && ["offline","conflict"].includes(account.status) ? <div className="account-strip" data-tour="account-status"><button onClick={()=>openAccount()}>{account.user?account.user.email:"Reading as a guest"}</button><span role="status">{account.user?({guest:"Browser only",loading:"Opening account…",saving:"Saving…",saved:"Saved across devices",offline:"Sync pending · device copy kept",conflict:"Sync needs attention"})[account.status]:"Progress saved in this browser"}</span>{account.user&&account.status==="offline"?<button onClick={()=>account.sync()}>Retry sync</button>:null}</div>:null}
-      {view==="read" ? <div className="reader-toolbar" data-tour="reading-tools">
-        <h2>{deferredSearch?`${filteredMessages.length.toLocaleString()} matches`:"Your reading"}</h2>
+      <div className={view==="read"?"reader-toolbar":"view-toolbar"} data-view={view} data-tour={view==="read"?"reading-tools":undefined}>
+        {view==="read"?<h2 className="reading-current-position" title={deferredSearch?`${filteredMessages.length.toLocaleString()} matches`:undefined}><span>Your reading:</span><small className="reading-current-meta">{activeAnchorMessage?<><span className="reading-current-post">#{activeAnchorMessage.message_id}</span>{" "}<time dateTime={activeAnchorMessage.date_utc??undefined}>{formatReadingDate(activeAnchorMessage.date_utc)}</time></>:"Finding your place…"}</small></h2>:<h2>{({threads:"Threads",bookmarks:"Bookmarks",progress:"Progress"})[view]}</h2>}
+        {view==="read"?<>
         <button type="button" className="reader-quick-action" data-tour="reader-search" aria-label="Search and filter" aria-expanded={readerSearchOpen} onClick={toggleReaderSearch}><MagnifyingGlassIcon aria-hidden/><span>Search</span>{searchQuery&&<i className="quick-active-dot" aria-label="Filter active"/>}</button>
         <details className="reader-tools-menu reader-navigation-menu"><summary aria-label="Reading navigation"><CounterClockwiseClockIcon aria-hidden/><span>Navigate</span></summary><div className="reader-quick-panel reader-navigation-panel">
           <h3>Reading navigation</h3><div className="reader-history-actions">
@@ -1168,8 +1194,9 @@ export default function App() {
         {session?<><span className="session-boundary-status">{session.label} · ending at #{messageByKey.get(session.endKey)?.message_id}</span><button type="button" className="btn-ghost session-boundary-clear" onClick={()=>{const pos=timelineRef.current?.getPosition();setSession(null);setSessionReached(false);pendingPositionRef.current=pos??null;setNavigationVersion(v=>v+1);}}>Clear boundary</button></>:null}
       </form></div></details>
         <ReadingWidth value={preferences.readingWidth} onChange={readingWidth=>changePreferences({...preferences,readingWidth})}/>
+        </>:null}
         <div className="reader-navigation-restore" ref={setNavigationRestoreTarget}/>
-      </div>:null}
+      </div>
       {preferences.focusMode?<button type="button" className="reader-focus-exit" onClick={()=>changePreferences({...preferences,focusMode:false})}>Exit focus</button>:null}
       {libraryOpen?<aside hidden={guideOpen && guideTopic !== null} className="reader-side-panel" data-tour="library-panel" aria-label="Personal reading library"><header><h2>Your reading library</h2><button type="button" onClick={()=>setLibraryOpen(false)} aria-label="Close library">×</button></header><ReadingLibrary key={libraryInitialTab} initialTab={libraryInitialTab} savedPostKeys={snapshot.bookmarks.filter(bookmark=>bookmark.target_type==="message").map(bookmark=>bookmark.target_key)} state={personal} onChange={commitPersonal} messages={snapshot.messages} onOpenMessage={key=>{setLibraryOpen(false);focusMessage(key);}} onReadAround={readAround}/></aside>:null}
       {guideOpen && guideStep && ["library-queue", "library-collections", "library-work"].includes(guideStep.id) ? <aside className="reader-side-panel" data-tour="library-panel" aria-label="Library tour preview"><header><h2>Your reading library</h2><span className="eyebrow">Tour preview</span></header><ReadingLibrary idPrefix="guide-" state={personal} onChange={() => {}} messages={snapshot.messages} onOpenMessage={() => {}} onReadAround={() => {}} /></aside> : null}
@@ -1187,6 +1214,7 @@ export default function App() {
           messages={filteredMessages}
           cardExtras={cardExtras}
           onPositionChange={onPositionChange}
+          onVisibleMessageChange={setVisibleMessageKey}
           layoutKey={JSON.stringify(preferences)}
           sessionEndKey={session?.endKey??null}
           onSessionEnd={()=>{if(!guideActiveRef.current)setSessionReached(true);}}
@@ -1369,6 +1397,7 @@ type CardExtras = (message: MessageRecord) => Partial<React.ComponentProps<typeo
 interface ReadingViewProps {
   cardExtras: CardExtras;
   onPositionChange: (position:ReadingPosition)=>void;
+  onVisibleMessageChange: (messageKey:string)=>void;
   layoutKey:string;
   sessionEndKey:string|null;
   onSessionEnd:()=>void;
@@ -1480,6 +1509,7 @@ function ReadingView(props: ReadingViewProps) {
         messages={messages}
         layoutKey={props.layoutKey}
         onPositionChange={props.onPositionChange}
+        onVisibleMessageChange={props.onVisibleMessageChange}
         emptyState={
           deferredSearch
             ? `No messages matched "${searchQuery.trim()}".`
@@ -1608,7 +1638,7 @@ function ThreadsView(props: ThreadsViewProps) {
   } = props;
 
   return (
-    <div className="threads-stage">
+    <div className="threads-stage" role="region" aria-label="Threads" tabIndex={0}>
       <aside>
         <div className="reading-header" style={{ marginTop: 0 }}>
           <p className="eyebrow">Threads</p>
@@ -1737,7 +1767,7 @@ function BookmarksView({
   const threadByKey = useMemo(() => new Map(threads.map((t) => [t.thread_key, t])), [threads]);
 
   return (
-    <div className="bookmarks-stage">
+    <div className="bookmarks-stage" role="region" aria-label="Bookmarks" tabIndex={0}>
       <div className="reading-header">
         <p className="eyebrow">Bookmarks</p>
         <h2>{bookmarks.length.toLocaleString()} saved items</h2>
@@ -1830,7 +1860,7 @@ interface ProgressViewProps {
 
 function ProgressView({ messages,directoryHandle,onOpenMessage,readingState, stats, firstUnread }: ProgressViewProps) {
   return (
-    <div className="progress-stage">
+    <div className="progress-stage" role="region" aria-label="Reading progress" tabIndex={0}>
       <div className="reading-header">
         <p className="eyebrow">Progress</p>
         <h2>
