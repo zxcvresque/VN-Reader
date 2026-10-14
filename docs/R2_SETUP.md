@@ -41,7 +41,7 @@ You need **two Cloudflare accounts** to get 2 × 10 GB free (e.g. personal + wor
 
 ## 2) Server configuration
 
-Edit `server/.env` (see `server/.env.example`):
+Edit the existing `.env` in the repository root (see `server/.env.example` for available settings). Keep Telegram, authentication, SMTP and R2 settings in that same file; Compose forwards R2 settings to both `archive` and `mirror`.
 
 ```ini
 # Primary (public, media.vidurneeti.xyz)
@@ -52,12 +52,12 @@ R2_SECRET_ACCESS_KEY=<...>
 R2_BUCKET=vn-reader-media
 R2_PUBLIC_BASE_URL=https://media.vidurneeti.xyz
 
-# Secondary (private — no PUBLIC_BASE_URL, VPS will proxy)
-R2_SECONDARY_ACCOUNT_ID=<account-2 id>
-R2_SECONDARY_ACCESS_KEY_ID=<...>
-R2_SECONDARY_SECRET_ACCESS_KEY=<...>
+# Leave empty until a second account is configured (private; VPS will proxy)
+R2_SECONDARY_ACCOUNT_ID=
+R2_SECONDARY_ACCESS_KEY_ID=
+R2_SECONDARY_SECRET_ACCESS_KEY=
 R2_SECONDARY_BUCKET=vn-reader-media-2
-# R2_SECONDARY_PUBLIC_BASE_URL left empty = private bucket
+R2_SECONDARY_PUBLIC_BASE_URL=
 
 # Optional kill switches
 # R2_DISABLE_WRITES=0   # set to 1 to pause all R2 uploads without disabling reads
@@ -130,18 +130,20 @@ Streams from the private group via the bot; respects `FloodWait`; skips rows alr
 
 ## 7) VPS commands — vidurneeti.xyz deploy
 
-Assume `deploy/` Compose stack from `deploy/README.md`. `dc` is your compose alias (`docker compose` or helper).
+Assume `deploy/` Compose stack from `deploy/README.md`. `dc` loads that same root `.env` for the Compose stack:
 
 ```sh
+dc() { docker compose --env-file .env -f compose.yaml -f deploy/compose.tunnel.yaml "$@"; }
+
 # --- one-time secrets ---
 # Put Cloudflare tunnel token in deploy/secrets/cloudflare-tunnel-token (600 perms)
-# Put R2 creds in server/.env on the VPS (600 perms), NOT in git.
+# Put R2 creds in .env on the VPS (600 perms), NOT in git.
 
-# Inspect
-cat server/.env | grep -E 'R2_|TELEGRAM_|VN_'
+# Validate configuration without printing secrets
+dc config --quiet
 
 # --- deploy / restart ---
-# After editing server/.env on the VPS, rebuild the python image + restart
+# After editing .env on the VPS, rebuild the python image + restart
 dc build archive mirror web        # or: docker compose build archive mirror web
 dc up -d archive mirror web
 dc logs -f archive                 # check: "Telegram media connection ready"
@@ -164,13 +166,13 @@ dc run --rm --no-deps mirror python -u -m server.r2_backfill
 # rerun with --limit 200 in batches if you prefer
 
 # --- emergency pause (no billing) ---
-# On VPS server/.env:
+# On VPS .env:
 # R2_DISABLE_WRITES=1
-dc restart mirror
+dc up -d --force-recreate archive mirror
 # Writes stop; reads still served from R2 + Telegram.
 
 # --- local dev ---
-# Same server/.env vars; Vite proxies /api/media → :8000 (R2-aware) and /api/admin/r2-stats → :3005
+# Same .env vars; Vite proxies /api/media → :8000 (R2-aware) and /api/admin/r2-stats → :3005
 ```
 
 ---

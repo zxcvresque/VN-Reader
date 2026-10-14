@@ -27,7 +27,7 @@ On your Mac, stop the terminal running the Telegram mirror with **Ctrl+C**. Wait
 
 ```sh
 cd "/Users/vr/Code-space/VN Reader"
-python3 scripts/prepare-vps-migration.py --env-file server/.env --output data/vps-migration.tar.gz
+python3 scripts/prepare-vps-migration.py --env-file .env --output data/vps-migration.tar.gz
 ```
 
 This creates a private bundle containing the existing archive mapping/checkpoint database, authorized reader session, legacy bot session files and any existing account database.
@@ -62,17 +62,17 @@ On your Mac, transfer only the private runtime files:
 ```sh
 cd "/Users/vr/Code-space/VN Reader"
 scp data/vps-migration.tar.gz ubuntu@VPS_IP:~/vn-reader/data/
-scp server/.env ubuntu@VPS_IP:~/vn-reader/.env.production
+scp .env ubuntu@VPS_IP:~/vn-reader/.env
 ```
 
 Back on the VPS:
 
 ```sh
 cd ~/vn-reader
-chmod 600 .env.production data/vps-migration.tar.gz
+chmod 600 .env data/vps-migration.tar.gz
 ```
 
-The private `.env.production` stays on the VPS and is excluded from Git and Docker build contexts. Do not paste it into chat, use `docker compose config` without `--quiet`, or share `docker inspect` output: those can expose environment secrets.
+The private `.env` stays on the VPS and is excluded from Git and Docker build contexts. Do not paste it into chat, use `docker compose config` without `--quiet`, or share `docker inspect` output: those can expose environment secrets.
 
 ## 4. Set production authentication and SMTP
 
@@ -81,7 +81,7 @@ See [EMAIL.md](EMAIL.md) for email-provider selection, Amazon SES setup, DNS rec
 Edit the transferred environment file:
 
 ```sh
-nano .env.production
+nano .env
 ```
 
 Set these values (preserve your working Telegram API ID/hash/token, channel, destination and archive topic):
@@ -108,7 +108,7 @@ For a **new installation without existing accounts**, this generates a secret di
 python3 - <<'PY'
 from pathlib import Path
 import secrets
-path = Path('.env.production')
+path = Path('.env')
 lines = [line for line in path.read_text().splitlines() if not line.startswith('BETTER_AUTH_SECRET=')]
 lines.append('BETTER_AUTH_SECRET=' + secrets.token_hex(32))
 path.write_text('\n'.join(lines) + '\n')
@@ -148,7 +148,7 @@ If your user cannot access Docker, use `sudo docker` in the commands or add the 
 
 ```sh
 cd ~/vn-reader
-dc() { docker compose --env-file .env.production -f compose.yaml -f deploy/compose.tunnel.yaml "$@"; }
+dc() { docker compose --env-file .env -f compose.yaml -f deploy/compose.tunnel.yaml "$@"; }
 dc config --quiet
 dc build
 ```
@@ -204,7 +204,7 @@ dc run --rm --no-deps --user 0 --entrypoint python --volume "$PWD/data/backups:/
 dc up -d
 ```
 
-The backup is written by container root; use `sudo` to copy it securely off the VPS if your SSH user cannot read it. Also keep an encrypted off-VPS copy of `.env.production` and the tunnel token. Volume backup archives contain private sessions/accounts; do not store them in a public Telegram topic or web directory. The migration helper is for first migration; full-volume backups must be restored into stopped volumes, preserving the `telegram/` → `/data` and `accounts/` → `/accounts` directory mapping.
+The backup is written by container root; use `sudo` to copy it securely off the VPS if your SSH user cannot read it. Also keep an encrypted off-VPS copy of `.env` and the tunnel token. Volume backup archives contain private sessions/accounts; do not store them in a public Telegram topic or web directory. The migration helper is for first migration; full-volume backups must be restored into stopped volumes, preserving the `telegram/` → `/data` and `accounts/` → `/accounts` directory mapping.
 
 For an update, back up first, pull the updated source with `git pull --ff-only`, then:
 
