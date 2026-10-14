@@ -26,7 +26,8 @@
     "Media rate limited": ["media", "ratelimit"],
     "R2 storage 90% full": ["media", "storage"],
     "R2 storage 95% full": ["media", "storage"],
-    "R2 storage full — switched to secondary bucket": ["media", "storage"]
+    "R2 storage full — switched to secondary bucket": ["media", "storage"],
+    "R2 auto-stopped": ["media", "storage", "critical"]
   },
   "fields": {
     "reader": {"label": "Reader", "limit": 128},

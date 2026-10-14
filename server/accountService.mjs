@@ -43,16 +43,32 @@ export async function createAccountApp(settings=accountSettings(),sendEmail) {
       try {res.json(accounts.admin.dashboard(day,Number(page)));}catch {res.status(422).json({detail:"Invalid day or page. Use YYYY-MM-DD and a positive page number."});}
     }catch {res.status(401).json({detail:"Your session has expired. Sign in again."});}
   });
-  app.get("/api/admin/r2-stats",async(req,res)=>{
+  async function proxyR2Admin(req,res,upstreamPath){
     try {
       const session=accounts.enabled?await accounts.auth.api.getSession({headers:fromNodeHeaders(req.headers)}):null;
       if(!session?.user?.emailVerified)return res.status(401).json({detail:"Sign in with a verified email to view administration."});
       if(!accounts.admin.allowed(session.user))return res.status(403).json({detail:"This account does not have administrator access."});
-      const target=settings.archiveEnabled?"http://127.0.0.1:8000/api/r2-stats":"";
+      const target=settings.archiveEnabled?`http://127.0.0.1:8000${upstreamPath}`:"";
       if(!target)return res.status(503).json({detail:"Archive service is not available."});
       const botToken=settings.botToken;
       const r=await fetch(target,{headers:{Authorization:`Bearer ${botToken}`,"X-VN-Internal":"account-service"}});
       const body=await r.text();try {res.status(r.status).type("json").send(body);} catch {res.status(502).json({detail:"Could not read storage status."});}
+    } catch {res.status(401).json({detail:"Your session has expired. Sign in again."});}
+  }
+  app.get("/api/admin/r2-stats",(req,res)=>proxyR2Admin(req,res,"/api/r2-stats"));
+  app.get("/api/admin/r2-analytics",(req,res)=>proxyR2Admin(req,res,"/api/r2-analytics"));
+  app.post("/api/admin/r2-control",async(req,res)=>{
+    try {
+      const session=accounts.enabled?await accounts.auth.api.getSession({headers:fromNodeHeaders(req.headers)}):null;
+      if(!session?.user?.emailVerified)return res.status(401).json({detail:"Sign in with a verified email to view administration."});
+      if(!accounts.admin.allowed(session.user))return res.status(403).json({detail:"This account does not have administrator access."});
+      const target=settings.archiveEnabled?"http://127.0.0.1:8000/api/r2-control":"";
+      if(!target)return res.status(503).json({detail:"Archive service is not available."});
+      const botToken=settings.botToken;
+      // Forward owner action — sender is session user id coerced to owner check server-side via TELEGRAM_OWNER_ID
+      const ownerId=process.env.TELEGRAM_OWNER_ID||"";
+      const r=await fetch(target,{method:"POST",headers:{Authorization:`Bearer ${botToken}`,"X-VN-Internal":"account-service","Content-Type":"application/json"},body:JSON.stringify({action:req.body?.action,sender_id:ownerId?Number(ownerId):0})});
+      const body=await r.text();try {res.status(r.status).type("json").send(body);} catch {res.status(502).json({detail:"Control request failed."});}
     } catch {res.status(401).json({detail:"Your session has expired. Sign in again."});}
   });
   app.use("/api/state",async(req,res,next)=>{

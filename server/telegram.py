@@ -7,17 +7,17 @@ import os
 import re
 import time
 from fastapi import APIRouter, HTTPException, Request
-from starlette.responses import Response, StreamingResponse
+from starlette.responses import Response, StreamingResponse, RedirectResponse
 from .mirror import MirrorStore, configuration, error_label
 from .notifications import notify, configure_topic, FIELD_SCHEMA
 from .streaming import parse_range, media_headers, telegram_chunks, RangeNotSatisfiable, media_file_info
 from .media_lookup import MediaLookupCache
 try:
     from . import r2_store as _r2  # optional — degrade gracefully if boto absent
-    from .r2_media import r2_headers, r2_range_headers, r2_stream
+    from .r2_media import r2_headers, r2_range_headers, r2_stream, r2_redirect_url
 except Exception:  # pragma: no cover
     _r2 = None  # type: ignore
-    r2_headers = r2_range_headers = r2_stream = None  # type: ignore
+    r2_headers = r2_range_headers = r2_stream = r2_redirect_url = None  # type: ignore
 
 router = APIRouter()
 log = logging.getLogger(__name__)
@@ -39,6 +39,18 @@ _reset_session = False
 _CONNECT_TIMEOUT = 20
 _RETRY_DELAY = 5
 _media_retry_not_before = 0.0
+
+
+def _r2_enabled() -> bool:
+    if _r2 is None:
+        return False
+    try:
+        return bool(_r2.load_r2_config().enabled)
+    except Exception:
+        return False
+
+# Single public bucket: media.vidurneeti.xyz
+# (Secondary private bucket will be wired later if needed.)
 
 
 def _media_retry_remaining():
@@ -94,16 +106,12 @@ async def _connect_client():
     async with _reconnect_lock:
         if _closing or not _config or archive_enabled():
             return bool(archive_enabled())
-        # Telegram's cooldown applies to authorization too. Calls from media
-        # recovery must not start another login before the supervisor's deadline.
         if _retry_remaining():
             return False
         client = _pending_client
         try:
             from telethon import TelegramClient
             from .bot_sessions import create_bot_session
-            # Persistent keys are isolated by API/writer role and explicitly
-            # enabled only on the production host. Local defaults stay in memory.
             if client is None:
                 await _disconnect(_client)
                 _client, _destination = None, None
@@ -125,9 +133,6 @@ async def _connect_client():
             raise
         except Exception as exc:
             if exc.__class__.__name__ == "FloodWaitError":
-                # Keep this process's auth key and any completed authorization.
-                # Creating fresh MemorySessions on every retry makes a bot login
-                # flood wait worse; a routine cooldown is not a critical failure.
                 seconds = max(1, int(exc.seconds)) + 1
                 _pending_client = client
                 _retry_not_before = time.monotonic() + seconds
@@ -168,6 +173,119 @@ async def _supervise():
         delay = _RETRY_DELAY if ready else min(60, delay * 2)
 
 
+async def _r2_status_bundle():
+    """Gather stats + build (text, parse_mode, keyboard) for bot replies. Reuses r2_controls formatters."""
+    from server.r2_controls import format_r2_status_text_with_flags, build_r2_keyboard
+    cfg = _r2.load_r2_config() if _r2 else None
+    stats = None
+    ca = cb = 0
+    local = None
+    if cfg and cfg.primary:
+        try:
+            stats = await asyncio.to_thread(_r2.bucket_stats, cfg.primary, db=_store.db)  # type: ignore[union-attr]
+        except Exception:
+            from server.r2_store import BucketStats as _BS
+            stats = _BS(bucket=cfg.primary.bucket, account_id=cfg.primary.account_id, objects=0, bytes_used=0)
+        try: ca = _r2.class_a_used(_store.db, cfg.primary.bucket)  # type: ignore[union-attr]
+        except Exception: pass
+        try: cb = _r2.class_b_used(_store.db, cfg.primary.bucket)  # type: ignore[union-attr]
+        except Exception: pass
+        try: local = _store.r2_counts()  # type: ignore[union-attr]
+        except Exception: pass
+    if stats is None:
+        from server.r2_store import BucketStats as _BS2
+        stats = _BS2(bucket="—", account_id="", objects=0, bytes_used=0)
+    text, mode = format_r2_status_text_with_flags(_store.db, stats, ca, cb, local)  # type: ignore[union-attr]
+    kb = build_r2_keyboard(_store.db)  # type: ignore[union-attr]
+    return text, mode, kb
+
+def _register_r2_controls(client):
+    """Register Telethon handlers for R2 controls (owner-only): /start, /r2stats, + callbacks."""
+    try:
+        from telethon import events
+        from server.r2_controls import handle_r2_callback, format_r2_status_text_with_flags, build_r2_keyboard
+        @client.on(events.NewMessage(pattern=r"^/start(\b|@)", func=lambda e: getattr(e, "is_private", False)))
+        async def _on_r2_start(event):
+            try:
+                owner = int(os.getenv("TELEGRAM_OWNER_ID", "0") or 0)
+            except Exception:
+                owner = 0
+            sender = getattr(event, "sender_id", None) or getattr(getattr(event, "sender", None), "id", 0)
+            if owner and int(sender or 0) != owner:
+                return
+            try:
+                text, mode, kb = await _r2_status_bundle()
+                await event.respond(text, parse_mode="html", buttons=_kb_to_telethon(kb))
+            except Exception as exc:
+                log.warning("R2 /start reply failed: %s", exc)
+
+        @client.on(events.NewMessage(pattern=r"^/r2stats(\b|@)", func=lambda e: getattr(e, "is_private", False)))
+        async def _on_r2stats(event):
+            try:
+                owner = int(os.getenv("TELEGRAM_OWNER_ID", "0") or 0)
+            except Exception:
+                owner = 0
+            sender = getattr(event, "sender_id", None) or getattr(getattr(event, "sender", None), "id", 0)
+            if owner and int(sender or 0) != owner:
+                return
+            try:
+                text, mode, kb = await _r2_status_bundle()
+                await event.respond(text, parse_mode="html", buttons=_kb_to_telethon(kb))
+            except Exception as exc:
+                log.warning("R2 /r2stats reply failed: %s", exc)
+
+        @client.on(events.CallbackQuery(pattern=r"^r2_"))
+        async def _on_r2_callback(event):
+            if _store is None:
+                await event.answer("Store unavailable")
+                return
+            data = event.data.decode() if isinstance(event.data, bytes) else str(event.data)
+            sender = getattr(event, "sender_id", None) or getattr(getattr(event, "sender", None), "id", 0)
+            action, should_refresh = handle_r2_callback(data, int(sender or 0), _store.db)
+            if action == "unauthorized":
+                await event.answer("Not authorized", alert=True)
+                return
+            await event.answer(action)
+            if should_refresh:
+                try:
+                    cfg = _r2.load_r2_config() if _r2 else None
+                    stats = None
+                    ca = cb = 0
+                    local = None
+                    if cfg and cfg.primary:
+                        try:
+                            stats = await asyncio.to_thread(_r2.bucket_stats, cfg.primary, db=_store.db)
+                        except Exception:
+                            # fallback dummy stats
+                            from server.r2_store import BucketStats as _BS
+                            stats = _BS(bucket=cfg.primary.bucket, account_id=cfg.primary.account_id, objects=0, bytes_used=0)
+                        try: ca = _r2.class_a_used(_store.db, cfg.primary.bucket)
+                        except Exception: pass
+                        try: cb = _r2.class_b_used(_store.db, cfg.primary.bucket)
+                        except Exception: pass
+                        try: local = _store.r2_counts()
+                        except Exception: pass
+                    text, mode = format_r2_status_text_with_flags(_store.db, stats, ca, cb, local)
+                    kb = build_r2_keyboard(_store.db)
+                    await event.edit(text, parse_mode="html", buttons=_kb_to_telethon(kb))
+                except Exception as exc:
+                    log.warning("R2 callback edit failed: %s", exc)
+        log.info("R2 controls callback handler registered")
+    except Exception as exc:
+        log.warning("R2 controls handler not registered: %s", exc)
+
+def _kb_to_telethon(kb: dict):
+    """Convert Bot API inline_keyboard JSON to Telethon buttons."""
+    try:
+        from telethon import Button
+        rows = []
+        for row in kb.get("inline_keyboard", []):
+            trow = [Button.inline(b["text"], data=b["callback_data"].encode()) for b in row]
+            rows.append(trow)
+        return rows
+    except Exception:
+        return None
+
 async def start_telegram():
     os.umask(0o077)
     global _store, _config, _recovery_task, _last_error, _closing
@@ -183,7 +301,6 @@ async def start_telegram():
         log.error("Telegram archive configuration is incomplete")
         await notify("Archive startup failed", _last_error, severity="critical")
         return
-    # The durable archive does not depend on a live Telegram connection.
     try:
         store = MirrorStore(_config["database"])
         identity = store.meta("identity")
@@ -198,6 +315,12 @@ async def start_telegram():
         await notify("Archive startup failed", _last_error, severity="critical")
         raise
     await _connect_client()
+    # Register R2 controls callback handler on the bot client (archive streamer bot)
+    if _r2_enabled() and _client is not None:
+        try:
+            _register_r2_controls(_client)
+        except Exception as exc:
+            log.warning("R2 controls registration failed: %s", exc)
     _recovery_task = asyncio.create_task(_supervise())
 
 
@@ -223,46 +346,218 @@ async def stop_telegram():
     _media_retry_not_before = 0.0
 
 
-@router.get("/api/r2-stats")
-async def r2_stats(request: Request):
-    """Admin-only R2 storage probe.
+@router.post("/api/r2-control")
+async def r2_control(request: Request):
+    """Owner-gated R2 controls — toggles flags and returns updated status + keyboard.
+    Auth: Bearer TELEGRAM_BOT_TOKEN or x-vn-internal, and body must include owner intent.
+    For bot DMs, use the CallbackQuery handler instead."""
+    import secrets as _sec, json as _json
+    token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    auth = request.headers.get("authorization", "")
+    internal = request.headers.get("x-vn-internal", "")
+    bearer_ok = bool(token and _sec.compare_digest(auth, f"Bearer {token}"))
+    if not bearer_ok and internal != "account-service":
+        raise HTTPException(401, "Admin session required")
+    if _store is None:
+        raise HTTPException(503, "Store not ready")
+    try:
+        body = _json.loads((await request.body()) or b"{}")
+    except Exception:
+        body = {}
+    action = body.get("action", "")
+    sender = body.get("sender_id") or int(os.getenv("TELEGRAM_OWNER_ID", "0") or 0)
+    try:
+        from server.r2_controls import handle_r2_callback as _h, format_r2_status_text_with_flags as _fmt, build_r2_keyboard as _kb
+        msg, _ = _h(action, int(sender), _store.db)
+        if msg == "unauthorized":
+            raise HTTPException(403, "Not authorized")
+        # Build fresh status
+        stats = None
+        ca = cb = 0
+        local = None
+        if _r2:
+            cfg = _r2.load_r2_config()
+            if cfg.primary:
+                try: stats = await asyncio.to_thread(_r2.bucket_stats, cfg.primary, db=_store.db)
+                except Exception:
+                    from server.r2_store import BucketStats as _BS
+                    stats = _BS(bucket=cfg.primary.bucket, account_id=cfg.primary.account_id, objects=0, bytes_used=0)
+                try: ca = _r2.class_a_used(_store.db, cfg.primary.bucket)
+                except Exception: pass
+                try: cb = _r2.class_b_used(_store.db, cfg.primary.bucket)
+                except Exception: pass
+                try: local = _store.r2_counts()
+                except Exception: pass
+        text, mode = _fmt(_store.db, stats, ca, cb, local) if stats else ("R2 not configured", "HTML")
+        kb = _kb(_store.db)
+        return {"ok": True, "action": msg, "text": text, "parse_mode": mode, "keyboard": kb}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(500, str(exc)[:300])
 
-    Auth: either ``Authorization: Bearer <TELEGRAM_BOT_TOKEN>`` (operator/VPS) or
-    a valid admin Better Auth session forwarded by the Node account service.
-    The account service proxies this endpoint through /api/admin/r2-stats so the
-    browser never calls it directly; direct callers must present the bearer token.
-    """
+def _require_r2_admin(request: Request) -> None:
+    """Shared auth for /api/r2-* — Bearer TELEGRAM_BOT_TOKEN or x-vn-internal."""
     import secrets as _sec
     token = os.getenv("TELEGRAM_BOT_TOKEN", "")
     auth = request.headers.get("authorization", "")
     internal_caller = request.headers.get("x-vn-internal", "")
     bearer_ok = bool(token and _sec.compare_digest(auth, f"Bearer {token}"))
-    # Allow the account service to proxy admin requests via an internal header
     if not bearer_ok and internal_caller != "account-service":
         raise HTTPException(401, "Admin session required")
+
+
+def _r2_flags(db) -> dict:
+    """Read tg_r2_controls flags for dashboard (single bucket)."""
+    if db is None:
+        return {"pausedWrites": False, "pausedReads": False, "autoStopped": False, "autoReason": ""}
+    try:
+        from server.r2_controls import get_control as _gc, is_paused as _ip
+        return {
+            "pausedWrites": bool(_ip(db, "r2_pause_writes") or _ip(db, "r2_pause_all") or _ip(db, "r2_auto_stopped")),
+            "pausedReads": bool(_ip(db, "r2_pause_reads") or _ip(db, "r2_pause_all")),
+            "autoStopped": bool(_ip(db, "r2_auto_stopped")),
+            "autoReason": _gc(db, "r2_auto_stopped_reason") or "",
+        }
+    except Exception:
+        return {"pausedWrites": False, "pausedReads": False, "autoStopped": False, "autoReason": ""}
+
+
+def _monthly_counters(db) -> list[dict]:
+    if db is None:
+        return []
+    try:
+        db.execute("CREATE TABLE IF NOT EXISTS tg_r2_counters(month TEXT NOT NULL, bucket TEXT NOT NULL, class TEXT NOT NULL, count INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(month, bucket, class))")
+        rows = db.execute("SELECT month, bucket, class, count FROM tg_r2_counters ORDER BY month DESC, bucket, class").fetchall()
+        return [{"month": r[0], "bucket": r[1], "class": r[2], "count": int(r[3])} for r in rows]
+    except Exception:
+        return []
+
+
+@router.get("/api/r2-stats")
+async def r2_stats(request: Request):
+    """Admin-only R2 storage probe — enriched for dashboard.
+
+    Auth: either ``Authorization: Bearer <TELEGRAM_BOT_TOKEN>`` (operator/VPS) or
+    a valid admin Better Auth session forwarded by the Node account service.
+    No public access — caller must be admin-gated via accountService proxy or bearer.
+    """
+    _require_r2_admin(request)
     if _r2 is None:
         return {"enabled": False, "reason": "r2_store not available"}
     cfg = _r2.load_r2_config()
     if not cfg.enabled:
-        return {"enabled": False, "reason": "R2 not configured — set R2_* in server/.env"}
-    out: dict = {"enabled": True, "freeTierBytes": _r2.FREE_TIER_BYTES, "autoSwitchPct": _r2.AUTO_SWITCH_PCT, "accounts": []}
-    for label, acct in (("primary", cfg.primary), ("secondary", cfg.secondary)):
+        return {"enabled": False, "reason": "R2 not configured — set R2_* in .env.production",
+                "freeTierBytes": _r2.FREE_TIER_BYTES, "freeTierClassA": _r2.FREE_TIER_CLASS_A, "freeTierClassB": _r2.FREE_TIER_CLASS_B,
+                "thresholds": {"warn90": _r2.WARN_90_PCT, "warn95": _r2.WARN_95_PCT, "autoStop98": _r2.AUTO_STOP_PCT}}
+    out: dict = {"enabled": True, "freeTierBytes": _r2.FREE_TIER_BYTES,
+                 "freeTierClassA": _r2.FREE_TIER_CLASS_A, "freeTierClassB": _r2.FREE_TIER_CLASS_B,
+                 "thresholds": {"warn90": _r2.WARN_90_PCT, "warn95": _r2.WARN_95_PCT, "autoStop98": _r2.AUTO_STOP_PCT},
+                 "accounts": []}
+    db = _store.db if _store else None
+    flags_top = _r2_flags(db)
+    for label, acct in (("primary", cfg.primary),):
         if not acct:
             out["accounts"].append({"label": label, "configured": False})
             continue
         try:
-            stats = await asyncio.to_thread(_r2.bucket_stats, acct)
-            out["accounts"].append({"label": label, "configured": True, **stats.to_dict(), "publicBase": acct.public_base or f"https://{acct.bucket}.r2.dev"})
+            stats = await asyncio.to_thread(_r2.bucket_stats, acct, db=db)
+            d: dict = {**stats.to_dict(), "publicBase": acct.public_base or f"https://{acct.bucket}.r2.dev", "configured": True}
+            # Class counters
+            if db is not None:
+                try:
+                    d["classAUsed"] = _r2.class_a_used(db, acct.bucket)
+                    d["classApct"] = round(d["classAUsed"] / _r2.FREE_TIER_CLASS_A * 100, 2) if _r2.FREE_TIER_CLASS_A else 0
+                except Exception:
+                    d["classAUsed"] = 0; d["classApct"] = 0
+                try:
+                    d["classBUsed"] = _r2.class_b_used(db, acct.bucket)
+                    d["classBpct"] = round(d["classBUsed"] / _r2.FREE_TIER_CLASS_B * 100, 2) if _r2.FREE_TIER_CLASS_B else 0
+                except Exception:
+                    d["classBUsed"] = 0; d["classBpct"] = 0
+            else:
+                d["classAUsed"] = d["classBUsed"] = 0
+                d["classApct"] = d["classBpct"] = 0
+            # Per-account flags snapshot (single bucket: same as top-level)
+            d["flags"] = dict(flags_top)
+            out["accounts"].append({"label": label, **d})
         except Exception as exc:
-            out["accounts"].append({"label": label, "configured": True, "error": f"{exc.__class__.__name__}: {str(exc)[:120]}"})
-    # Per-DB R2 row counts (no R2 API needed)
-    if _store is not None:
+            out["accounts"].append({"label": label, "configured": True, "error": f"{exc.__class__.__name__}: {str(exc)[:160]}",
+                                     "flags": dict(flags_top)})
+    if db is not None:
         try:
             cnt, b = _store.r2_counts()  # type: ignore[attr-defined]
             out["localR2Rows"] = {"objects": cnt, "bytes": b}
         except Exception:
             pass
+        out["monthlyCounters"] = _monthly_counters(db)
+    else:
+        out["monthlyCounters"] = []
+    out["flags"] = flags_top
     return out
+
+
+@router.get("/api/r2-analytics")
+async def r2_analytics(request: Request):
+    """Time-series friendly analytics — admin only (same auth as r2-stats).
+
+    Returns storageHistory (30d), classSeries (daily proxy from monthly counters),
+    and topObjects (largest keys). History is synthesized from current snapshot
+    if tg_meta history is unavailable — still returns current counters by month.
+    """
+    _require_r2_admin(request)
+    if _r2 is None:
+        return {"enabled": False, "reason": "r2_store not available"}
+    cfg = _r2.load_r2_config()
+    if not cfg.enabled:
+        return {"enabled": False, "reason": "R2 not configured"}
+    db = _store.db if _store else None
+    # Current snapshot for synthesis
+    snapshot: dict | None = None
+    if cfg.primary and db is not None:
+        try:
+            stats = await asyncio.to_thread(_r2.bucket_stats, cfg.primary, db=db)
+            snapshot = stats.to_dict()
+        except Exception:
+            pass
+    # Storage history — try tg_meta json array, else synthesize current point
+    storage_history: list[dict] = []
+    try:
+        if db is not None:
+            row = db.execute("SELECT value FROM tg_meta WHERE key='r2_storage_history'").fetchone()
+            if row:
+                import json as _json
+                parsed = _json.loads(row[0])
+                if isinstance(parsed, list):
+                    storage_history = parsed[-30:]
+    except Exception:
+        pass
+    if not storage_history and snapshot:
+        import datetime as _dt
+        today = _dt.date.today().isoformat()
+        storage_history = [{"date": today, "bytesUsed": snapshot.get("bytesUsed", 0), "objects": snapshot.get("objects", 0)}]
+    # Class series: expand monthly counters into daily-ish projection
+    monthly = _monthly_counters(db)
+    # Build classSeries as per-month aggregates (time-series friendly for chart)
+    class_series = [{"month": r["month"], "bucket": r["bucket"], "class": r["class"], "count": r["count"]} for r in monthly]
+    # Top objects
+    top_objects: list[dict] = []
+    try:
+        if db is not None:
+            rows = db.execute("SELECT source_id, r2_key, r2_bucket, bytes FROM tg_r2_media ORDER BY bytes DESC LIMIT 20").fetchall()
+            top_objects = [{"sourceId": r[0], "key": r[1], "bucket": r[2], "bytes": r[3]} for r in rows]
+    except Exception:
+        pass
+    return {
+        "enabled": True,
+        "storageHistory": storage_history,
+        "classSeries": class_series,
+        "monthlyCounters": monthly,
+        "topObjects": top_objects,
+        "snapshot": snapshot,
+        "flags": _r2_flags(db),
+        "thresholds": {"warn90": _r2.WARN_90_PCT, "warn95": _r2.WARN_95_PCT, "autoStop98": _r2.AUTO_STOP_PCT},
+    }
 
 
 @router.get("/api/archive")
@@ -272,8 +567,6 @@ async def archive(request: Request):
     with _store.archive_snapshot() as revision:
         if revision is None:
             raise HTTPException(503, "The archive is waiting for its first import")
-        # The body includes a generated export timestamp; weak validation tracks
-        # the durable archive content rather than promising byte identity forever.
         etag = f'W/"vn-archive-v1-{revision}"'
         headers = {"ETag": etag, "Cache-Control": "public, no-cache"}
         validators = request.headers.get("if-none-match", "").split(",")
@@ -287,69 +580,97 @@ async def media(source_id: int, request: Request):
     if source_id <= 0: raise HTTPException(404, "Media not found")
     if _store is None:
         raise HTTPException(503, "Media connection is recovering", headers={"Retry-After": str(_retry_remaining() or 5)})
-    # ── R2 fast-path: serve durable bytes without touching Telegram ──
-    if _r2 is not None:
+    # ── R2 fast-path: gated by R2_ENABLED — when disabled, fall through to Telegram ──
+    # r2_redirect_url is only for keys already indexed in tg_r2_media — never arbitrary keys (prevents enumeration).
+    # Bucket is private (no public ACL/list); uploads ONLY via server S3 credentials scoped to this bucket.
+    _r2_all_paused = False
+    _r2_origin_paused = False
+    if _r2_enabled():
         try:
-            r2row = _store.r2_row(source_id)  # type: ignore[attr-defined]
+            from server.r2_controls import is_all_paused as _is_all, is_origin_paused as _is_orig
+            if _store is not None:
+                _r2_all_paused = _is_all(_store.db)
+                _r2_origin_paused = _is_orig(_store.db)
         except Exception:
-            r2row = None
-        if r2row and r2row["r2_key"] and r2row["r2_bucket"]:
-            cfg = _r2.load_r2_config()
-            # Locate the account that holds this key
-            acct = None
-            for a in cfg.active_accounts:
-                if a.bucket == r2row["r2_bucket"]:
-                    acct = a
-                    break
-            if acct and _r2 is not None:
-                try:
-                    # Use stored byte count / etag when available; otherwise HEAD the object
-                    r2_size = int(r2row["bytes"]) if r2row["bytes"] else None
-                    r2_etag_val = r2row["etag"]
-                    if r2_size is None:
-                        meta = await asyncio.to_thread(_r2.head_object, acct, r2row["r2_key"])
-                        if meta is None:
-                            raise FileNotFoundError("R2 key missing")
-                        r2_size = int(meta.get("ContentLength", 0))
-                    # Parse Range for R2
-                    r2_etag_hdr = f'"{r2_etag_val}"' if r2_etag_val else None
-                    range_header = request.headers.get("range")
-                    if request.headers.get("if-range") and r2_etag_hdr and request.headers["if-range"] != r2_etag_hdr:
-                        range_header = None
+            pass
+        if _r2_all_paused:
+            log.info("R2 entire blocked via controls — serving post #%s from Telegram (no CDN)", source_id)
+        elif _r2_origin_paused:
+            log.info("R2 origin blocked via controls — post #%s may use CDN 302 only", source_id)
+        if not _r2_all_paused:
+            try:
+                r2row = _store.r2_row(source_id)  # type: ignore[attr-defined]
+            except Exception:
+                r2row = None
+            if r2row and r2row["r2_key"] and r2row["r2_bucket"]:
+                cfg = _r2.load_r2_config()
+                acct = cfg.primary if cfg.primary and cfg.primary.bucket == r2row["r2_bucket"] else None
+                if acct:
                     try:
-                        start, end, partial = parse_range(range_header, r2_size)
-                    except RangeNotSatisfiable:
-                        return Response(status_code=416, headers={"Content-Range": f"bytes */{r2_size}", "Accept-Ranges": "bytes"})
-                    # Content-Type / filename from archive record
-                    try:
-                        rec = __import__("json").loads(r2row and _store.row(source_id) and _store.row(source_id)["record"] or "{}")
-                    except Exception:
-                        rec = {}
-                    mime = (rec.get("media_raw") or {}).get("mime_type")
-                    fname = (rec.get("media_raw") or {}).get("name") or r2row["r2_key"].rsplit("/", 1)[-1]
-                    if partial:
-                        headers = r2_range_headers(r2_size, start, end, mime, fname, r2_etag=r2_etag_hdr)  # type: ignore
-                        status = 206
-                    else:
-                        headers = r2_headers(r2_size, mime, fname, r2_etag=r2_etag_hdr)  # type: ignore
-                        headers["ETag"] = r2_etag_hdr or headers.get("ETag", "")
-                        status = 200
-                    if r2_etag_hdr:
-                        headers["ETag"] = r2_etag_hdr
-                    if request.method == "HEAD":
-                        return Response(status_code=status, headers=headers)
-                    async def r2_body():
-                        async for chunk in r2_stream(acct, r2row["r2_key"], start, end):  # type: ignore
-                            if await request.is_disconnected():
-                                return
-                            yield chunk
-                    return StreamingResponse(r2_body(), status_code=status, headers=headers, media_type=None)
-                except FileNotFoundError:
-                    log.warning("R2 key %s missing for post #%s — falling back to Telegram", r2row["r2_key"], source_id)
-                except Exception as exc:
-                    log.warning("R2 media failed for post #%s (%s) — falling back to Telegram", source_id, exc.__class__.__name__)
-                    # Fall through to Telegram path
-                    pass
+                        # Size/etag come from SQLite — never HEAD (saves Class A/B).
+                        r2_size = int(r2row["bytes"]) if r2row["bytes"] else None
+                        r2_etag_val = r2row["etag"]
+                        if r2_size is None or r2_size == 0:
+                            if _store is not None:
+                                ok_b, _ = _r2.reserve_class_b(_store.db, acct.bucket, 1)  # type: ignore
+                                if not ok_b:
+                                    raise RuntimeError("Class B cap — cannot HEAD R2 object, falling back to Telegram")
+                            meta = await asyncio.to_thread(_r2.head_object, acct, r2row["r2_key"])
+                            if meta is None:
+                                raise FileNotFoundError("R2 key missing")
+                            r2_size = int(meta.get("ContentLength", 0))
+                        r2_etag_hdr = f'"{r2_etag_val}"' if r2_etag_val else None
+                        range_header = request.headers.get("range")
+                        if request.headers.get("if-range") and r2_etag_hdr and request.headers["if-range"] != r2_etag_hdr:
+                            range_header = None
+                        try:
+                            start, end, partial = parse_range(range_header, r2_size)
+                        except RangeNotSatisfiable:
+                            return Response(status_code=416, headers={"Content-Range": f"bytes */{r2_size}", "Accept-Ranges": "bytes"})
+                        try:
+                            rec = __import__("json").loads(_store.row(source_id)["record"] if _store.row(source_id) else "{}")
+                        except Exception:
+                            rec = {}
+                        mime = (rec.get("media_raw") or {}).get("mime_type")
+                        fname = (rec.get("media_raw") or {}).get("name") or r2row["r2_key"].rsplit("/", 1)[-1]
+                        is_range = partial or request.headers.get("range")
+                        if not is_range and acct.public_base and request.method == "GET":
+                            url = r2_redirect_url(acct, r2row["r2_key"])  # type: ignore
+                            if url:
+                                if _store is not None:
+                                    _r2.reserve_class_b(_store.db, acct.bucket, 1)  # type: ignore
+                                return RedirectResponse(url=url, status_code=302, headers={"Cache-Control": "public, max-age=31536000, immutable", "X-Media-Source": "r2-redirect"})
+                        if _store is not None:
+                            ok_b, reason_b = _r2.reserve_class_b(_store.db, acct.bucket, 1)  # type: ignore
+                            if not ok_b:
+                                log.warning("Class B cap for %s — falling back to Telegram for #%s: %s", acct.bucket, source_id, reason_b)
+                                raise RuntimeError(reason_b)
+                        if partial:
+                            headers = r2_range_headers(r2_size, start, end, mime, fname, r2_etag=r2_etag_hdr)  # type: ignore
+                            status = 206
+                        else:
+                            headers = r2_headers(r2_size, mime, fname, r2_etag=r2_etag_hdr)  # type: ignore
+                            if r2_etag_hdr:
+                                headers["ETag"] = r2_etag_hdr
+                            status = 200
+                        if r2_etag_hdr:
+                            headers["ETag"] = r2_etag_hdr
+                        if request.method == "HEAD":
+                            return Response(status_code=status, headers=headers)
+                        async def r2_body():
+                            async for chunk in r2_stream(acct, r2row["r2_key"], start, end):  # type: ignore
+                                if await request.is_disconnected():
+                                    return
+                                yield chunk
+                        return StreamingResponse(r2_body(), status_code=status, headers=headers, media_type=None)
+                    except FileNotFoundError:
+                        log.warning("R2 key %s missing for post #%s — falling back to Telegram", r2row["r2_key"], source_id)
+                    except RuntimeError as exc:
+                        if "Class B" not in str(exc):
+                            log.warning("R2 media failed for post #%s (%s) — falling back to Telegram", source_id, exc.__class__.__name__)
+                    except Exception as exc:
+                        log.warning("R2 media failed for post #%s (%s) — falling back to Telegram", source_id, exc.__class__.__name__)
+                        pass
     if _client is None or _destination is None:
         raise HTTPException(503, "Media connection is recovering", headers={"Retry-After": str(_retry_remaining() or 5)})
     row = _store.row(source_id)
@@ -360,7 +681,6 @@ async def media(source_id: int, request: Request):
         if seconds:
             raise HTTPException(503, "Telegram media is rate limited; retry after the cooldown", headers={"Retry-After": str(seconds), "X-Media-Status": "rate-limited", "Cache-Control": "no-store"})
     check_cooldown()
-    # No arbitrary peer/file requests; the private group and mapping stay server-side.
     try:
         await asyncio.wait_for(_slots.acquire(), timeout=5)
     except asyncio.TimeoutError:
@@ -371,8 +691,6 @@ async def media(source_id: int, request: Request):
             global _client, _destination, _last_error, _reset_session
             check_cooldown()
             client, destination = _client, _destination
-            # Preview images are saved as real attachments separately from the
-            # original post, whose ID must remain stable for replies/quotes.
             media_destination = getattr(_store, "media_destination", None)
             destination_id = media_destination(source_id) if media_destination else row["destination_id"]
             async def lookup(current_client, current_destination):
@@ -390,7 +708,6 @@ async def media(source_id: int, request: Request):
             except Exception as exc:
                 invalid_auth = exc.__class__.__name__ in {"AuthKeyDuplicatedError", "AuthKeyUnregisteredError", "SessionRevokedError", "SessionExpiredError"}
                 if invalid_auth:
-                    # Only invalidate the client that failed, never a newer recovered one.
                     async with _reconnect_lock:
                         if _client is client:
                             await _disconnect(client)
@@ -414,15 +731,10 @@ async def media(source_id: int, request: Request):
         if not message or not message.file or message.file.size is None:
             from telethon.tl.types import MessageMediaWebPage
             if message and isinstance(getattr(message, "media", None), MessageMediaWebPage):
-                # A Telegram link preview can disappear while the saved text
-                # remains. Distinguish this from a broken attached photo/video.
                 raise HTTPException(410, "Telegram no longer provides media for this link preview",
                                     headers={"X-Media-Status": "link-preview-unavailable", "Cache-Control": "no-store"})
             raise HTTPException(404, "Stored media not found")
         _, _, size = media_file_info(message)
-        # If-Range mismatch falls back to the whole representation.
-        # File.id uses an obsolete Bot API packing helper that fails on modern photo sizes.
-        # The native Photo/Document ID is stable and works for both representations.
         native_id = getattr(message.file.media, "id", row["destination_id"])
         etag = f'"tg-{source_id}-{native_id}-{size}"'
         range_header = request.headers.get("range")
@@ -439,8 +751,6 @@ async def media(source_id: int, request: Request):
         async def body():
             async def flood_wait(exc):
                 seconds = _record_media_flood(exc, source_id, "Download")
-                # Short pauses resume this HTTP range. Long pauses end the stream;
-                # later requests receive 503 + Retry-After before contacting Telegram.
                 if seconds > 5:
                     return False
                 while _media_retry_remaining():
@@ -452,8 +762,6 @@ async def media(source_id: int, request: Request):
                 return True
             try:
                 async def refresh():
-                    # An expired file reference or broken sender needs a fresh
-                    # Telegram lookup, even while ordinary requests use metadata.
                     return await fetch(force=True)
                 async for chunk in telegram_chunks(_client, message, start, end, request.is_disconnected, refresh, get_client=lambda: _client, flood_wait=flood_wait):
                     yield chunk

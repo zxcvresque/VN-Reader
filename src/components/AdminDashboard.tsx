@@ -1,51 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
 import type { AdminDashboardData } from "../lib/admin";
-import { fetchR2Stats, type R2StatsResponse } from "../lib/r2Admin";
-
-function formatBytes(n: number): string {
-  if (n >= 1024*1024*1024) return `${(n/1024/1024/1024).toFixed(2)} GB`;
-  if (n >= 1024*1024) return `${(n/1024/1024).toFixed(1)} MB`;
-  if (n >= 1024) return `${(n/1024).toFixed(0)} KB`;
-  return `${n} B`;
-}
-
-function R2Panel() {
-  const [r2,setR2]=useState<R2StatsResponse|null>(null);
-  const [r2Err,setR2Err]=useState("");const [r2Busy,setR2Busy]=useState(true);
-  const load=async()=>{setR2Busy(true);setR2Err("");try{setR2(await fetchR2Stats());}catch(e){setR2Err(e instanceof Error?e.message:String(e));}finally{setR2Busy(false);}};
-  useEffect(()=>{void load();},[]);
-  if (r2Busy) return <p role="status">Checking R2 storage…</p>;
-  if (r2Err) return <><p role="alert" className="admin-error">{r2Err}</p><button type="button" onClick={()=>void load()}>Retry</button></>;
-  if (!r2) return null;
-  if (!r2.enabled) return <div className="admin-count-note" style={{border:"1px dashed var(--border)",padding:"0.75rem",borderRadius:"8px"}}><strong>Media storage (R2):</strong> {r2.reason}<br/><small>Set <code>R2_ENABLED=1</code> and <code>R2_*</code> in <code>server/.env</code>. See <code>server/.env.example</code>.</small></div>;
-  return <section>
-    <div className="admin-section-heading"><h3>Media storage (Cloudflare R2)</h3><button type="button" onClick={()=>void load()}>Refresh</button></div>
-    {r2.accounts?.map(acct=>!acct.configured
-      ? <p key={acct.label} className="admin-count-note"><strong>{acct.label}:</strong> not configured</p>
-      : acct.error
-        ? <p key={acct.label} role="alert" className="admin-error">{acct.label}: {acct.error}</p>
-        : <div key={acct.label} style={{marginBottom:"0.9rem"}}>
-            <div style={{display:"flex",justifyContent:"space-between",fontSize:"0.9rem",marginBottom:"4px"}}>
-              <strong>{acct.label} · {acct.bucket}</strong>
-              <span>{formatBytes(acct.bytesUsed!)} / {formatBytes(acct.quotaBytes!)} · {acct.percentUsed}%</span>
-            </div>
-            <div style={{height:"10px",background:"var(--border)",borderRadius:"999px",overflow:"hidden"}}>
-              <div style={{width:`${Math.min(100,acct.percentUsed!)}%`,height:"100%",background:acct.percentUsed!>=95?"#dc2626":acct.percentUsed!>=90?"#d97706":"var(--accent)",transition:"width 0.4s"}}/>
-            </div>
-            <div style={{display:"flex",gap:"1rem",fontSize:"0.8rem",color:"var(--text-dim)",marginTop:"4px"}}>
-              <span>{(acct.objects??0).toLocaleString()} objects</span>
-              <span>{formatBytes(acct.bytesFree!)} free</span>
-              {acct.publicBase&&<a href={acct.publicBase} target="_blank" rel="noreferrer">{acct.publicBase}</a>}
-            </div>
-            {acct.percentUsed!>=95&&<p role="alert" className="admin-error" style={{marginTop:"6px"}}>⚠ {acct.label} is {acct.percentUsed}% full — high-priority DM has been sent. {acct.label==="primary"?"New uploads will auto-switch to the secondary bucket at 100%.":"Primary is full; all uploads are now here."}</p>}
-            {acct.percentUsed!>=90&&acct.percentUsed!<95&&<p className="admin-count-note" style={{marginTop:"6px"}}>↗ {acct.label} is {acct.percentUsed}% full — you’ll be notified again at 95%.</p>}
-          </div>
-    )}
-    {r2.localR2Rows&&<p className="admin-count-note">Local R2 index: {r2.localR2Rows.objects.toLocaleString()} posts · {formatBytes(r2.localR2Rows.bytes)}</p>}
-    <p className="admin-count-note">Free tier: 10 GB per bucket. Auto-switch to secondary at 100% of primary. Notifications at 90% and 95% (+ owner DM at 95%/full).</p>
-  </section>;
-}
+import R2Dashboard from "./R2Dashboard";
 
 export default function AdminDashboard({onClose}:{onClose:()=>void}) {
   const [data,setData]=useState<AdminDashboardData|null>(null);
@@ -68,7 +24,7 @@ export default function AdminDashboard({onClose}:{onClose:()=>void}) {
       {data.summary.accepted!==undefined&&<p className="admin-count-note">Accepted by email server: {data.summary.accepted} · Failed: {data.summary.failed??0} · Delivery uncertain: {data.summary.uncertain??0}. Uncertain sends retain their slot to avoid exceeding the allowance.</p>}
       <section><div className="admin-section-heading"><h3>Registered readers</h3><span>{data.pagination.totalUsers.toLocaleString()} accounts</span></div><div className="admin-table-scroll" tabIndex={0} aria-label="Registered reader details"><table><thead><tr><th>Email</th><th>Status</th><th>Registered</th><th>Last sign-in</th><th>Sign-ins</th></tr></thead><tbody>{data.users.map(user=><tr key={user.id}><td>{user.email}</td><td><span className={`admin-status ${user.emailVerified?"is-verified":""}`}>{user.emailVerified?"Verified":"Awaiting verification"}</span></td><td>{time(user.createdAt)}</td><td>{time(user.lastSignIn)}</td><td>{user.signInCount}</td></tr>)}</tbody></table>{!data.users.length&&<p>No accounts to show.</p>}</div></section>
       <section><div className="admin-section-heading"><h3>Sign-ins on {data.summary.day}</h3><span>{data.pagination.totalSignIns.toLocaleString()} events</span></div><div className="admin-table-scroll" tabIndex={0} aria-label="Sign-in event details"><table><thead><tr><th>Email</th><th>Time</th><th>Method</th></tr></thead><tbody>{data.signIns.map(event=><tr key={event.id}><td>{event.email}</td><td>{time(event.occurredAt)}</td><td>{event.kind==="verification"?"Email verified":"Password sign-in"}</td></tr>)}</tbody></table>{!data.signIns.length&&<p>No successful sign-ins on this day.</p>}</div></section>
-      <R2Panel/>
+      <R2Dashboard/>
       <nav className="admin-pagination" aria-label="Dashboard pages"><button type="button" onClick={()=>setPage(n=>Math.max(1,n-1))} disabled={page<=1||busy}>Previous</button><span>Page {page} of {pages}</span><button type="button" onClick={()=>setPage(n=>n+1)} disabled={page>=pages||busy}>Next</button></nav>
     </>}
   </div></div>;

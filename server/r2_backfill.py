@@ -1,11 +1,15 @@
-"""Operator CLI: backfill existing Telegram-copied media to R2.
+"""Operator CLI: backfill existing Telegram-copied media to R2 (single bucket).
 
 Usage:
   python -m server.r2_backfill              # all missing
   python -m server.r2_backfill --limit 100  # first 100 missing
   python -m server.r2_backfill --dry-run    # plan without uploading
 
-Requires R2_ENABLED + creds in server/.env; uses VN_DATABASE_PATH.
+Hard caps enforced: storage headroom, Class A reserve (atomic, fail-closed),
+Class B (for the Telegram download path only).  On any cap exception the
+run stops — it never falls back to an uncapped path.
+
+Requires R2_ENABLED + creds; uses VN_DATABASE_PATH or --env-file.
 """
 from __future__ import annotations
 
@@ -14,9 +18,7 @@ import asyncio
 import io
 import json
 import logging
-import os
 import sys
-from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -29,15 +31,14 @@ async def run(limit: int | None = None, dry_run: bool = False) -> dict:
 
     cfg = configuration()
     if not cfg:
-        raise RuntimeError("Missing Telegram configuration in server/.env")
+        raise RuntimeError("Missing Telegram configuration")
 
     r2cfg = r2.load_r2_config()
-    if not r2cfg.enabled:
-        raise RuntimeError("R2 is not configured — set R2_ENABLED=1 and R2_* vars in server/.env")
+    if not r2cfg.enabled or not r2cfg.primary:
+        raise RuntimeError("R2 is not configured — set R2_ENABLED=1 and R2_* in your env file")
 
     store = MirrorStore(cfg["database"])
 
-    # Find copied rows that have media but no R2 row
     all_rows = list(store.db.execute(
         "SELECT source_id, record FROM tg_messages WHERE status='copied' ORDER BY source_id"
     ))
@@ -66,8 +67,6 @@ async def run(limit: int | None = None, dry_run: bool = False) -> dict:
         store.close()
         return {"uploaded": 0, "failed": 0, "skipped": 0}
 
-    # Need telethon clients — reuse the same bot-reader pattern as mirror watch,
-    # but we only need the writer bot to fetch private copies.
     from telethon import TelegramClient
     from server.bot_sessions import create_bot_session
 
@@ -76,13 +75,11 @@ async def run(limit: int | None = None, dry_run: bool = False) -> dict:
     await bot.start(bot_token=cfg["bot_token"])
     dest = await bot.get_input_entity(cfg["destination"])
 
-    uploaded = failed = skipped = 0
+    uploaded = failed = skipped = blocked = 0
     for sid, rec in candidates:
-        # Resolve destination message id for fetch
         row = store.row(sid)
         dest_id = None
         try:
-            # Prefer media copy mapping
             mrow = store.db.execute("SELECT destination_id FROM tg_media_copies WHERE source_id=?", (sid,)).fetchone()
             dest_id = mrow[0] if mrow else (row["destination_id"] if row else None)
         except Exception:
@@ -107,27 +104,36 @@ async def run(limit: int | None = None, dry_run: bool = False) -> dict:
             if not data:
                 skipped += 1
                 continue
-            # Choose account AFTER knowing exact size (storage + Class A caps)
+            # Choose account + check caps — fail-closed; never fallback to primary on error
             try:
                 acct = r2.choose_account_for_write(r2cfg, db=store.db, upcoming_bytes=len(data))
-            except Exception:
-                acct = r2cfg.primary
-            if not acct:
-                print("R2 write capped (storage or Class A) — stopping. Fix caps or wait for next month.")
+            except Exception as exc:
+                print(f"R2 cap check error at #{sid}: {exc} — stopping (fail-closed).")
+                blocked += 1
                 break
-            ct = getattr(file, "mime_type", None)
-            url = await asyncio.to_thread(r2.upload_bytes, acct, key, data, ct)
+            if not acct:
+                print(f"R2 write capped at #{sid} (storage or Class A) — stopping. Remaining {len(candidates)-uploaded-skipped-blocked} skipped.")
+                blocked = len(candidates) - uploaded - skipped - blocked
+                break
+            # Atomic Class A reserve BEFORE the PUT
+            ok_a, reason_a = r2.reserve_class_a(store.db, acct.bucket, 1)
+            if not ok_a:
+                print(f"Class A exhausted at #{sid}: {reason_a} — stopping.")
+                blocked = len(candidates) - uploaded - skipped
+                break
             try:
-                r2.record_class_a(store.db, acct.bucket, 1)
-                r2.invalidate_stats_cache(acct)
-            except Exception:
-                pass
+                ct = getattr(file, "mime_type", None)
+                url = await asyncio.to_thread(r2.upload_bytes, acct, key, data, ct)
+            except Exception as exc:
+                # Reservation already counted — over-count is safe
+                log.warning("Backfill PUT failed for #%s after reservation: %s", sid, exc)
+                failed += 1
+                continue
             store.save_r2_media(sid, key, acct.bucket, url, len(data))
             uploaded += 1
             if uploaded % 25 == 0:
                 print(f"  … {uploaded} uploaded")
         except Exception as exc:
-            # FileReference etc — log and continue
             if exc.__class__.__name__ == "FloodWaitError":
                 wait = int(getattr(exc, "seconds", 10)) + 1
                 print(f"  FloodWait {wait}s at #{sid} — pausing …")
@@ -138,15 +144,15 @@ async def run(limit: int | None = None, dry_run: bool = False) -> dict:
 
     await bot.disconnect()
     store.close()
-    print(f"Done: {uploaded} uploaded, {failed} failed, {skipped} skipped (no media on Telegram)")
-    return {"uploaded": uploaded, "failed": failed, "skipped": skipped, "total": len(candidates)}
+    print(f"Done: {uploaded} uploaded, {failed} failed, {skipped} skipped, {blocked} blocked by caps (total {len(candidates)})")
+    return {"uploaded": uploaded, "failed": failed, "skipped": skipped, "blocked": blocked, "total": len(candidates)}
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Backfill Telegram-copied media to R2")
+    ap = argparse.ArgumentParser(description="Backfill Telegram-copied media to R2 (single bucket)")
     ap.add_argument("--limit", type=int, default=None, help="Max posts to backfill")
     ap.add_argument("--dry-run", action="store_true")
-    ap.add_argument("--env-file", default="server/.env")
+    ap.add_argument("--env-file", default=".env.production")
     args = ap.parse_args()
     load_dotenv(args.env_file)
     logging.basicConfig(level=logging.INFO)

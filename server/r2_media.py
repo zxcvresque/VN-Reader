@@ -43,21 +43,32 @@ def r2_headers(size: int, mime: str | None, name: str | None, *, r2_etag: str | 
 
 def r2_range_headers(size: int, start: int, end: int, mime: str | None, name: str | None, *, r2_etag: str | None = None) -> dict:
     h = r2_headers(end - start + 1, mime, name, r2_etag=r2_etag)  # placeholder
-    # Fix Content-Length / Range for partial
     h["Content-Length"] = str(max(0, end - start + 1))
     h["Content-Range"] = f"bytes {start}-{end}/{size}"
     h["Cache-Control"] = "public, max-age=31536000, immutable"
     return h
 
 
+def r2_redirect_url(account, key: str) -> str | None:
+    """Public URL for edge-cacheable redirect (primary bucket only).
+
+    Only call for keys already indexed in tg_r2_media (authenticated objects);
+    never for arbitrary user-supplied keys — prevents enumeration. Bucket itself
+    is private (no public ACL/list); this URL is edge-cached via the custom
+    domain but the bucket is not publicly listable.
+    """
+    if not account.public_base:
+        return None
+    return f"{account.public_base}/{key}"
+
+
 async def r2_stream(account, key: str, start: int, end: int, chunk_size: int = 256 * 1024):
-    """Yield bytes for [start, end] inclusive via R2 GetObject Range."""
+    """Yield bytes for [start, end] inclusive via R2 GetObject Range. Counts as Class B."""
     import boto3  # noqa: F401  # ensure installed
 
     def _endpoint(a):
         return f"https://{a.account_id}.r2.cloudflarestorage.com"
 
-    # Use Range header download — works with boto3 + R2
     try:
         import boto3 as _boto
         client = _boto.client(
@@ -70,7 +81,6 @@ async def r2_stream(account, key: str, start: int, end: int, chunk_size: int = 2
     except Exception as exc:
         raise RuntimeError(f"R2 client error: {exc}") from exc
 
-    # Single ranged GET is sufficient; for very large ranges stream via iterator
     def _fetch():
         resp = client.get_object(Bucket=account.bucket, Key=key, Range=f"bytes={start}-{end}")
         return resp["Body"].read()

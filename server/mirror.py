@@ -706,7 +706,12 @@ class TelegramWriter:
                 self.store.db.execute("DELETE FROM tg_caption_parts WHERE source_id=? AND part>=?",(message.id,max(1,len(parts))));self.store.db.commit()
     @staticmethod
     async def upload_to_r2(self, message, source_id: int) -> str | None:
-        """Best-effort R2 upload — multilayer hard-cap prevents any billing."""
+        """Best-effort R2 upload — multilayer hard-cap prevents any billing.
+
+        Security: uploads ONLY via server S3 credentials (bot token scoped to
+        private group topic, not arbitrary chat). No public upload endpoint —
+        browser never PUTs to R2; only this server path with DB caps does.
+        """
         try:
             from . import r2_store as r2
         except Exception:
@@ -755,45 +760,88 @@ class TelegramWriter:
             year = "unknown"
         key = r2.r2_key(year, source_id, fname)
 
+        # Check bot pause / auto-stop before Class A reservation
+        try:
+            if r2.is_auto_stopped(self.store.db):
+                log.warning("R2 auto-stopped — upload blocked for #%s", source_id)
+                return None
+            from server.r2_controls import is_write_paused as _is_wp
+            if _is_wp(self.store.db):
+                log.warning("R2 writes paused via controls — upload blocked for #%s", source_id)
+                return None
+        except Exception:
+            pass
+        # Atomic Class A reservation BEFORE the PUT — fail-closed, handles concurrency + crash
+        try:
+            ok_a, reason_a = r2.reserve_class_a(self.store.db, acct.bucket, 1)
+        except Exception as exc:
+            log.error("R2 Class A reserve error for #%s: %s — blocking", source_id, exc)
+            return None
+        if not ok_a:
+            log.warning("R2 Class A blocked for #%s: %s — falling back to Telegram", source_id, reason_a)
+            return None
         try:
             ct = getattr(file, "mime_type", None)
             url = await __import__("asyncio").to_thread(r2.upload_bytes, acct, key, data, ct)
-            # Record Class A (PUT) for monthly cap
-            try:
-                r2.record_class_a(self.store.db, acct.bucket, 1)
-                r2.invalidate_stats_cache(acct)
-            except Exception:
-                pass
-            self.store.save_r2_media(source_id, key, acct.bucket, url, len(data))
-            log.info("R2 uploaded post #%s -> %s (%s bytes)", source_id, key, len(data))
-            # Post-write threshold alerts (90/95/100)
-            try:
-                stats = await __import__("asyncio").to_thread(r2.bucket_stats, acct, force=True)
-                from .r2_store import check_thresholds as _ct
-                state = _ct(stats, "primary" if acct is cfg.primary else "secondary")
-                if state:
-                    from .notifications import notify as _notify
-                    pct = round(stats.percent, 1)
-                    if state.crossed_100:
-                        await _notify("R2 storage full — switched to secondary bucket",
-                                      f"Primary R2 at {pct}% — new uploads now use {acct.bucket}. Add capacity or free space.",
-                                      severity="critical",
-                                      fields={"post": f"#{source_id}", "stage": "R2 auto-switch"})
-                    elif state.crossed_95:
-                        await _notify("R2 storage 95% full",
-                                      f"Primary R2 bucket {acct.bucket} is {pct}% full. Prepare the secondary account.",
-                                      severity="critical",
-                                      fields={"post": f"#{source_id}", "stage": "R2 95% threshold"})
-                    elif state.crossed_90:
-                        await _notify("R2 storage 90% full",
-                                      f"Primary R2 bucket {acct.bucket} is {pct}% full.",
-                                      fields={"post": f"#{source_id}", "stage": "R2 90% threshold"})
-            except Exception:
-                pass
-            return url
         except Exception as exc:
-            log.warning("R2 upload failed for post #%s: %s", source_id, exc)
+            log.warning("R2 PUT failed for #%s after reservation: %s", source_id, exc)
             return None
+        self.store.save_r2_media(source_id, key, acct.bucket, url, len(data))
+        log.info("R2 uploaded post #%s -> %s (%s bytes)", source_id, key, len(data))
+        # Post-write: reuse cached stats for thresholds, then check 98% auto-stop
+        try:
+            stats = await __import__("asyncio").to_thread(r2.bucket_stats, acct, force=False)
+            from .r2_store import check_thresholds as _ct
+            state = _ct(stats, "primary")
+            # Build rich status + keyboard for critical alerts
+            kb = None
+            status_text = None
+            try:
+                from server.r2_controls import format_r2_status_text_with_flags as _fmt, build_r2_keyboard as _kb
+                ca = r2.class_a_used(self.store.db, acct.bucket)
+                cb = r2.class_b_used(self.store.db, acct.bucket)
+                local = self.store.r2_counts()
+                status_text, _ = _fmt(self.store.db, stats, ca, cb, local)
+                kb = _kb(self.store.db)
+            except Exception:
+                pass
+            async def _alert(event, detail, severity, fields, with_kb=False):
+                try:
+                    if with_kb and kb and severity == "critical":
+                        from server.notifications import notify_with_keyboard as _nkb
+                        # include status as detail suffix
+                        d2 = detail + ("\n\n" + status_text if status_text else "")
+                        await _nkb(event, d2, severity=severity, fields=fields, keyboard=kb)
+                    else:
+                        from server.notifications import notify as _notify
+                        await _notify(event, detail, severity=severity, fields=fields)
+                except Exception:
+                    pass
+            pct = round(stats.percent, 1)
+            if state:
+                if state.crossed_100:
+                    await _alert("R2 storage full", f"Primary R2 at {pct}% — uploads now blocked. Add capacity or free space.", "critical", {"post": f"#{source_id}", "stage": "R2 100% threshold"}, with_kb=True)
+                elif state.crossed_95:
+                    await _alert("R2 storage 95% full", f"Primary R2 bucket {acct.bucket} is {pct}% full. Prepare the secondary account.", "critical", {"post": f"#{source_id}", "stage": "R2 95% threshold"}, with_kb=True)
+                elif state.crossed_90:
+                    await _alert("R2 storage 90% full", f"Primary R2 bucket {acct.bucket} is {pct}% full.", "routine", {"post": f"#{source_id}", "stage": "R2 90% threshold"}, with_kb=False)
+            # 98% auto-stop check (any class)
+            try:
+                stopped, reason = r2.auto_stop_if_needed(self.store.db, acct, stats)
+                if stopped:
+                    d = f"R2 auto-stopped at 98% — {reason}. Writes paused; clear via bot controls."
+                    kb2 = kb
+                    try:
+                        from server.r2_controls import build_r2_keyboard as _kb2
+                        kb2 = _kb2(self.store.db)
+                    except Exception:
+                        pass
+                    await _alert("R2 auto-stopped", d, "critical", {"post": f"#{source_id}", "stage": "R2 98% auto-stop"}, with_kb=True)
+            except Exception:
+                pass
+        except Exception:
+            pass
+        return url
 
     @staticmethod
     def mapped_ids(result, random_ids, types):

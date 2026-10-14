@@ -135,6 +135,8 @@ If your VPS uses `.env.production` (as deployed), the stack already points there
 ```sh
 # Point Compose at your actual env file (this repo uses .env.production)
 dc() { docker compose --env-file .env.production -f compose.yaml -f deploy/compose.tunnel.yaml "$@"; }
+# After editing .env.production, recreate so containers see new env:
+# dc up -d --force-recreate archive mirror web   (restart alone does NOT reload env)
 
 # --- one-time secrets ---
 # Put Cloudflare tunnel token in deploy/secrets/cloudflare-tunnel-token (600 perms)
@@ -180,6 +182,27 @@ dc up -d --force-recreate archive mirror
 
 ---
 
-## 8) Cost note (updated)
+## 8) Hard-cap guarantees (single bucket)
 
-Per Cloudflare account: **10 GB + 1M Class A + 10M Class B per month** free; beyond that `$0.015/GB-mo` and `$4.50/M` Class A (egress still free). With primary public + secondary private, 20 GB total stays free. Hard caps above keep the free tier from billing — if you outgrow 20 GB, create a third account or enable paid overage deliberately.
+Every write is fail-closed. Any `List`/DB error, unknown capacity, counter failure, concurrent race, or crash between reserve and PUT => write blocked. Counter uses `BEGIN IMMEDIATE` so concurrent writers serialize. List pages + PUTs each atomically reserve 1 Class A before the request. No forced `List` after uploads (TTL 5 min, never `force=True`). Primary non-Range `GET`s are 302-redirected to `media.vidurneeti.xyz` so they hit CF edge cache, not Class B. R2 media path checks `R2_ENABLED`; disable => all reads fall back to Telegram. Kill switches (`R2_ENABLED`, `R2_DISABLE_WRITES`) require `up -d --force-recreate`.
+
+Billing note: Cloudflare bills **GB-month average**, not instantaneous — our 10 GiB instantaneous cap is conservative. Backend still retries R2 → Telegram on Class B cap or failure.
+
+## 9) 98% auto-stop + bot DM controls
+
+* **Auto-stop (98% any class):** when storage, Class A **or** Class B reaches **98%**, `r2_store.auto_stop_if_needed()` sets a persistent SQLite flag `r2_auto_stopped=1` (+ reason) in `tg_r2_controls`. Subsequent writes are blocked via `_check_limits`; if the trigger was Class B, reads also fall back to Telegram. On trigger the owner receives a **critical** DM + Logs message with a rich HTML status block and an **inline keyboard**. Clear with **Clear Auto-Stop** (or `r2_store.clear_auto_stop(db)`).
+* **Bot controls (Telethon CallbackQuery):** the archive bot registers a `CallbackQuery(pattern=r"^r2_")` handler (owner-only; others get “Not authorized”). Inline keyboard rows: `[Pause Writes | Pause Reads]`, `[Pause All | Resume]`, `[Refresh Stats]` (+ `[Clear Auto-Stop]` when auto-stopped). Flags live in `tg_r2_controls` (`r2_pause_writes`, `r2_pause_reads`, `r2_pause_all`, `r2_auto_stopped`). `is_write_paused` / `is_read_paused` are checked in `r2_store._check_limits` and `telegram.media`. HTTP fallback: `POST /api/r2-control` (Bearer `TELEGRAM_BOT_TOKEN` or `x-vn-internal`) with `{"action":"r2_pause_writes"}` etc.; returns updated `text` + `keyboard`.
+* **Rich status:** `r2_controls.format_r2_status_text_with_flags(db, stats, classA, classB, local)` emits HTML with exact bytes + GiB, percents for storage / Class A (count/1M %) / Class B (count/10M %), local index count, plus active flags. Used in 90/95/98/100 alerts — critical alerts include the keyboard so the owner can pause/resume without SSH.
+* **Logs + owner on 98%:** `mirror.TelegramWriter.upload_to_r2` calls `auto_stop_if_needed` after each successful PUT with fresh stats. When it returns `stopped=True`, a `notify_with_keyboard(..., keyboard=build_r2_keyboard(db))` is sent (critical, Logs topic + owner DM).
+
+## 10) Secure R2 — private bucket, no public URL misuse
+
+* **Bucket is private:** no public ACL, not listable, no public bucket URL. Objects are reachable only via the **custom domain** (`media.vidurneeti.xyz`) which is edge-cached, and via the **server's S3 credentials** (Object Read&Write scoped to that bucket only — never Admin). `r2_store.warn_if_public_base_missing()` logs if `R2_PUBLIC_BASE_URL` is empty.
+* **Token scope:** Cloudflare dashboard → **R2 → Manage R2 API Tokens → Create API Token → Custom** → scope **Object Read & Write** on **that bucket only**. Never use Admin. Rotate if leaked.
+* **Firewall guidance:** if using Cloudflare Access/WAF, restrict the bucket's token to the VPS IP; do not expose `*.r2.dev` or public bucket listing.
+* **Reads are gated by the index:** `GET /api/media/:id` looks up `tg_r2_media` first; `r2_redirect_url` is only returned for keys already indexed there. Arbitrary keys cannot be enumerated. Missing rows fall back to Telegram.
+* **No client-side direct R2 writes:** browser never PUTs to R2; only `mirror.TelegramWriter.upload_to_r2` (server, with DB caps) does.
+
+## 11) Cost note
+
+Per Cloudflare account: **10 GB + 1M Class A + 10M Class B per month** free; beyond that `$0.015/GB-mo` and `$4.50/M` Class A (egress still free). Single bucket = 10 GiB free; second account/sharding will be wired later if needed.
