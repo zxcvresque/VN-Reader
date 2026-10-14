@@ -74,7 +74,12 @@ export async function createAccountApp(settings=accountSettings(),sendEmail) {
   return {app,accounts};
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
-  loadEnv({path:process.env.VN_ENV_FILE??"server/.env",quiet:true});
+  loadEnv({path:process.env.VN_ENV_FILE??".env.production",quiet:true});
+  // VPS uses .env.production in repo root; honor it if VN_ENV_FILE was not set
+  if(!process.env.TELEGRAM_BOT_TOKEN){
+    const _alt=process.env.VN_ENV_FILE;
+    if(!_alt) loadEnv({path:".env.production",quiet:true});
+  }
   const settings=accountSettings();
   const bootNotify=createNotifier(settings);
   try {

@@ -130,20 +130,21 @@ Streams from the private group via the bot; respects `FloodWait`; skips rows alr
 
 ## 7) VPS commands — vidurneeti.xyz deploy
 
-Assume `deploy/` Compose stack from `deploy/README.md`. `dc` loads that same root `.env` for the Compose stack:
+If your VPS uses `.env.production` (as deployed), the stack already points there — keep using it. Local dev can use `.env.production` or `.env`.
 
 ```sh
-dc() { docker compose --env-file .env -f compose.yaml -f deploy/compose.tunnel.yaml "$@"; }
+# Point Compose at your actual env file (this repo uses .env.production)
+dc() { docker compose --env-file .env.production -f compose.yaml -f deploy/compose.tunnel.yaml "$@"; }
 
 # --- one-time secrets ---
 # Put Cloudflare tunnel token in deploy/secrets/cloudflare-tunnel-token (600 perms)
-# Put R2 creds in .env on the VPS (600 perms), NOT in git.
+# Put R2 creds in .env.production on the VPS (600 perms), NOT in git.
 
 # Validate configuration without printing secrets
 dc config --quiet
 
 # --- deploy / restart ---
-# After editing .env on the VPS, rebuild the python image + restart
+# After editing .env.production on the VPS, rebuild the python image + restart
 dc build archive mirror web        # or: docker compose build archive mirror web
 dc up -d archive mirror web
 dc logs -f archive                 # check: "Telegram media connection ready"
@@ -166,13 +167,15 @@ dc run --rm --no-deps mirror python -u -m server.r2_backfill
 # rerun with --limit 200 in batches if you prefer
 
 # --- emergency pause (no billing) ---
-# On VPS .env:
+# On VPS .env.production:
 # R2_DISABLE_WRITES=1
 dc up -d --force-recreate archive mirror
 # Writes stop; reads still served from R2 + Telegram.
 
 # --- local dev ---
-# Same .env vars; Vite proxies /api/media → :8000 (R2-aware) and /api/admin/r2-stats → :3005
+# Same .env.production vars; Vite proxies /api/media → :8000 (R2-aware) and /api/admin/r2-stats → :3005
+# Run uvicorn with: .venv/bin/uvicorn server.app:app --env-file .env.production --host 127.0.0.1 --port 8000
+# (or set VN_ENV_FILE=.env.production and just: pnpm dev)
 ```
 
 ---
