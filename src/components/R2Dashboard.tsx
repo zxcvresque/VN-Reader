@@ -48,7 +48,7 @@ export default function R2Dashboard(){
   if(err) return <><p role="alert" className="admin-error">{err}</p><button type="button" onClick={()=>void load()}>Retry</button></>;
   if(!stats) return null;
   if(!stats.enabled) return <div className="admin-count-note" style={{border:"1px dashed var(--border)",padding:"0.75rem",borderRadius:8}}>
-    <strong>Media storage (R2):</strong> {stats.reason}<br/><small>Set <code>R2_ENABLED=1</code> and <code>R2_*</code> in <code>server/.env</code>.</small></div>;
+    <strong>Media storage (R2):</strong> {stats.reason}<br/><small>Set <code>R2_ENABLED=1</code> and <code>R2_*</code> in <code>.env.production</code>, then rebuild the archive and mirror services.</small></div>;
 
   const acct=stats.accounts?.[0];
   const flags=stats.flags;

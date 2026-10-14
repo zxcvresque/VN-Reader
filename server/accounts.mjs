@@ -20,6 +20,7 @@ export function accountSettings(env=process.env) {
     smtpPassword:env.VN_SMTP_PASSWORD, smtpFrom:env.VN_SMTP_FROM, smtpSSL:env.VN_SMTP_SSL==="true",
     adminEmails:(env.VN_ADMIN_EMAILS??"").split(",").map(s=>s.trim().toLowerCase()).filter(Boolean),
     emailDailyLimit:Number(env.VN_EMAIL_DAILY_LIMIT??300),emailQuotaTimezone:env.VN_EMAIL_QUOTA_TIMEZONE??"UTC",
+    archiveURL:env.VN_ARCHIVE_URL??"http://127.0.0.1:8000",
     archiveEnabled:env.VN_ARCHIVE_ENABLED!==undefined?env.VN_ARCHIVE_ENABLED==="true":!!(env.TELEGRAM_SOURCE&&env.TELEGRAM_DESTINATION&&env.TELEGRAM_BOT_TOKEN),
     port:Number(env.VN_ACCOUNT_PORT??3005), host:env.VN_ACCOUNT_HOST??"127.0.0.1" };
 }

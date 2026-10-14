@@ -42,6 +42,9 @@ class TelegramConnection:
             raise OSError("simulated private constructor failure: do-not-publish")
 
         class Client:
+            def on(self, builder):
+                return lambda handler: handler
+
             async def start(self, **kwargs):
                 connection.attempts += 1
                 connection.started.set()
@@ -149,7 +152,22 @@ class ArchiveStartupTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(health.status_code, 200)
         self.assertTrue(health.json()["archiveReady"])
         self.assertTrue(health.json()["mediaReady"])
+        self.assertTrue(health.json()["botControlsReady"])
         self.assertIsNone(health.json()["error"])
+
+    async def test_bot_controls_register_after_failed_startup_and_client_replacement(self):
+        self.connection.failures = 1
+        with patch.object(telegram, "_register_r2_controls") as register:
+            await telegram.start_telegram()
+            register.assert_not_called()
+            await self.eventually(telegram.archive_enabled)
+            first_client = telegram._client
+            register.assert_called_once_with(first_client)
+            self.connection.connected = False
+            self.assertTrue(await telegram._connect_client())
+            self.assertIsNot(telegram._client, first_client)
+            self.assertEqual(register.call_count, 2)
+            self.assertIs(register.call_args.args[0], telegram._client)
 
     async def test_duplicate_auth_key_gets_fresh_process_session_on_retry(self):
         from telethon.errors import AuthKeyDuplicatedError

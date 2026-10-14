@@ -15,7 +15,8 @@ from .media_lookup import MediaLookupCache
 try:
     from . import r2_store as _r2  # optional — degrade gracefully if boto absent
     from .r2_media import r2_headers, r2_range_headers, r2_stream, r2_redirect_url
-except Exception:  # pragma: no cover
+except Exception as exc:  # pragma: no cover
+    logging.getLogger(__name__).warning("R2 modules could not load (%s); media will use Telegram", exc.__class__.__name__)
     _r2 = None  # type: ignore
     r2_headers = r2_range_headers = r2_stream = r2_redirect_url = None  # type: ignore
 
@@ -85,6 +86,7 @@ def archive_status():
     media_ready = bool(archive_enabled())
     return {"status": "ok" if archive_ready and media_ready else "degraded" if archive_ready else "unavailable",
             "archiveEnabled": _store is not None, "archiveReady": archive_ready,
+            "botControlsReady": media_ready and bool(getattr(_client, "_vn_r2_controls_registered", False)),
             "mediaReady": media_ready, "error": _last_error,
             "retryAfter": _retry_remaining()}
 
@@ -152,6 +154,7 @@ async def _connect_client():
         _pending_client = None
         _retry_not_before = 0.0
         _client, _destination, _last_error = client, destination, None
+        _register_r2_controls(client)
         log.info("Telegram media connection ready")
         asyncio.create_task(notify("Archive connection recovered" if recovered else "Archive service started"))
         return True
@@ -173,16 +176,35 @@ async def _supervise():
         delay = _RETRY_DELAY if ready else min(60, delay * 2)
 
 
+async def _r2_bucket_stats(account):
+    """Probe R2 off the event loop with a separate connection for usage accounting."""
+    database_path = _store.db.execute("PRAGMA database_list").fetchone()[2] if _store else ""
+
+    def probe():
+        if not database_path:
+            return _r2.bucket_stats(account)
+        import sqlite3
+        db = sqlite3.connect(database_path, timeout=30)
+        try:
+            return _r2.bucket_stats(account, db=db)
+        finally:
+            db.close()
+
+    return await asyncio.to_thread(probe)
+
+
 async def _r2_status_bundle():
     """Gather stats + build (text, parse_mode, keyboard) for bot replies. Reuses r2_controls formatters."""
     from server.r2_controls import format_r2_status_text_with_flags, build_r2_keyboard
     cfg = _r2.load_r2_config() if _r2 else None
+    if not cfg or not cfg.enabled:
+        return "<b>R2 unavailable</b>\nR2 is disabled or not configured. Check the archive image and R2 settings in .env.production.", "HTML", {"inline_keyboard": []}
     stats = None
     ca = cb = 0
     local = None
     if cfg and cfg.primary:
         try:
-            stats = await asyncio.to_thread(_r2.bucket_stats, cfg.primary, db=_store.db)  # type: ignore[union-attr]
+            stats = await _r2_bucket_stats(cfg.primary)
         except Exception:
             from server.r2_store import BucketStats as _BS
             stats = _BS(bucket=cfg.primary.bucket, account_id=cfg.primary.account_id, objects=0, bytes_used=0)
@@ -201,17 +223,19 @@ async def _r2_status_bundle():
 
 def _register_r2_controls(client):
     """Register Telethon handlers for R2 controls (owner-only): /start, /r2stats, + callbacks."""
+    if getattr(client, "_vn_r2_controls_registered", False):
+        return
     try:
         from telethon import events
-        from server.r2_controls import handle_r2_callback, format_r2_status_text_with_flags, build_r2_keyboard
-        @client.on(events.NewMessage(pattern=r"^/start(\b|@)", func=lambda e: getattr(e, "is_private", False)))
+        from server.r2_controls import handle_r2_callback
+        @client.on(events.NewMessage(incoming=True, pattern=r"^/start(\b|@)", func=lambda e: getattr(e, "is_private", False)))
         async def _on_r2_start(event):
             try:
                 owner = int(os.getenv("TELEGRAM_OWNER_ID", "0") or 0)
             except Exception:
                 owner = 0
             sender = getattr(event, "sender_id", None) or getattr(getattr(event, "sender", None), "id", 0)
-            if owner and int(sender or 0) != owner:
+            if not owner or int(sender or 0) != owner:
                 return
             try:
                 text, mode, kb = await _r2_status_bundle()
@@ -219,14 +243,14 @@ def _register_r2_controls(client):
             except Exception as exc:
                 log.warning("R2 /start reply failed: %s", exc)
 
-        @client.on(events.NewMessage(pattern=r"^/r2stats(\b|@)", func=lambda e: getattr(e, "is_private", False)))
+        @client.on(events.NewMessage(incoming=True, pattern=r"^/r2stats(\b|@)", func=lambda e: getattr(e, "is_private", False)))
         async def _on_r2stats(event):
             try:
                 owner = int(os.getenv("TELEGRAM_OWNER_ID", "0") or 0)
             except Exception:
                 owner = 0
             sender = getattr(event, "sender_id", None) or getattr(getattr(event, "sender", None), "id", 0)
-            if owner and int(sender or 0) != owner:
+            if not owner or int(sender or 0) != owner:
                 return
             try:
                 text, mode, kb = await _r2_status_bundle()
@@ -248,29 +272,12 @@ def _register_r2_controls(client):
             await event.answer(action)
             if should_refresh:
                 try:
-                    cfg = _r2.load_r2_config() if _r2 else None
-                    stats = None
-                    ca = cb = 0
-                    local = None
-                    if cfg and cfg.primary:
-                        try:
-                            stats = await asyncio.to_thread(_r2.bucket_stats, cfg.primary, db=_store.db)
-                        except Exception:
-                            # fallback dummy stats
-                            from server.r2_store import BucketStats as _BS
-                            stats = _BS(bucket=cfg.primary.bucket, account_id=cfg.primary.account_id, objects=0, bytes_used=0)
-                        try: ca = _r2.class_a_used(_store.db, cfg.primary.bucket)
-                        except Exception: pass
-                        try: cb = _r2.class_b_used(_store.db, cfg.primary.bucket)
-                        except Exception: pass
-                        try: local = _store.r2_counts()
-                        except Exception: pass
-                    text, mode = format_r2_status_text_with_flags(_store.db, stats, ca, cb, local)
-                    kb = build_r2_keyboard(_store.db)
+                    text, mode, kb = await _r2_status_bundle()
                     await event.edit(text, parse_mode="html", buttons=_kb_to_telethon(kb))
                 except Exception as exc:
                     log.warning("R2 callback edit failed: %s", exc)
-        log.info("R2 controls callback handler registered")
+        client._vn_r2_controls_registered = True
+        log.info("R2 controls command and callback handlers registered")
     except Exception as exc:
         log.warning("R2 controls handler not registered: %s", exc)
 
@@ -315,12 +322,6 @@ async def start_telegram():
         await notify("Archive startup failed", _last_error, severity="critical")
         raise
     await _connect_client()
-    # Register R2 controls callback handler on the bot client (archive streamer bot)
-    if _r2_enabled() and _client is not None:
-        try:
-            _register_r2_controls(_client)
-        except Exception as exc:
-            log.warning("R2 controls registration failed: %s", exc)
     _recovery_task = asyncio.create_task(_supervise())
 
 
@@ -378,7 +379,7 @@ async def r2_control(request: Request):
         if _r2:
             cfg = _r2.load_r2_config()
             if cfg.primary:
-                try: stats = await asyncio.to_thread(_r2.bucket_stats, cfg.primary, db=_store.db)
+                try: stats = await _r2_bucket_stats(cfg.primary)
                 except Exception:
                     from server.r2_store import BucketStats as _BS
                     stats = _BS(bucket=cfg.primary.bucket, account_id=cfg.primary.account_id, objects=0, bytes_used=0)
@@ -412,10 +413,10 @@ def _r2_flags(db) -> dict:
     if db is None:
         return {"pausedWrites": False, "pausedReads": False, "autoStopped": False, "autoReason": ""}
     try:
-        from server.r2_controls import get_control as _gc, is_paused as _ip
+        from server.r2_controls import get_control as _gc, is_paused as _ip, is_origin_paused
         return {
             "pausedWrites": bool(_ip(db, "r2_pause_writes") or _ip(db, "r2_pause_all") or _ip(db, "r2_auto_stopped")),
-            "pausedReads": bool(_ip(db, "r2_pause_reads") or _ip(db, "r2_pause_all")),
+            "pausedReads": is_origin_paused(db),
             "autoStopped": bool(_ip(db, "r2_auto_stopped")),
             "autoReason": _gc(db, "r2_auto_stopped_reason") or "",
         }
@@ -461,9 +462,9 @@ async def r2_stats(request: Request):
             out["accounts"].append({"label": label, "configured": False})
             continue
         try:
-            stats = await asyncio.to_thread(_r2.bucket_stats, acct, db=db)
+            stats = await _r2_bucket_stats(acct)
             d: dict = {**stats.to_dict(), "publicBase": acct.public_base or f"https://{acct.bucket}.r2.dev", "configured": True}
-            # Class counters
+            # Class counters — read in main thread (SQLite) to avoid cross-thread error
             if db is not None:
                 try:
                     d["classAUsed"] = _r2.class_a_used(db, acct.bucket)
@@ -478,7 +479,6 @@ async def r2_stats(request: Request):
             else:
                 d["classAUsed"] = d["classBUsed"] = 0
                 d["classApct"] = d["classBpct"] = 0
-            # Per-account flags snapshot (single bucket: same as top-level)
             d["flags"] = dict(flags_top)
             out["accounts"].append({"label": label, **d})
         except Exception as exc:
@@ -514,9 +514,9 @@ async def r2_analytics(request: Request):
     db = _store.db if _store else None
     # Current snapshot for synthesis
     snapshot: dict | None = None
-    if cfg.primary and db is not None:
+    if cfg.primary:
         try:
-            stats = await asyncio.to_thread(_r2.bucket_stats, cfg.primary, db=db)
+            stats = await _r2_bucket_stats(cfg.primary)
             snapshot = stats.to_dict()
         except Exception:
             pass
