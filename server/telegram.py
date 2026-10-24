@@ -567,7 +567,9 @@ async def archive(request: Request):
     with _store.archive_snapshot() as revision:
         if revision is None:
             raise HTTPException(503, "The archive is waiting for its first import")
-        etag = f'W/"vn-archive-v1-{revision}"'
+        # Invalidate cached exports containing raw R2 keys instead of media URLs,
+        # even when the database revision has not changed since deployment.
+        etag = f'W/"vn-archive-v2-{revision}"'
         headers = {"ETag": etag, "Cache-Control": "public, no-cache"}
         validators = request.headers.get("if-none-match", "").split(",")
         if any(value.strip() == "*" or value.strip().removeprefix("W/") == etag.removeprefix("W/") for value in validators):

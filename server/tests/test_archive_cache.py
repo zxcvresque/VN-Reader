@@ -13,6 +13,7 @@ import httpx
 from server import telegram
 from server.app import app
 from server.mirror import MirrorStore
+from server.r2_store import R2Account, R2Config
 
 
 SOURCE = {"chat_id": -10055, "chat_username": "example", "chat_title": "Example"}
@@ -43,7 +44,7 @@ class ArchiveCacheTests(unittest.IsolatedAsyncioTestCase):
     async def test_unchanged_archive_returns_empty_304_without_reading_messages(self):
         first = await self.get()
         self.assertEqual(first.status_code, 200)
-        self.assertTrue(first.headers["etag"].startswith('W/"vn-archive-v1-'))
+        self.assertTrue(first.headers["etag"].startswith('W/"vn-archive-v2-'))
         self.assertEqual(first.headers["cache-control"], "public, no-cache")
         with patch.object(self.store, "archive", side_effect=AssertionError("full archive read")), \
                 patch.object(self.store, "archive_json", side_effect=AssertionError("serialization")):
@@ -58,6 +59,86 @@ class ArchiveCacheTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.get(f'"other", {etag.removeprefix("W/")}')).status_code, 304)
         self.assertEqual((await self.get("*")).status_code, 304)
         self.assertEqual((await self.get('W/"different"')).status_code, 200)
+
+    async def test_pre_fix_validator_refreshes_cached_r2_paths_without_database_changes(self):
+        current = await self.get()
+        legacy_etag = current.headers["etag"].replace("vn-archive-v2-", "vn-archive-v1-")
+        response = await self.get(legacy_etag)
+        self.assertEqual(response.status_code, 200)
+        self.assertNotEqual(response.headers["etag"], legacy_etag)
+
+    async def test_migrated_media_uses_reader_endpoint_with_correct_r2_metadata(self):
+        photo = message()
+        photo.file = SimpleNamespace(mime_type="image/jpeg", name=None, size=74330)
+        photo.photo = object()
+        self.store.complete([100], [photo], SOURCE, advance=False)
+        baseline = await self.get()
+        key = "2022/10/media-10"
+        for url in (f"https://media.example.com/{key}", f"r2://test-bucket/{key}"):
+            with self.subTest(url=url):
+                self.store.save_r2_media(10, key, "test-bucket", url, 74330)
+                response = await self.get(baseline.headers["etag"])
+                self.assertEqual(response.status_code, 200)
+                post = response.json()["messages"][0]
+                self.assertEqual(post["media_path"], "/api/media/10")
+                self.assertTrue(post["media_present"])
+                self.assertEqual(post["media_kind"], "photo")
+                self.assertEqual(post["media_origin"], "r2")
+                self.assertEqual(post["r2_key"], key)
+                self.assertEqual(post["r2_bucket"], "test-bucket")
+                self.assertEqual(post["r2_telegram_fallback"], "/api/media/10")
+                self.assertEqual(json.loads(self.store.row(10)["record"])["media_origin"], "attachment")
+                baseline = response
+        self.store.delete_r2_media(10)
+        removed = await self.get(baseline.headers["etag"])
+        self.assertEqual(removed.status_code, 200)
+        post = removed.json()["messages"][0]
+        self.assertEqual(post["media_path"], "/api/media/10")
+        self.assertEqual(post["media_origin"], "attachment")
+        self.assertNotIn("r2_key", post)
+
+    async def test_exported_r2_path_delivers_public_and_private_media_without_telegram(self):
+        photo = message()
+        data = b"photo contents"
+        photo.file = SimpleNamespace(mime_type="image/jpeg", name=None, size=len(data))
+        photo.photo = object()
+        self.store.complete([100], [photo], SOURCE, advance=False)
+        key = "2022/10/media-10"
+        reads = []
+
+        async def stream(account, object_key, start, end):
+            reads.append((object_key, start, end))
+            yield data[start:end + 1]
+
+        for base in ("https://media.example.com", ""):
+            with self.subTest(public_base=base):
+                account = R2Account("test-account", "test-key", "test-secret", "test-bucket", base)
+                self.store.save_r2_media(10, key, account.bucket, f"{base}/{key}" if base else f"r2://{account.bucket}/{key}", len(data))
+                url = (await self.get()).json()["messages"][0]["media_path"]
+                with patch.object(telegram, "_client", None), patch.object(telegram, "_destination", None), \
+                        patch.object(telegram._r2, "load_r2_config", return_value=R2Config(account, None, enabled=True)), \
+                        patch.object(telegram._r2, "head_object", side_effect=AssertionError("unnecessary R2 HEAD")), \
+                        patch.object(telegram, "r2_stream", stream):
+                    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+                        head = await client.head(url)
+                        self.assertEqual(head.status_code, 200)
+                        self.assertEqual(head.headers["content-type"], "image/jpeg")
+                        self.assertEqual(head.headers["x-media-source"], "r2")
+                        self.assertEqual(int(head.headers["content-length"]), len(data))
+                        full = await client.get(url)
+                        if base:
+                            self.assertEqual(full.status_code, 302)
+                            self.assertEqual(full.headers["location"], f"{base}/{key}")
+                            self.assertEqual(reads, [])
+                        else:
+                            self.assertEqual(full.status_code, 200)
+                            self.assertEqual(full.content, data)
+                        ranged = await client.get(url, headers={"Range": "bytes=1-3"})
+                        self.assertEqual(ranged.status_code, 206)
+                        self.assertEqual(ranged.content, data[1:4])
+                        self.assertEqual(ranged.headers["content-range"], f"bytes 1-3/{len(data)}")
+                        self.assertEqual(reads[-1], (key, 1, 3))
+                reads.clear()
 
     async def test_serialized_payload_is_reused_for_other_readers(self):
         with patch.object(self.store, "archive", wraps=self.store.archive) as build:

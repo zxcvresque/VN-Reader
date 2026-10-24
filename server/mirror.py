@@ -280,25 +280,25 @@ class MirrorStore:
             self._archive_payload_cache = (revision, body)
         return self._archive_payload_cache[1]
     def _attach_r2(self, messages: list[dict]) -> None:
-        """Overlay durable R2 URLs over media_path for messages that have been migrated."""
+        """Attach R2 metadata while keeping media on the reader's delivery route."""
         if not messages:
             return
         ids = [m.get("message_id") for m in messages if m.get("message_id")]
         if not ids:
             return
         placeholders = ",".join("?" for _ in ids)
-        rows = {r[0]: r for r in self.db.execute(f"SELECT source_id,r2_url,r2_key,r2_bucket FROM tg_r2_media WHERE source_id IN ({placeholders})", ids)}
+        rows = {r["source_id"]: r for r in self.db.execute(f"SELECT source_id,r2_key,r2_bucket FROM tg_r2_media WHERE source_id IN ({placeholders})", ids)}
         for m in messages:
             mid = m.get("message_id")
             r = rows.get(mid)
-            if r and r[2]:  # r2_url present
-                # Keep original Telegram fallback in r2_telegram_fallback so reader
-                # can degrade gracefully if R2 is temporarily unavailable.
+            if r and r["r2_key"]:
                 if m.get("media_path"):
                     m["r2_telegram_fallback"] = m["media_path"]
-                m["media_path"] = r[2]  # r2_url is col index 2
-                m["r2_key"] = r[1]
-                m["r2_bucket"] = r[3]
+                # The route redirects public objects to R2's CDN and streams private
+                # objects/ranges, while preserving pause controls and Telegram fallback.
+                m["media_path"] = f"/api/media/{mid}"
+                m["r2_key"] = r["r2_key"]
+                m["r2_bucket"] = r["r2_bucket"]
                 m["media_origin"] = "r2"
 
     def archive(self):
