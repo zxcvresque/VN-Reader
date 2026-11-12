@@ -373,3 +373,12 @@ html:has(.vg[data-mode="light"]), html:has(.vg[data-mode="light"]) body { backgr
 .vf-update .vg-input { margin-top: 6px; }
 .vf-update .vg-btn, .vf-update .vg-chip { flex-shrink: 0; }
 @media (max-width: 520px) { .vf-update { flex-direction: column; align-items: stretch; } }
+
+/* Statistics: sectioned layout */
+.va-grid.cols-overview { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); align-items: start; }
+@media (max-width: 1100px) { .va-grid.cols-overview { grid-template-columns: 1fr; } }
+.vg-chip[aria-pressed="true"] { background: var(--vg-text); color: var(--vg-bg); border-color: transparent; }
+.vq-rest { border-radius: calc(var(--vg-radius) * .8); padding: 4px 16px; }
+.vq-rest summary { cursor: pointer; padding: 10px 0; font-size: .9rem; font-weight: 600; color: var(--vg-muted); }
+.vq-rest[open] summary { color: var(--vg-text); }
+.vq-rest .va-note { padding: 8px 0 10px; }
