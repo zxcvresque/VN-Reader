@@ -51,7 +51,7 @@ test('welcome offers guest and sign in, and every theme uses the same selector',
       assert.equal(root.root.findAllByProps({role:'listbox'}).length,0);
     }
     assert.deepEqual(calls, ['guest', 'signin', ...preferences.THEMES.map(t => t.id)]);
-    assert.equal(root.root.findAllByType('h1')[0].children.filter(t => typeof t === 'string').join(''), 'Eyes on whatis unseen.');
+    assert.equal(root.root.findAllByType('h1')[0].children.filter(t => typeof t === 'string').join(''), 'Vidura’s counsel,the Geeta’s path.');
     assert.ok(!JSON.stringify(root.toJSON()).includes('Import archive'));
   } finally { if (root) act(() => root.unmount()); env.restore(); }
 });

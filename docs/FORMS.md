@@ -6,7 +6,7 @@ Everything here runs inside the existing `accounts` service and its SQLite datab
 
 | Address | What it is |
 |---|---|
-| `/` | Home: a short introduction, then two paths, VN Reader and Ground Work |
+| `/` | Home: a short introduction (Vidura and the Geeta), then two paths, VN Reader and Ground Work |
 | `/f/<form>` | A public form. Ground Work is `/f/groundwork` |
 | `/go/<code>` | A custom share link (tracks where responses come from, can prefill answers) |
 | `/admin` | The admin console. Separate from the reader; liquid glass by default |

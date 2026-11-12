@@ -95,8 +95,8 @@ export default function WelcomePage({ theme, onThemeChange, onGuest, onSignIn, o
       <main>
         <section className="welcome-intro" aria-labelledby="welcome-title">
           <span className="welcome-product-name">VidurNeeti</span>
-          <h1 id="welcome-title">Eyes on what<br />is unseen.</h1>
-          <p>Commentary on India’s politics, economy and dharma, and a community that shows up for each other.</p>
+          <h1 id="welcome-title">Vidura’s counsel,<br />the Geeta’s path.</h1>
+          <p>Rooted in Vidura of the Mahabharata and the path of the Shrimad Bhagavad Geeta. Clear-eyed commentary on India, and a community that shows up for each other.</p>
         </section>
         <section className="welcome-paths" aria-label="Choose where to go">
           <article className="welcome-path" aria-labelledby="welcome-path-reader">
