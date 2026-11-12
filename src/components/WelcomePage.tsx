@@ -89,6 +89,10 @@ export default function WelcomePage({ theme, onThemeChange, onGuest, onSignIn, o
   const themeTrigger=useRef<HTMLButtonElement>(null);
   const activeTheme=THEMES.find(t=>t.id===theme)??THEMES[0];
   useEffect(()=>{if(!themeOpen)return;const outside=(e:PointerEvent)=>{if(!themePicker.current?.contains(e.target as Node))setThemeOpen(false);};const key=(e:KeyboardEvent)=>{if(e.key==="Escape"){setThemeOpen(false);themeTrigger.current?.focus();}};document.addEventListener("pointerdown",outside);document.addEventListener("keydown",key);return()=>{document.removeEventListener("pointerdown",outside);document.removeEventListener("keydown",key);};},[themeOpen]);
+  // The newest real post, trimmed to a short excerpt.
+  const latest = [...messages].reverse().find(m => m.date_utc && m.text.trim().length > 60);
+  const latestClean = latest?.text.replace(/\s+/g, " ").trim() ?? "";
+  const latestText = latestClean.length > 180 ? `${latestClean.slice(0, 180).replace(/\s+\S*$/, "")}…` : latestClean;
   return <div className="welcome-page">
     <div className="welcome-wrap">
       <header className="welcome-header"><div className="welcome-header-brand"><div className="welcome-brand" aria-label="vn reader"><BrandLogo width={48}/></div><button type="button" className="welcome-why" onClick={()=>setLearnMore(true)}><QuestionMarkCircledIcon aria-hidden="true"/><span>Why vn reader</span></button><a className="welcome-why welcome-groundwork-tab" href="/f/groundwork" aria-label="Ground Work form"><Pencil2Icon aria-hidden="true"/><span>Ground Work</span></a></div><div className="welcome-header-actions"><div className="welcome-theme-picker" ref={themePicker}><button ref={themeTrigger} type="button" className="welcome-theme-trigger" aria-label={`Change theme: ${activeTheme.name}`} aria-haspopup="listbox" aria-expanded={themeOpen} aria-controls="welcome-theme-options" onClick={()=>setThemeOpen(v=>!v)}>{DARK_THEMES.includes(theme)?<MoonIcon aria-hidden="true"/>:<SunIcon aria-hidden="true"/>}<span>{activeTheme.name}</span><ChevronDownIcon aria-hidden="true"/></button>{themeOpen&&<div id="welcome-theme-options" className="welcome-theme-options" role="listbox" aria-label="Welcome page theme"><span className="welcome-theme-heading">Appearance</span>{THEMES.map(t=><button key={t.id} type="button" role="option" aria-selected={theme===t.id} onClick={()=>{onThemeChange(t.id);setThemeOpen(false);themeTrigger.current?.focus();}}><span className="welcome-theme-colors" aria-hidden="true">{t.colors.map(c=><i key={c} style={{background:c}}/>)}</span><span>{t.name}</span>{theme===t.id&&<CheckIcon aria-hidden="true"/>}</button>)}</div>}</div><button type="button" className="welcome-header-signin" onClick={onSignIn}>{signedInAs?<PersonIcon aria-hidden="true"/>:<EnterIcon aria-hidden="true"/>}<span>{signedInAs?"Your account":"Sign in"}</span></button></div></header>
@@ -96,14 +100,19 @@ export default function WelcomePage({ theme, onThemeChange, onGuest, onSignIn, o
         <section className="welcome-intro" aria-labelledby="welcome-title">
           <span className="welcome-product-name">VidurNeeti</span>
           <h1 id="welcome-title">Vidura’s counsel,<br />the Geeta’s path.</h1>
-          <p>Rooted in Vidura of the Mahabharata and the path of the Shrimad Bhagavad Geeta. Clear-eyed commentary on India, and a community that shows up for each other.</p>
+          <p>Clear-eyed commentary on India, drawn from Vidura of the Mahabharata and the Shrimad Bhagavad Geeta.</p>
         </section>
+        <ul className="welcome-pillars" aria-label="What VidurNeeti stands on">
+          <li><b>Neeti</b><span>Vidura’s clear counsel</span></li>
+          <li><b>Dharma</b><span>The Geeta’s path</span></li>
+          <li><b>Seva</b><span>Showing up on the ground</span></li>
+        </ul>
         <section className="welcome-paths" aria-label="Choose where to go">
           <article className="welcome-path" aria-labelledby="welcome-path-reader">
             <span className="welcome-path-icon" aria-hidden="true"><ReaderIcon/></span>
             <span className="welcome-path-kicker">Read</span>
             <h2 id="welcome-path-reader">VN Reader</h2>
-            <p>Every post from the channel, with its context. Search, save, take notes and pick up exactly where you left off.</p>
+            <p>Every post, with its context. Save, take notes, and pick up where you left off.</p>
             <div className="welcome-entry-actions">{signedInAs?<button type="button" className="welcome-primary" onClick={onGuest}>Continue reading <ArrowRightIcon aria-hidden="true"/></button>:<><button type="button" className="welcome-primary" aria-describedby="welcome-reader-note" onClick={onGuest}>Read as guest <ArrowRightIcon aria-hidden="true"/></button><button type="button" className="welcome-signin" aria-describedby="welcome-reader-note" onClick={onSignUp??onSignIn} disabled={capacity?.configured===false||capacity?.remaining===0}>Create an account</button></>}</div>
             {signedInAs?<p className="welcome-path-note">Signed in as {signedInAs}</p>:<><p className="welcome-path-note" id="welcome-reader-note">Guests save in this browser. An account syncs across devices.</p><SignupCapacity compact capacity={capacity} error={capacityError} onRetry={onRefreshCapacity}/></>}
           </article>
@@ -111,13 +120,21 @@ export default function WelcomePage({ theme, onThemeChange, onGuest, onSignIn, o
             <span className="welcome-path-icon" aria-hidden="true"><Pencil2Icon/></span>
             <span className="welcome-path-kicker">Act</span>
             <h2 id="welcome-path-groundwork">Ground Work</h2>
-            <p>A feed can’t help when real trouble comes. Ground Work connects members offline, by state and city, for career, medical and legal support. No money involved, only time and skill.</p>
+            <p>When real trouble comes, a feed can’t help. Members meet offline, by state and city, for career, medical and legal support.</p>
             <div className="welcome-entry-actions"><a className="welcome-primary" href="/f/groundwork" aria-describedby="welcome-groundwork-note">Fill the form <ArrowRightIcon aria-hidden="true"/></a></div>
             <p className="welcome-path-note" id="welcome-groundwork-note">An admin reviews every response. The group link opens once yours is approved.</p>
           </article>
         </section>
+        {latest && <section className="welcome-latest" aria-labelledby="welcome-latest-title">
+          <div className="welcome-latest-head"><span id="welcome-latest-title">Latest from the channel</span><time dateTime={latest.date_utc ?? ""}>{new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(latest.date_utc ?? 0))}</time></div>
+          <p>{latestText}</p>
+          <button type="button" className="welcome-latest-read" onClick={onGuest}>Read it in VN Reader <ArrowRightIcon aria-hidden="true"/></button>
+        </section>}
       </main>
-      <footer className="welcome-footer"><span>{messages.length ? `${messages.length.toLocaleString()} posts, one place to read.` : "A dedicated reader for Vidurneeti."}</span></footer>
+      <footer className="welcome-footer welcome-footer-links">
+        <span>{messages.length ? `${messages.length.toLocaleString()} posts archived` : "VidurNeeti"}</span>
+        <nav aria-label="More"><a href="https://t.me/vidurneeti" target="_blank" rel="noopener noreferrer">Telegram channel</a><a href="/f/groundwork">Already applied? Check status</a></nav>
+      </footer>
     </div>
     {learnMore ? <FeatureWalkthrough onClose={() => setLearnMore(false)} /> : null}
   </div>;

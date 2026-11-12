@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { call, type AdminForm, type Insights, type QuestionInsight } from "../forms/api";
-import { BarList, Card, Columns, Funnel, HourStrip, StateTileMap, TrendChart } from "./charts";
+import { BarList, Card, Columns, Funnel, HourStrip, StateTileMap, StatusBars, StatusSplit, TrendChart } from "./charts";
 import { Failure, Loading, number, useLoad } from "./ui";
 
 const RANGES = [{ id: "7", label: "7 days" }, { id: "30", label: "30 days" }, { id: "90", label: "90 days" }, { id: "all", label: "All time" }];
@@ -12,7 +12,7 @@ function QuestionCard({ question }: { question: QuestionInsight }) {
     <h2 style={{ fontSize: "0.98rem", lineHeight: 1.35 }}>{question.label}</h2>
     <p className="va-note vg-num" style={{ marginTop: 6 }}>{question.answered} of {question.total} answered ({rate}%){question.required ? "" : " · optional"}</p>
     <div className="vq-rate" aria-hidden="true"><i style={{ width: `${rate}%`, background: "var(--vg-series-1)" }} /></div>
-    {question.kind === "choice" && <BarList items={question.options ?? []} limit={8} empty="No answers yet" />}
+    {question.kind === "choice" && <BarList items={question.options ?? []} limit={8} empty="No answers yet" colored={question.type !== "state"} />}
     {question.kind === "number" && (question.stats ? <><Columns items={question.buckets ?? []} label={`Distribution for ${question.label}`} /><p className="va-note vg-num" style={{ marginTop: 8 }}>Average {question.stats.average} · median {question.stats.median} · range {question.stats.min}–{question.stats.max}</p></> : <p className="va-note">No answers yet</p>)}
     {question.kind === "text" && (question.answered ? <>{(question.topWords?.length ?? 0) > 0 ? <><p className="va-note" style={{ marginBottom: 8 }}>Words that come up most</p><div className="vc-words">{question.topWords!.map(word => <span key={word.name}>{word.name}<small>{word.count}</small></span>)}</div></> : <p className="va-note">Written answers, about {question.averageLength} characters each. Read them in Responses.</p>}</> : <p className="va-note">No answers yet</p>)}
   </section>;
@@ -42,7 +42,7 @@ export default function InsightsPane({ form, onOpenState }: { form: AdminForm; o
     {section === "overview" && <>
       <div className="va-tiles">
         <div className="va-tile vg-glass"><span>Responses</span><strong>{number(totals.responses)}</strong><small data-trend={change === null ? undefined : change >= 0 ? "up" : "down"}>{change === null ? `${totals.last7} in the last 7 days` : `${change >= 0 ? "Up" : "Down"} ${Math.abs(change)}% on the week before`}</small></div>
-        <div className="va-tile vg-glass"><span>Waiting for review</span><strong>{number(totals.pending)}</strong><small>{number(totals.approved)} approved · {number(totals.rejected)} rejected</small></div>
+        <div className="va-tile vg-glass"><span>Waiting for review</span><strong>{number(totals.pending)}</strong><small>{number(totals.approved)} approved · {number(totals.rejected)} rejected</small><StatusSplit approved={totals.approved} pending={totals.pending} rejected={totals.rejected} /></div>
         <div className="va-tile vg-glass"><span>Completion rate</span><strong>{totals.completionRate === null ? "—" : `${totals.completionRate}%`}</strong><small>of people who start, finish</small></div>
         <div className="va-tile vg-glass"><span>Typical time to fill</span><strong>{totals.medianDurationMs ? `${Math.max(1, Math.round(totals.medianDurationMs / 60000))} min` : "—"}</strong><small>median</small></div>
         <div className="va-tile vg-glass"><span>States reached</span><strong>{totals.states}</strong><small>of 36 states and territories</small></div>
@@ -57,13 +57,13 @@ export default function InsightsPane({ form, onOpenState }: { form: AdminForm; o
     </>}
     {section === "places" && <div className="va-grid cols-2">
       <Card title="Where responses come from" note="One tile per state or territory. Click one to open its responses."><StateTileMap states={data.states} onPick={onOpenState} /></Card>
-      <Card title="Top states"><BarList items={data.states} total={totals.responses} limit={10} onPick={onOpenState} empty="No responses with a state yet" /></Card>
+      <Card title="States by review status" note="Click a state to open its responses."><StatusBars items={data.states} onPick={onOpenState} /></Card>
     </div>}
     {section === "reach" && <>
       <div className="va-grid cols-3">
         <Card title="From opening to approval"><Funnel steps={[{ label: "Opened the form", value: Math.max(totals.views, totals.starts) }, { label: "Started answering", value: totals.starts }, { label: "Submitted", value: totals.responses }, { label: "Approved", value: data.daily.reduce((sum, day) => sum + day.approved, 0) }]} /></Card>
-        <Card title="Share links">{data.links.length ? <BarList items={data.links.map(link => ({ name: link.label, count: link.responses }))} empty="No responses yet" /> : <p className="va-note">Create custom links in the Share tab to compare sources.</p>}</Card>
-        <Card title="Devices"><BarList items={data.devices.map(device => ({ name: device.name === "telegram" ? "Telegram app" : device.name[0].toUpperCase() + device.name.slice(1), count: device.count }))} /><p className="va-note" style={{ marginTop: 10 }}>{totals.telegramLinked} linked to Telegram.</p></Card>
+        <Card title="Share links">{data.links.length ? <BarList colored items={data.links.map(link => ({ name: link.label, count: link.responses }))} empty="No responses yet" /> : <p className="va-note">Create custom links in the Share tab to compare sources.</p>}</Card>
+        <Card title="Devices"><BarList colored items={data.devices.map(device => ({ name: device.name === "telegram" ? "Telegram app" : device.name[0].toUpperCase() + device.name.slice(1), count: device.count }))} /><p className="va-note" style={{ marginTop: 10 }}>{totals.telegramLinked} linked to Telegram.</p></Card>
       </div>
       <div className="va-grid cols-2">
         <Card title="Time of day" note={`${data.range.timezone.replace("_", " ")} time. Darker hours get more responses.`}><HourStrip hours={data.hours} /></Card>

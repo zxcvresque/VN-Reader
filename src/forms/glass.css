@@ -14,7 +14,7 @@ html:has(.vg[data-mode="light"]), html:has(.vg[data-mode="light"]) body { backgr
   --vg-shadow: 0 24px 60px -24px rgba(0, 0, 0, 0.7), 0 2px 6px rgba(0, 0, 0, 0.25);
   --vg-good: #56d6a0; --vg-warn: #f5c25b; --vg-bad: #ff8f8a; --vg-info: #7fb4ff;
   --vg-blob-a: #1f8f8a; --vg-blob-b: #5b4bd6; --vg-blob-c: #c9772a;
-  --vg-series-1: #3987e5; --vg-series-2: #d95926; --vg-series-3: #199e70; --vg-series-4: #c98500; --vg-grid: rgba(255, 255, 255, 0.1);
+  --vg-series-1: #3987e5; --vg-series-2: #d95926; --vg-series-3: #199e70; --vg-series-4: #c98500; --vg-series-5: #d55181; --vg-series-6: #008300; --vg-series-7: #9085e9; --vg-series-8: #e66767; --vg-grid: rgba(255, 255, 255, 0.1);
   color-scheme: dark;
   position: relative; isolation: isolate; min-height: 100vh; min-height: 100dvh; box-sizing: border-box;
   color: var(--vg-text); background: var(--vg-bg); font-family: var(--vg-font); font-size: 16px; line-height: 1.5;
@@ -27,7 +27,7 @@ html:has(.vg[data-mode="light"]), html:has(.vg[data-mode="light"]) body { backgr
   --vg-shadow: 0 24px 60px -28px rgba(46, 52, 98, 0.38), 0 2px 6px rgba(46, 52, 98, 0.08);
   --vg-good: #12805a; --vg-warn: #8a5d00; --vg-bad: #c0352f; --vg-info: #1f5fbf;
   --vg-blob-a: #7fd9cf; --vg-blob-b: #b3a6ff; --vg-blob-c: #ffcf8f;
-  --vg-series-1: #2a78d6; --vg-series-2: #eb6834; --vg-series-3: #1baf7a; --vg-series-4: #eda100; --vg-grid: rgba(22, 26, 44, 0.1);
+  --vg-series-1: #2a78d6; --vg-series-2: #eb6834; --vg-series-3: #1baf7a; --vg-series-4: #eda100; --vg-series-5: #e87ba4; --vg-series-6: #008300; --vg-series-7: #6250d6; --vg-series-8: #e34948; --vg-grid: rgba(22, 26, 44, 0.1);
   color-scheme: light;
 }
 .vg *, .vg *::before, .vg *::after { box-sizing: border-box; }
@@ -382,3 +382,24 @@ html:has(.vg[data-mode="light"]), html:has(.vg[data-mode="light"]) body { backgr
 .vq-rest summary { cursor: pointer; padding: 10px 0; font-size: .9rem; font-weight: 600; color: var(--vg-muted); }
 .vq-rest[open] summary { color: var(--vg-text); }
 .vq-rest .va-note { padding: 8px 0 10px; }
+
+/* Status-coloured bars: approved, pending, rejected. Mark colours from the fixed status palette. */
+.vg { --vg-mark-good: #0ca30c; --vg-mark-warn: #fab219; --vg-mark-bad: #d03b3b; }
+.vc-bar.is-button { background: none; border: 0; color: inherit; cursor: pointer; text-align: left; font: inherit; font-size: .87rem; }
+.vc-bar-track.is-stack { background: none; justify-self: start; min-width: 6px; }
+.vc-bar-track.is-stack i { border-radius: 0; min-width: 0; }
+.vc-bar-track.is-stack i:last-child { border-radius: 0 4px 4px 0; }
+.vc-split { display: flex; gap: 2px; height: 6px; margin-top: 10px; border-radius: 4px; overflow: hidden; }
+.vc-split i { display: block; height: 100%; }
+
+/* Liquid glass backdrops (candidates) */
+.vg[data-backdrop="mono"] { --vg-blob-a: #5c5c5c; --vg-blob-b: #2e2e2e; --vg-blob-c: #8a8a8a; --vg-bg: #070707; }
+.vg[data-backdrop="mono"][data-mode="light"] { --vg-blob-a: #c9c9c9; --vg-blob-b: #ffffff; --vg-blob-c: #a8a8a8; --vg-bg: #e9e9e9; }
+.vg[data-backdrop="mono"] .vg-backdrop::after { content: ""; position: absolute; inset: -20%; background: repeating-linear-gradient(115deg, transparent 0 46px, rgba(255,255,255,.035) 46px 47px), conic-gradient(from 210deg at 70% 30%, transparent 0 40%, rgba(255,255,255,.08) 52%, transparent 64%); }
+.vg[data-backdrop="mono"][data-mode="light"] .vg-backdrop::after { background: repeating-linear-gradient(115deg, transparent 0 46px, rgba(0,0,0,.04) 46px 47px), conic-gradient(from 210deg at 70% 30%, transparent 0 40%, rgba(0,0,0,.06) 52%, transparent 64%); }
+.vg[data-backdrop="saffron"] { --vg-blob-a: #c2541a; --vg-blob-b: #6e1736; --vg-blob-c: #e3a12a; --vg-bg: #120a0c; }
+.vg[data-backdrop="saffron"][data-mode="light"] { --vg-blob-a: #ffc08f; --vg-blob-b: #f4b3c4; --vg-blob-c: #ffe29a; }
+.vg[data-backdrop="ocean"] { --vg-blob-a: #0c5f86; --vg-blob-b: #12307a; --vg-blob-c: #1aa2a8; --vg-bg: #050b17; }
+.vg[data-backdrop="ocean"][data-mode="light"] { --vg-blob-a: #a8dcf0; --vg-blob-b: #b9c8f5; --vg-blob-c: #a9eee6; }
+.vg[data-backdrop="emerald"] { --vg-blob-a: #0f6b47; --vg-blob-b: #153f2e; --vg-blob-c: #b88a1e; --vg-bg: #060d0a; }
+.vg[data-backdrop="emerald"][data-mode="light"] { --vg-blob-a: #a6e3c4; --vg-blob-b: #cfe9d6; --vg-blob-c: #f2dc9a; }

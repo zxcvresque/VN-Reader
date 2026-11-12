@@ -30,14 +30,42 @@ export function TrendChart({ data, series }: { data: Array<{ day: string } & Rec
   </div>;
 }
 
-/** Ranked horizontal bars. One hue: these compare magnitude, not identity. */
-export function BarList({ items, total, limit = 12, onPick, empty = "No data yet", unit = "" }: { items: NamedCount[]; total?: number; limit?: number; onPick?: (name: string) => void; empty?: string; unit?: string }) {
+/** Categorical slots in fixed order. Past eight, answers fold into a neutral "other" colour. */
+export const seriesColor = (index: number) => (index < 8 ? `var(--vg-series-${index + 1})` : "var(--vg-faint)");
+const STATUS = [{ key: "approved", label: "Approved", color: "var(--vg-mark-good)" }, { key: "pending", label: "Pending", color: "var(--vg-mark-warn)" }, { key: "rejected", label: "Rejected", color: "var(--vg-mark-bad)" }] as const;
+
+/** Ranked horizontal bars. Pass `colored` when each row is a different thing (an answer, a device),
+ *  so each keeps its own hue; leave it off for pure magnitude comparisons. */
+export function BarList({ items, total, limit = 12, onPick, empty = "No data yet", unit = "", colored = false }: { items: NamedCount[]; total?: number; limit?: number; onPick?: (name: string) => void; empty?: string; unit?: string; colored?: boolean }) {
   const [all, setAll] = useState(false);
   if (!items.length || items.every(item => !item.count)) return <p className="va-note">{empty}</p>;
   const max = Math.max(1, ...items.map(item => item.count)), sum = total ?? items.reduce((value, item) => value + item.count, 0), shown = all ? items : items.slice(0, limit);
-  return <div className="vc-bars">{shown.map(item => { const row = <><span title={item.name}>{item.name}</span><span className="vc-bar-track"><i style={{ width: `${(item.count / max) * 100}%` }} /></span><b>{item.count}{unit}{sum > 0 && !unit && <small>{Math.round((item.count / sum) * 100)}%</small>}</b></>;
+  return <div className="vc-bars">{shown.map(item => { const row = <><span title={item.name}>{item.name}</span><span className="vc-bar-track"><i style={{ width: `${(item.count / max) * 100}%`, ...(colored ? { background: seriesColor(items.indexOf(item)) } : {}) }} /></span><b>{item.count}{unit}{sum > 0 && !unit && <small>{Math.round((item.count / sum) * 100)}%</small>}</b></>;
     return onPick ? <button type="button" key={item.name} className="vc-bar" style={{ background: "none", border: 0, color: "inherit", cursor: "pointer", textAlign: "left", font: "inherit", fontSize: "0.87rem" }} onClick={() => onPick(item.name)} title={`Show responses from ${item.name}`}>{row}</button> : <div key={item.name} className="vc-bar">{row}</div>; })}
     {items.length > limit && <button type="button" className="vg-btn is-quiet is-small" style={{ justifySelf: "start" }} onClick={() => setAll(!all)}>{all ? "Show fewer" : `Show all ${items.length}`}</button>}</div>;
+}
+
+/** Each state's responses split by review status, with a legend. */
+export function StatusBars({ items, limit = 10, onPick }: { items: Array<NamedCount & { approved: number; pending: number }>; limit?: number; onPick?: (name: string) => void }) {
+  const [all, setAll] = useState(false);
+  if (!items.length) return <p className="va-note">No responses with a state yet</p>;
+  const max = Math.max(1, ...items.map(item => item.count)), shown = all ? items : items.slice(0, limit);
+  return <div className="vc-bars">
+    <div className="vc-legend" aria-hidden="true">{STATUS.map(status => <span key={status.key}><i style={{ background: status.color }} />{status.label}</span>)}</div>
+    {shown.map(item => { const parts = { approved: item.approved, pending: item.pending, rejected: Math.max(0, item.count - item.approved - item.pending) };
+      const label = `${item.name}: ${item.count} responses, ${parts.approved} approved, ${parts.pending} pending, ${parts.rejected} rejected`;
+      return <button type="button" key={item.name} className="vc-bar is-button" aria-label={label} title={label} onClick={() => onPick?.(item.name)}>
+        <span>{item.name}</span>
+        <span className="vc-bar-track is-stack" style={{ width: `${(item.count / max) * 100}%` }}>{STATUS.map(status => parts[status.key] ? <i key={status.key} style={{ flex: parts[status.key], background: status.color }} /> : null)}</span>
+        <b>{item.count}</b></button>; })}
+    {items.length > limit && <button type="button" className="vg-btn is-quiet is-small" style={{ justifySelf: "start" }} onClick={() => setAll(!all)}>{all ? "Show fewer" : `Show all ${items.length}`}</button>}
+  </div>;
+}
+/** One stacked bar for the whole review queue. */
+export function StatusSplit({ approved, pending, rejected }: { approved: number; pending: number; rejected: number }) {
+  const parts = { approved, pending, rejected }, total = approved + pending + rejected;
+  if (!total) return null;
+  return <span className="vc-split" role="img" aria-label={`${approved} approved, ${pending} pending, ${rejected} rejected`}>{STATUS.map(status => parts[status.key] ? <i key={status.key} title={`${status.label}: ${parts[status.key]}`} style={{ flex: parts[status.key], background: status.color }} /> : null)}</span>;
 }
 
 export function Columns({ items, label }: { items: NamedCount[]; label: string }) {
