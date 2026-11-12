@@ -41,6 +41,16 @@ services:
       VN_SMTP_FROM: ${VN_SMTP_FROM:-}
       VN_SMTP_SSL: ${VN_SMTP_SSL:-false}
       VN_ADMIN_EMAILS: ${VN_ADMIN_EMAILS:-}
+      # Private R2 bucket for form responses. Never the public media bucket.
+      R2_FORMS_BUCKET: ${R2_FORMS_BUCKET:-}
+      R2_FORMS_PREFIX: ${R2_FORMS_PREFIX:-forms}
+      R2_FORMS_ACCOUNT_ID: ${R2_FORMS_ACCOUNT_ID:-}
+      R2_FORMS_ACCESS_KEY_ID: ${R2_FORMS_ACCESS_KEY_ID:-}
+      R2_FORMS_SECRET_ACCESS_KEY: ${R2_FORMS_SECRET_ACCESS_KEY:-}
+      R2_ACCOUNT_ID: ${R2_ACCOUNT_ID:-}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
+      R2_BUCKET: ${R2_BUCKET:-vn-reader-media}
       VN_EMAIL_DAILY_LIMIT: ${VN_EMAIL_DAILY_LIMIT:-300}
       VN_EMAIL_QUOTA_TIMEZONE: ${VN_EMAIL_QUOTA_TIMEZONE:-UTC}
     volumes: ["account-data:/data"]

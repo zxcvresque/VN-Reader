@@ -1,11 +1,10 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { THEMES, type ThemeId } from "../lib/preferences";
+import { useEffect, useRef, useState } from "react";
+import { DARK_THEMES, THEMES, type ThemeId } from "../lib/preferences";
 import type { ArchiveManifest, MessageRecord } from "../types";
 import SignupCapacity from "./SignupCapacity";
 import type { SignupCapacity as Capacity } from "../lib/admin";
-import TelegramRichText from "./TelegramRichText";
 import BrandLogo from "./BrandLogo";
-import { ArrowRightIcon, QuestionMarkCircledIcon, BookmarkIcon, ReaderIcon, MoonIcon, SunIcon, ChevronDownIcon, CheckIcon, EnterIcon } from "@radix-ui/react-icons";
+import { ArrowRightIcon, QuestionMarkCircledIcon, ReaderIcon, MoonIcon, SunIcon, ChevronDownIcon, CheckIcon, EnterIcon, Pencil2Icon, PersonIcon } from "@radix-ui/react-icons";
 import "./welcome.css";
 
 export const WELCOME_SLIDES = [
@@ -74,6 +73,8 @@ export interface WelcomePageProps {
   onGuest: () => void;
   onSignIn: () => void;
   onSignUp?: () => void;
+  /** Set when a signed-in reader comes back to the home page. */
+  signedInAs?: string;
   capacity?: Capacity | null;
   capacityError?: string;
   onRefreshCapacity?: () => void;
@@ -81,43 +82,39 @@ export interface WelcomePageProps {
   manifest: ArchiveManifest | null;
 }
 
-export default function WelcomePage({ theme, onThemeChange, onGuest, onSignIn, onSignUp, capacity=null, capacityError, onRefreshCapacity=()=>{}, messages }: WelcomePageProps) {
+export default function WelcomePage({ theme, onThemeChange, onGuest, onSignIn, onSignUp, signedInAs, capacity=null, capacityError, onRefreshCapacity=()=>{}, messages }: WelcomePageProps) {
   const [learnMore, setLearnMore] = useState(false);
   const [themeOpen,setThemeOpen]=useState(false);
   const themePicker=useRef<HTMLDivElement>(null);
   const themeTrigger=useRef<HTMLButtonElement>(null);
   const activeTheme=THEMES.find(t=>t.id===theme)??THEMES[0];
-  const tiltPages = (event: ReactPointerEvent<HTMLElement>) => {
-    if (event.pointerType !== "mouse" || !window.matchMedia("(hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference)").matches) return;
-    const rect = event.currentTarget.getBoundingClientRect();
-    const x = Math.max(-1, Math.min(1, (event.clientX - rect.left) / rect.width * 2 - 1));
-    const y = Math.max(-1, Math.min(1, (event.clientY - rect.top) / rect.height * 2 - 1));
-    event.currentTarget.style.setProperty("--stack-tilt-x", `${-y * 3}deg`);
-    event.currentTarget.style.setProperty("--stack-tilt-y", `${x * 4}deg`);
-  };
-  const resetPages = (event: ReactPointerEvent<HTMLElement>) => {
-    event.currentTarget.style.removeProperty("--stack-tilt-x");
-    event.currentTarget.style.removeProperty("--stack-tilt-y");
-  };
   useEffect(()=>{if(!themeOpen)return;const outside=(e:PointerEvent)=>{if(!themePicker.current?.contains(e.target as Node))setThemeOpen(false);};const key=(e:KeyboardEvent)=>{if(e.key==="Escape"){setThemeOpen(false);themeTrigger.current?.focus();}};document.addEventListener("pointerdown",outside);document.addEventListener("keydown",key);return()=>{document.removeEventListener("pointerdown",outside);document.removeEventListener("keydown",key);};},[themeOpen]);
-  // A real archive passage, not invented marketing copy or a simulated reader.
-  const preview = messages.find(m => m.text.length > 240 && !/rules|guidelines/i.test(m.text.slice(0, 100)));
-  const cleanText = preview?.text.replace(/\s+/g, " ").trim();
-  const excerpt = cleanText && cleanText.length > 130 ? `${cleanText.slice(0, 130).replace(/\s+\S*$/, "")}…` : cleanText;
   return <div className="welcome-page">
     <div className="welcome-wrap">
-      <header className="welcome-header"><div className="welcome-header-brand"><div className="welcome-brand" aria-label="vn reader"><BrandLogo width={48}/></div><button type="button" className="welcome-why" onClick={()=>setLearnMore(true)}><QuestionMarkCircledIcon aria-hidden="true"/><span>Why vn reader</span></button></div><div className="welcome-header-actions"><div className="welcome-theme-picker" ref={themePicker}><button ref={themeTrigger} type="button" className="welcome-theme-trigger" aria-label={`Change theme: ${activeTheme.name}`} aria-haspopup="listbox" aria-expanded={themeOpen} aria-controls="welcome-theme-options" onClick={()=>setThemeOpen(v=>!v)}>{["vercel","editorial"].includes(theme)?<MoonIcon aria-hidden="true"/>:<SunIcon aria-hidden="true"/>}<span>{activeTheme.name}</span><ChevronDownIcon aria-hidden="true"/></button>{themeOpen&&<div id="welcome-theme-options" className="welcome-theme-options" role="listbox" aria-label="Welcome page theme"><span className="welcome-theme-heading">Appearance</span>{THEMES.map(t=><button key={t.id} type="button" role="option" aria-selected={theme===t.id} onClick={()=>{onThemeChange(t.id);setThemeOpen(false);themeTrigger.current?.focus();}}><span className="welcome-theme-colors" aria-hidden="true">{t.colors.map(c=><i key={c} style={{background:c}}/>)}</span><span>{t.name}</span>{theme===t.id&&<CheckIcon aria-hidden="true"/>}</button>)}</div>}</div><button type="button" className="welcome-header-signin" onClick={onSignIn}><EnterIcon aria-hidden="true"/><span>Sign in</span></button></div></header>
+      <header className="welcome-header"><div className="welcome-header-brand"><div className="welcome-brand" aria-label="vn reader"><BrandLogo width={48}/></div><button type="button" className="welcome-why" onClick={()=>setLearnMore(true)}><QuestionMarkCircledIcon aria-hidden="true"/><span>Why vn reader</span></button><a className="welcome-why welcome-groundwork-tab" href="/f/groundwork" aria-label="Ground Work form"><Pencil2Icon aria-hidden="true"/><span>Ground Work</span></a></div><div className="welcome-header-actions"><div className="welcome-theme-picker" ref={themePicker}><button ref={themeTrigger} type="button" className="welcome-theme-trigger" aria-label={`Change theme: ${activeTheme.name}`} aria-haspopup="listbox" aria-expanded={themeOpen} aria-controls="welcome-theme-options" onClick={()=>setThemeOpen(v=>!v)}>{DARK_THEMES.includes(theme)?<MoonIcon aria-hidden="true"/>:<SunIcon aria-hidden="true"/>}<span>{activeTheme.name}</span><ChevronDownIcon aria-hidden="true"/></button>{themeOpen&&<div id="welcome-theme-options" className="welcome-theme-options" role="listbox" aria-label="Welcome page theme"><span className="welcome-theme-heading">Appearance</span>{THEMES.map(t=><button key={t.id} type="button" role="option" aria-selected={theme===t.id} onClick={()=>{onThemeChange(t.id);setThemeOpen(false);themeTrigger.current?.focus();}}><span className="welcome-theme-colors" aria-hidden="true">{t.colors.map(c=><i key={c} style={{background:c}}/>)}</span><span>{t.name}</span>{theme===t.id&&<CheckIcon aria-hidden="true"/>}</button>)}</div>}</div><button type="button" className="welcome-header-signin" onClick={onSignIn}>{signedInAs?<PersonIcon aria-hidden="true"/>:<EnterIcon aria-hidden="true"/>}<span>{signedInAs?"Your account":"Sign in"}</span></button></div></header>
       <main>
-        <section className="welcome-hero" aria-labelledby="welcome-title">
-          <div className="welcome-copy"><span className="welcome-product-name">vn reader</span><h1 id="welcome-title">A quieter way to<br />read Vidurneeti.</h1><p>The posts, their context, and a place for your thoughts.<br className="welcome-desktop-break"/> Pick up exactly where you left off.</p>
-            <div className="welcome-entry-actions"><button type="button" className="welcome-primary" aria-describedby="welcome-guest-storage" onClick={onGuest}>Read as guest <ArrowRightIcon aria-hidden="true"/></button><button type="button" className="welcome-signin" aria-describedby="welcome-account-storage" onClick={onSignUp??onSignIn} disabled={capacity?.configured===false||capacity?.remaining===0}>Create an account</button></div>
-            <SignupCapacity compact capacity={capacity} error={capacityError} onRetry={onRefreshCapacity}/>
-          </div>
-          <aside className="welcome-pages" aria-label="Read, save and return" onPointerMove={tiltPages} onPointerLeave={resetPages} onPointerCancel={resetPages}><div className="welcome-page-leaf welcome-leaf-context"><ReaderIcon aria-hidden="true"/><span>Follow the<br/>conversation.</span><i/><i/><i/></div><div className="welcome-page-leaf welcome-leaf-reading"><span className="welcome-leaf-label">From the archive</span>{excerpt ? <div className="welcome-leaf-text"><TelegramRichText text={excerpt} entities={[]}/></div> : <p>Read a little.<br/>Think a little.<br/>Come back.</p>}<span className="welcome-leaf-bottom">Your place, remembered.</span></div><div className="welcome-page-leaf welcome-leaf-save"><BookmarkIcon aria-hidden="true"/><span>Keep what<br/>stays with you.</span><i/><i/><i/></div></aside>
+        <section className="welcome-intro" aria-labelledby="welcome-title">
+          <span className="welcome-product-name">VidurNeeti</span>
+          <h1 id="welcome-title">Eyes on what<br />is unseen.</h1>
+          <p>Commentary on India’s politics, economy and dharma, and a community that shows up for each other.</p>
         </section>
-        <section className="welcome-storage" aria-label="Choose how your reading is saved">
-          <p id="welcome-guest-storage">Guests save in this browser and can export a backup.</p>
-          <p id="welcome-account-storage">An account keeps your progress and library in sync across devices.</p>
+        <section className="welcome-paths" aria-label="Choose where to go">
+          <article className="welcome-path" aria-labelledby="welcome-path-reader">
+            <span className="welcome-path-icon" aria-hidden="true"><ReaderIcon/></span>
+            <span className="welcome-path-kicker">Read</span>
+            <h2 id="welcome-path-reader">VN Reader</h2>
+            <p>Every post from the channel, with its context. Search, save, take notes and pick up exactly where you left off.</p>
+            <div className="welcome-entry-actions">{signedInAs?<button type="button" className="welcome-primary" onClick={onGuest}>Continue reading <ArrowRightIcon aria-hidden="true"/></button>:<><button type="button" className="welcome-primary" aria-describedby="welcome-reader-note" onClick={onGuest}>Read as guest <ArrowRightIcon aria-hidden="true"/></button><button type="button" className="welcome-signin" aria-describedby="welcome-reader-note" onClick={onSignUp??onSignIn} disabled={capacity?.configured===false||capacity?.remaining===0}>Create an account</button></>}</div>
+            {signedInAs?<p className="welcome-path-note">Signed in as {signedInAs}</p>:<><p className="welcome-path-note" id="welcome-reader-note">Guests save in this browser. An account syncs across devices.</p><SignupCapacity compact capacity={capacity} error={capacityError} onRetry={onRefreshCapacity}/></>}
+          </article>
+          <article className="welcome-path is-groundwork" aria-labelledby="welcome-path-groundwork">
+            <span className="welcome-path-icon" aria-hidden="true"><Pencil2Icon/></span>
+            <span className="welcome-path-kicker">Act</span>
+            <h2 id="welcome-path-groundwork">Ground Work</h2>
+            <p>A feed can’t help when real trouble comes. Ground Work connects members offline, by state and city, for career, medical and legal support. No money involved, only time and skill.</p>
+            <div className="welcome-entry-actions"><a className="welcome-primary" href="/f/groundwork" aria-describedby="welcome-groundwork-note">Fill the form <ArrowRightIcon aria-hidden="true"/></a></div>
+            <p className="welcome-path-note" id="welcome-groundwork-note">An admin reviews every response. The group link opens once yours is approved.</p>
+          </article>
         </section>
       </main>
       <footer className="welcome-footer"><span>{messages.length ? `${messages.length.toLocaleString()} posts, one place to read.` : "A dedicated reader for Vidurneeti."}</span></footer>

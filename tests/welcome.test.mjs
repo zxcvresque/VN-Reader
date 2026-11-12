@@ -46,12 +46,12 @@ test('welcome offers guest and sign in, and every theme uses the same selector',
     for(const theme of preferences.THEMES){
       act(()=>root.root.findByProps({'aria-label':'Change theme: Liquid Opal'}).props.onClick());
       const options=root.root.findAllByProps({role:'option'});
-      assert.equal(options.length,4);
+      assert.equal(options.length,5);
       act(()=>options.find(option=>textOf(option)===theme.name).props.onClick());
       assert.equal(root.root.findAllByProps({role:'listbox'}).length,0);
     }
     assert.deepEqual(calls, ['guest', 'signin', ...preferences.THEMES.map(t => t.id)]);
-    assert.equal(root.root.findAllByType('h1')[0].children.filter(t => typeof t === 'string').join(''), 'A quieter way toread Vidurneeti.');
+    assert.equal(root.root.findAllByType('h1')[0].children.filter(t => typeof t === 'string').join(''), 'Eyes on whatis unseen.');
     assert.ok(!JSON.stringify(root.toJSON()).includes('Import archive'));
   } finally { if (root) act(() => root.unmount()); env.restore(); }
 });

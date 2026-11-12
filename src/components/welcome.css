@@ -163,3 +163,25 @@
   .welcome-theme-trigger > svg:last-child { display: none; }
   .welcome-page .welcome-header-signin { white-space: nowrap; }
 }
+
+/* Home: a short introduction, then two paths */
+.welcome-page a.welcome-why{text-decoration:none;color:var(--text);border:1px solid var(--border-strong)}
+.welcome-page .welcome-header-signin{white-space:nowrap}
+.welcome-intro{text-align:center;padding:44px 0 34px}
+.welcome-intro h1{margin:0 0 18px;font:500 clamp(40px,6vw,64px)/1.05 var(--sans);letter-spacing:-.055em;color:var(--text);animation:welcome-text-focus 700ms ease-out 100ms both}
+.welcome-intro>p{margin:0 auto;max-width:46ch;font-size:16px;line-height:1.65;color:var(--text-muted);animation:welcome-text-focus 700ms ease-out 190ms both}
+.welcome-paths{display:grid;grid-template-columns:1fr 1fr;gap:18px;padding-bottom:36px}
+.welcome-path{display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:28px;border:1px solid var(--border-strong);border-radius:var(--radius-lg);background:var(--bg-1);box-shadow:var(--shadow-soft);text-align:left;animation:welcome-text-focus 700ms ease-out 280ms both;transition:transform 200ms ease,border-color 200ms ease,box-shadow 200ms ease}
+.welcome-path.is-groundwork{animation-delay:360ms;background:linear-gradient(150deg,var(--accent-soft),transparent 60%),var(--bg-1)}
+@media(hover:hover){.welcome-path:hover{transform:translateY(-3px);border-color:var(--border-hot);box-shadow:var(--shadow-pop)}}
+.welcome-path-icon{display:grid;place-items:center;width:44px;height:44px;border-radius:14px;background:var(--accent-soft);color:var(--accent);margin-bottom:8px}
+.welcome-path-icon svg{width:20px;height:20px}
+.welcome-path-kicker{font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--accent)}
+.welcome-path h2{margin:0;font:600 26px/1.15 var(--sans);letter-spacing:-.035em;color:var(--text)}
+.welcome-path>p{margin:0;font-size:14px;line-height:1.65;color:var(--text-muted);max-width:44ch}
+.welcome-path .welcome-entry-actions{justify-content:flex-start;margin-top:auto;padding-top:18px}
+.welcome-path a.welcome-primary{text-decoration:none;display:inline-flex;align-items:center;gap:12px;height:48px;padding:12px 24px;border-radius:999px;font-size:14px;line-height:20px;white-space:nowrap}
+.welcome-path .welcome-path-note{font-size:12px;color:var(--text-dim);margin-top:6px}
+.welcome-path .signup-capacity{margin:0}
+@media(max-width:767px){.welcome-intro{padding:28px 0 24px}.welcome-intro h1{font-size:40px}.welcome-intro>p{font-size:14px}.welcome-paths{grid-template-columns:1fr;gap:14px;padding-bottom:24px}.welcome-path{padding:22px}.welcome-path .welcome-entry-actions{width:100%}.welcome-path .welcome-entry-actions>*{flex:1;justify-content:center}.welcome-groundwork-tab span{display:none}}
+@media(prefers-reduced-motion:reduce){.welcome-intro h1,.welcome-intro>p,.welcome-path{animation:none}.welcome-path:hover{transform:none}}

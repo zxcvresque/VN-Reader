@@ -7,7 +7,6 @@ import { hasEnteredAsGuest, rememberGuestEntry, shouldOfferTour, rememberTourInv
 import ReaderSettings from "./components/ReaderSettings";
 import ReadingWidth from "./components/ReadingWidth";
 import ReaderGuide from "./components/ReaderGuide";
-import AdminDashboard from "./components/AdminDashboard";
 import { useSignupCapacity } from "./lib/useSignupCapacity";
 import ReaderAccount from "./components/ReaderAccount";
 import { useReaderAccount } from "./lib/useReaderAccount";
@@ -136,7 +135,6 @@ export default function App() {
   useEffect(()=>{void restoreCustomFont().catch(()=>{});},[]);
   const [accountOpen, setAccountOpen] = useState(false);
   const [accountMode,setAccountMode] = useState<"login"|"register">("login");
-  const [adminOpen,setAdminOpen] = useState(false);
   const signupCapacity=useSignupCapacity();
   const openAccount=(mode:"login"|"register"="login")=>{setAccountMode(mode);setAccountOpen(true);};
   const accountActiveRef = useRef(false);
@@ -250,7 +248,7 @@ export default function App() {
   useEffect(()=>{if(account.user){setEntered(true);setAccountOpen(false);}},[account.user?.id]);
   const accountFlushRef=useRef(account.flush);accountFlushRef.current=account.flush;
   accountActiveRef.current=account.user!==null;
-  const accountDialog=accountOpen?<ReaderAccount account={account} onClose={()=>setAccountOpen(false)} onGuest={!entered?continueAsGuest:undefined} initialMode={accountMode} capacity={signupCapacity.capacity} capacityError={signupCapacity.error} onRefreshCapacity={signupCapacity.refresh} onOpenAdmin={()=>{setAccountOpen(false);setAdminOpen(true);}}/>:null;
+  const accountDialog=accountOpen?<ReaderAccount account={account} onClose={()=>setAccountOpen(false)} onGuest={!entered?continueAsGuest:undefined} initialMode={accountMode} capacity={signupCapacity.capacity} capacityError={signupCapacity.error} onRefreshCapacity={signupCapacity.refresh}/>:null;
   const deferredSearch = useDeferredValue(searchQuery.trim().toLowerCase());
 
   // -------- snapshot loading --------
@@ -1108,7 +1106,7 @@ export default function App() {
 
   // Entry is independent of archive availability, so fetching posts never flashes
   // an import screen or opens the reader before a visitor has chosen a mode.
-  if (!entered) return <><WelcomePage theme={preferences.theme} onThemeChange={theme=>changePreferences({...preferences,theme})} onGuest={continueAsGuest} onSignIn={()=>openAccount()} onSignUp={()=>openAccount("register")} capacity={signupCapacity.capacity} capacityError={signupCapacity.error} onRefreshCapacity={signupCapacity.refresh} messages={snapshot.messages} manifest={snapshot.manifest}/>{accountDialog}</>;
+  if (!entered) return <><WelcomePage theme={preferences.theme} onThemeChange={theme=>changePreferences({...preferences,theme})} onGuest={account.user?()=>setEntered(true):continueAsGuest} signedInAs={account.user?.email} onSignIn={()=>openAccount()} onSignUp={()=>openAccount("register")} capacity={signupCapacity.capacity} capacityError={signupCapacity.error} onRefreshCapacity={signupCapacity.refresh} messages={snapshot.messages} manifest={snapshot.manifest}/>{accountDialog}</>;
   if (snapshot.messages.length === 0) {
     const loading=!localLoaded||!account.configReady||archiveLoading||(account.config?.archiveEnabled&&!archiveError);
     const problem=archiveError||account.configError||"The Vidurneeti archive is not connected yet. Please try again shortly.";
@@ -1158,6 +1156,7 @@ export default function App() {
         onOpenGuide={openGuide}
         onOpenLibrary={()=>{setReaderSearchOpen(false);setSourcePeek(null);setLibraryOpen(true);}}
         onOpenAccount={()=>openAccount()}
+        onHome={()=>{setAccountOpen(false);setEntered(false);window.scrollTo({top:0});}}
         accountLabel={account.user?"Your account":"Sign in or create account"}
         paletteOpen={paletteOpen}
         settingsOpen={settingsOpen}
@@ -1370,7 +1369,6 @@ export default function App() {
       />
 
       {guideDialog}
-      {adminOpen&&account.user&&<AdminDashboard onClose={()=>setAdminOpen(false)}/>}
       {featuresOpen && <FeatureWalkthrough onClose={()=>setFeaturesOpen(false)}/>}
       <MediaLightbox media={lightboxMedia} onClose={() => setLightboxMedia(null)} />
 

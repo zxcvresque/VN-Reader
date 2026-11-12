@@ -155,6 +155,7 @@ async def _connect_client():
         _retry_not_before = 0.0
         _client, _destination, _last_error = client, destination, None
         _register_r2_controls(client)
+        _register_form_status(client)
         log.info("Telegram media connection ready")
         asyncio.create_task(notify("Archive connection recovered" if recovered else "Archive service started"))
         return True
@@ -280,6 +281,46 @@ def _register_r2_controls(client):
         log.info("R2 controls command and callback handlers registered")
     except Exception as exc:
         log.warning("R2 controls handler not registered: %s", exc)
+
+def _form_status_request(payload: dict) -> dict:
+    """Ask the account service what to tell this Telegram user about their form responses."""
+    import json, urllib.request
+    base = os.getenv("VN_ACCOUNTS_URL", "http://accounts:3005").rstrip("/")
+    request = urllib.request.Request(f"{base}/internal/forms/telegram", data=json.dumps(payload).encode(), method="POST",
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {os.getenv('TELEGRAM_BOT_TOKEN', '')}"})
+    with urllib.request.urlopen(request, timeout=8) as response:
+        return json.loads(response.read().decode())
+
+def _register_form_status(client):
+    """Private /start r_<code> links a form response to the sender; /status shows only the sender's own responses."""
+    if getattr(client, "_vn_form_status_registered", False):
+        return
+    try:
+        from telethon import events, Button
+        @client.on(events.NewMessage(incoming=True, pattern=r"^/(start|status)(\b|@)", func=lambda e: getattr(e, "is_private", False)))
+        async def _on_form_status(event):
+            text = (getattr(event, "raw_text", "") or "").strip()
+            sender = getattr(event, "sender_id", None) or 0
+            try:
+                owner = int(os.getenv("TELEGRAM_OWNER_ID", "0") or 0)
+            except Exception:
+                owner = 0
+            # A bare /start from the owner opens the storage controls instead.
+            if owner and int(sender or 0) == owner and re.fullmatch(r"/start(@\w+)?", text):
+                return
+            try:
+                user = await event.get_sender()
+                reply = await asyncio.to_thread(_form_status_request, {"userId": str(int(sender)), "username": getattr(user, "username", None) or "", "text": text[:200]})
+                button = reply.get("button") if isinstance(reply, dict) else None
+                if isinstance(reply, dict) and reply.get("text"):
+                    await event.respond(str(reply["text"])[:4000], parse_mode="html", link_preview=False,
+                        buttons=[[Button.url(str(button["text"])[:60], str(button["url"]))]] if button and button.get("url") else None)
+            except Exception as exc:
+                log.warning("Form status reply failed: %s", error_label(exc))
+        client._vn_form_status_registered = True
+        log.info("Form status command handlers registered")
+    except Exception as exc:
+        log.warning("Form status handler not registered: %s", exc)
 
 def _kb_to_telethon(kb: dict):
     """Convert Bot API inline_keyboard JSON to Telethon buttons."""

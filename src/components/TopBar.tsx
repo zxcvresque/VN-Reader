@@ -1,19 +1,19 @@
 import {useEffect,useRef,useState} from "react";
 import {createPortal} from "react-dom";
-import {ReaderIcon,BookmarkIcon,BarChartIcon,Share2Icon,MagnifyingGlassIcon,EnterFullScreenIcon,ExitFullScreenIcon,MixerHorizontalIcon,QuestionMarkCircledIcon,PersonIcon,HamburgerMenuIcon,Cross2Icon,EyeOpenIcon,EyeClosedIcon} from "@radix-ui/react-icons";
+import {ReaderIcon,BookmarkIcon,BarChartIcon,Share2Icon,MagnifyingGlassIcon,EnterFullScreenIcon,ExitFullScreenIcon,MixerHorizontalIcon,QuestionMarkCircledIcon,PersonIcon,Pencil2Icon,HamburgerMenuIcon,Cross2Icon,EyeOpenIcon,EyeClosedIcon} from "@radix-ui/react-icons";
 import type {ViewName} from "./CommandPalette";
 import BrandLogo from "./BrandLogo";
 import {useTouchLayout} from "../lib/useTouchLayout";
 interface TopBarProps {
   channelTitle:string;channelMeta:string;anchorLabel:string;progressPercent:number;view:ViewName;
-  onSetView:(view:ViewName)=>void;onOpenPalette:()=>void;onOpenSettings?:()=>void;onOpenGuide?:()=>void;onOpenAccount?:()=>void;onOpenLibrary?:()=>void;
+  onSetView:(view:ViewName)=>void;onOpenPalette:()=>void;onOpenSettings?:()=>void;onOpenGuide?:()=>void;onOpenAccount?:()=>void;onOpenLibrary?:()=>void;onHome?:()=>void;
   navPosition?:"top"|"bottom"|"left"|"right";guideMenuOpen?:boolean;accountLabel?:string;paletteOpen?:boolean;settingsOpen?:boolean;guideOpen?:boolean;accountOpen?:boolean;onToggleFocus?:()=>void;focusMode?:boolean;
   restoreTarget?:HTMLDivElement|null;
 }
 const VIEWS:Array<{key:ViewName;label:string;icon:typeof ReaderIcon}>=[
   {key:"read",label:"Read",icon:ReaderIcon},{key:"threads",label:"Threads",icon:Share2Icon},{key:"bookmarks",label:"Bookmarks",icon:BookmarkIcon},{key:"progress",label:"Progress",icon:BarChartIcon}
 ];
-export default function TopBar({channelTitle,anchorLabel,progressPercent,view,onSetView,onOpenPalette,onOpenSettings,onOpenGuide,onOpenAccount,onOpenLibrary,accountLabel,paletteOpen=false,settingsOpen=false,guideOpen=false,guideMenuOpen=false,accountOpen=false,onToggleFocus,focusMode=false,navPosition="top",restoreTarget=null}:TopBarProps) {
+export default function TopBar({channelTitle,anchorLabel,progressPercent,view,onSetView,onOpenPalette,onOpenSettings,onOpenGuide,onOpenAccount,onOpenLibrary,onHome,accountLabel,paletteOpen=false,settingsOpen=false,guideOpen=false,guideMenuOpen=false,accountOpen=false,onToggleFocus,focusMode=false,navPosition="top",restoreTarget=null}:TopBarProps) {
   const [autoHide,setAutoHide]=useState(()=>{try{return localStorage.getItem("vn-reader-nav-auto-hide")==="true";}catch{return false;}});
   const [revealed,setRevealed]=useState(false);
   const [restoreHint,setRestoreHint]=useState(false);
@@ -38,7 +38,7 @@ export default function TopBar({channelTitle,anchorLabel,progressPercent,view,on
   return <>{inlineRestore?createPortal(<>{restoreButton}{hint}</>,restoreTarget):<>{restoreButton}{hint}</>}
   <header id="reader-navigation-dock" ref={shell} onPointerEnter={()=>{pointerInside.current=true;if(!touch)reveal();}} onPointerLeave={()=>{pointerInside.current=false;if(!touch)scheduleHide();}} onFocusCapture={reveal} onBlurCapture={event=>{if(!shell.current?.contains(event.relatedTarget as Node))scheduleHide();}} className={`top-bar is-expanded minimal-nav ${shown?"is-mobile-open":""} ${hidden?"nav-auto-hidden":""}`}>
 
-    <div className="top-bar-channel" aria-label="vn reader"><span className="top-bar-mark"><BrandLogo width={42}/></span></div>
+    {onHome?<button type="button" className="top-bar-channel top-bar-home" aria-label="vn reader home" data-tooltip="Home" onClick={()=>run(onHome)}><span className="top-bar-mark"><BrandLogo width={42}/></span></button>:<div className="top-bar-channel" aria-label="vn reader"><span className="top-bar-mark"><BrandLogo width={42}/></span></div>}
     <div className={`top-bar-menu-panel ${shown?"is-open":""}`}>
     <nav id="reader-view-navigation" data-tour="navigation" className="view-switch" aria-label="Views">
       {VIEWS.map(({key,label,icon:Icon})=><button key={key} type="button" data-tour={`view-${key}`} aria-label={label} aria-current={view===key?"page":undefined} className={view===key?"active":""} onClick={()=>run(()=>onSetView(key))}><Icon aria-hidden/><span>{label}</span></button>)}
@@ -48,6 +48,7 @@ export default function TopBar({channelTitle,anchorLabel,progressPercent,view,on
       {onOpenSettings&&<button type="button" data-tour="settings" aria-expanded={settingsOpen} onClick={()=>run(onOpenSettings)}><MixerHorizontalIcon aria-hidden/><span>Appearance & settings</span></button>}
       {onOpenGuide&&<button type="button" data-tour="help" aria-expanded={guideOpen} onClick={()=>run(onOpenGuide)}><QuestionMarkCircledIcon aria-hidden/><span>Help & tours</span></button>}
       {onOpenAccount&&<button type="button" data-tour="account-controls" aria-expanded={accountOpen} onClick={()=>run(onOpenAccount)}><PersonIcon aria-hidden/><span>{accountLabel??"Your account"}</span></button>}
+      <button type="button" onClick={()=>window.location.assign("/f/groundwork")}><Pencil2Icon aria-hidden/><span>Ground Work form</span></button>
       <p>Reading position: {anchorLabel} ({Math.round(Math.max(0,Math.min(100,progressPercent)))}%)</p>
     </div>}
     </div>

@@ -2,6 +2,10 @@
 
 A reader for the VidurNeeti Telegram archive, with browser-local guest reading, optional Better Auth accounts, quote-aware threads, search, a personal library and saved progress. The hosted archive loads automatically, including Telegram media streaming. Hosted setup and Oracle A1 deployment are documented in [server/README.md](server/README.md).
 
+## Forms and admin
+
+The home page introduces Vidurneeti and offers two paths: VN Reader and Ground Work. Forms live at `/f/<name>` and the admin console at `/admin`. See [docs/FORMS.md](docs/FORMS.md).
+
 ## Start
 
 1. Use Node 24.15+ and run `pnpm install --frozen-lockfile`, then `pnpm dev`.
@@ -21,7 +25,7 @@ Telegram extraction scripts remain available for server-side archive preparation
 - **Direct navigation:** jump by message ID, thread root ID, or date.
 - **Read state:** mark individual messages read/unread or mark everything through a message as read.
 - **Media:** inline photos, video, and audio, plus a fullscreen photo/video viewer.
-- **Global appearance:** Settings offers Vercel, Editorial, Cobalt Index, and Liquid Opal, each with distinct surfaces, typography accents, and button treatments. A first visit uses Vercel for system dark mode or Liquid Opal for system light mode. Your choice applies to every view and overlay and survives reloads; signed-in account appearance also syncs.
+- **Global appearance:** Settings offers Vercel, Editorial, Cobalt Index, Liquid Opal, and Liquid Glass, each with distinct surfaces, typography accents, and button treatments. A first visit uses Vercel for system dark mode or Liquid Opal for system light mode. Your choice applies to every view and overlay and survives reloads; signed-in account appearance also syncs.
 - **Page controls:** font family/size, line height, paragraph spacing, 40–120ch width, warm ivory or sepia reading paper, and named appearance presets.
 - **Exact resume:** autosaves the post, paragraph, fraction within the paragraph, and scroll offset. Resume preserves the same passage through theme and width changes.
 - **Focus:** hides navigation, statistics, session controls, and post actions; use Exit focus to bring them back.

@@ -2781,8 +2781,8 @@ body { isolation: isolate; background-attachment: fixed; }
 /* Minimal reading desk. Existing tools remain in menus; 44px touch targets. */
 .brand-logo img{width:100%;height:100%;object-fit:contain;grid-area:1/1;display:block}
 .brand-logo .brand-logo-dark{display:none}
-:root:is([data-theme="vercel"],[data-theme="editorial"]) .brand-logo-light{display:none}
-:root:is([data-theme="vercel"],[data-theme="editorial"]) .brand-logo-dark{display:block}
+:root:is([data-theme="vercel"],[data-theme="editorial"],[data-theme="glass"]) .brand-logo-light{display:none}
+:root:is([data-theme="vercel"],[data-theme="editorial"],[data-theme="glass"]) .brand-logo-dark{display:block}
 .top-bar .top-bar-mark{background:transparent!important;padding:0!important;border:0!important;width:42px;height:42px;min-width:42px;box-shadow:none!important}
 .minimal-nav .top-bar-menu{display:inline-flex!important}
 .minimal-nav .top-bar-actions{gap:4px}
@@ -3413,3 +3413,28 @@ body { isolation: isolate; background-attachment: fixed; }
 :root .reader-link-preview-open svg { width:16px; height:16px; flex-shrink:0; }
 :root .reader-link-preview-open:hover { background:var(--accent-soft); }
 @media(max-width:479px) { :root .reader-link-preview { padding:16px; gap:12px; } }
+
+/* ---- Logo is the way home ---- */
+button.top-bar-home { background: transparent; border: 0; padding: 0; box-shadow: none; cursor: pointer; border-radius: 50%; min-height: 0; width: auto; }
+button.top-bar-home:hover { transform: none; box-shadow: none; }
+button.top-bar-home:hover .top-bar-mark { filter: brightness(1.12); }
+
+/* ---- Liquid Glass: frosted panels over a deep aurora canvas ---- */
+:root[data-theme="glass"] {
+  --bg-0: #070a17; --bg-1: #ffffff0f; --bg-2: #ffffff17; --bg-3: #ffffff22;
+  --text: #f1f2f8; --text-muted: #b5b9cf; --text-dim: #8d92ad; --text-faint: #646a87;
+  --accent: #f2a23a; --accent-strong: #ffc06b; --on-accent: #17130a;
+  --unread: #6cc3d6; --success: #7fd6a4; --danger: #ff8f86; --warn: #f1c26a;
+  --border: #ffffff1c; --border-strong: #ffffff33;
+  --radius-sm: 12px; --radius: 20px; --radius-lg: 28px; --display: var(--sans);
+  --shadow-soft: 0 10px 34px #02041066, inset 0 1px 0 #ffffff1f; --shadow-pop: 0 26px 80px #020410b3, inset 0 1px 0 #ffffff26;
+  --ambient-a: #12a39a4d; --ambient-b: #5b46e666;
+  --bg-elevated: #141a33e6; --overlay: #050711b8;
+  color-scheme: dark;
+}
+:root[data-theme="glass"] body { background: radial-gradient(60rem 40rem at 0% 0%, var(--ambient-a), transparent 60%), radial-gradient(55rem 45rem at 100% 35%, var(--ambient-b), transparent 62%), radial-gradient(40rem 28rem at 50% 100%, #f2a23a2b, transparent 65%), var(--bg-0); background-attachment: fixed; }
+:root[data-theme="glass"] :is(.top-bar, .reader-message, .stat-panel, .library-card, .launchpad-tile, .reader-settings, .account-dialog, .command-palette, .reader-tools-menu > div, .welcome-path, .welcome-theme-options, .welcome-walkthrough) { -webkit-backdrop-filter: blur(22px) saturate(170%); backdrop-filter: blur(22px) saturate(170%); border-color: var(--border-strong); }
+:root[data-theme="glass"] :is(.reader-settings, .account-dialog, .command-palette, .welcome-theme-options, .welcome-walkthrough, .top-bar-utility-panel) { background-color: var(--bg-elevated); }
+:root[data-theme="glass"] :is(select, option) { background-color: #141a33; color: var(--text); }
+:root[data-theme="glass"] .top-bar-mark { border-radius: 50%; }
+@media (prefers-reduced-transparency: reduce) { :root[data-theme="glass"] { --bg-1: #121730; --bg-2: #1a2040; --bg-3: #232a50; } }

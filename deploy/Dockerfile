@@ -7,6 +7,8 @@ RUN corepack pnpm install --frozen-lockfile
 FROM dependencies AS build
 COPY tsconfig*.json vite.config.ts index.html ./
 COPY src ./src
+# The form pages share validation and conditional logic with the server.
+COPY server/formLogic.mjs server/formLogic.d.mts ./server/
 COPY public ./public
 RUN corepack pnpm build
 
@@ -15,9 +17,10 @@ WORKDIR /app
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN corepack pnpm install --frozen-lockfile --prod
-COPY server/accounts.mjs server/accountService.mjs server/adminStore.mjs server/notifications.mjs server/operatorEvents.json ./server/
+COPY server/accounts.mjs server/accountService.mjs server/adminStore.mjs server/notifications.mjs server/operatorEvents.json \
+     server/formLogic.mjs server/formsStore.mjs server/formsRoutes.mjs server/formsBackup.mjs server/formsSeed.mjs ./server/
 RUN chmod 755 /app /app/server \
- && chmod 644 /app/package.json /app/server/accounts.mjs /app/server/accountService.mjs /app/server/adminStore.mjs /app/server/notifications.mjs /app/server/operatorEvents.json \
+ && chmod 644 /app/package.json /app/server/* \
  && mkdir -p /data && chown node:node /data
 USER node
 ENV VN_ACCOUNT_DATABASE_PATH=/data/accounts.sqlite3 VN_ACCOUNT_HOST=0.0.0.0 VN_ACCOUNT_PORT=3005

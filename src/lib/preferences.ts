@@ -2,8 +2,12 @@ export const THEMES = [
   { id: "vercel", name: "Vercel", description: "Quiet monochrome · engineered clarity", colors: ["#0a0a0a", "#ededed", "#a1a1a1"] },
   { id: "editorial", name: "Editorial", description: "Amber ink · quiet editorial", colors: ["#11141b", "#e8b26b", "#e8e6e0"] },
   { id: "cobalt", name: "Cobalt Index", description: "Precise grids · electric blue", colors: ["#edeee8", "#234bdb", "#15252e"] },
-  { id: "opal", name: "Liquid Opal", description: "Pearl surfaces · soft iridescence", colors: ["#e9e7f2", "#625b9f", "#7baba6"] }
+  { id: "opal", name: "Liquid Opal", description: "Pearl surfaces · soft iridescence", colors: ["#e9e7f2", "#625b9f", "#7baba6"] },
+  { id: "glass", name: "Liquid Glass", description: "Frosted panels · deep aurora light", colors: ["#0a0d1c", "#f2a23a", "#5fb8c9"] }
 ] as const;
+/** Themes drawn on a dark canvas; they use the dark logo and favicon. */
+export const DARK_THEMES: readonly string[] = ["vercel", "editorial", "glass"];
+
 
 export type ThemeId = typeof THEMES[number]["id"];
 export const NAV_POSITIONS = [
@@ -89,7 +93,7 @@ export function applyPreferences(preferences: ReaderPreferences): void {
   const prefs = normalizePreferences(preferences);
   const root = document.documentElement;
   root.dataset.theme = prefs.theme;
-  const iconMode = ["vercel", "editorial"].includes(prefs.theme) ? "dark" : "light";
+  const iconMode = DARK_THEMES.includes(prefs.theme) ? "dark" : "light";
   document.querySelector<HTMLLinkElement>("#reader-favicon")?.setAttribute("href", `/favicon-${iconMode}.svg`);
   document.querySelector<HTMLLinkElement>("#reader-touch-icon")?.setAttribute("href", `/apple-touch-icon-${iconMode}.png`);
   root.dataset.navPosition = prefs.navPosition;

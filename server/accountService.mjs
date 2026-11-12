@@ -2,21 +2,22 @@ import express from "express";
 import { createNotifier } from "./notifications.mjs";
 import { toNodeHandler, fromNodeHeaders } from "better-auth/node";
 import { createAccounts, accountSettings, StateError } from "./accounts.mjs";
+import { createForms, FormError } from "./formsRoutes.mjs";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { config as loadEnv } from "dotenv";
 
 export async function createAccountApp(settings=accountSettings(),sendEmail) {
-  const accounts=await createAccounts(settings,sendEmail);const app=express();app.disable("x-powered-by");
+  const accounts=await createAccounts(settings,sendEmail);const forms=createForms({accounts,settings,fetchImpl:settings.fetchImpl,env:settings.env});const app=express();app.disable("x-powered-by");
   const origins=new Set([...settings.origins,new URL(settings.baseURL).origin]);
   app.use((req,res,next)=>{
     // Production accepts traffic only from the private reverse proxy.
     // In development use the actual socket instead of a caller-controlled value.
     if(!settings.production||!req.headers["x-forwarded-for"])req.headers["x-forwarded-for"]=req.socket.remoteAddress;
     res.set({"X-Content-Type-Options":"nosniff","Referrer-Policy":"same-origin","Cache-Control":"no-store"});
-    if(!["GET","HEAD","OPTIONS"].includes(req.method)){
+    if(!["GET","HEAD","OPTIONS"].includes(req.method)&&req.path!=="/internal/forms/telegram"){
       if(!origins.has(req.headers.origin)||req.headers["x-vn-csrf"]!=="1")return res.status(403).json({detail:"This request did not pass the browser security check."});
-      const limit=req.path.startsWith("/api/state/")?1024*1024+4096:8192;
+      const limit=req.path.startsWith("/api/state/")?1024*1024+4096:/^\/api\/admin\/forms\/[^/]+\/font$/.test(req.path)?900*1024:/^\/api\/(admin|forms)\//.test(req.path)?300*1024:8192;
       if(Number(req.headers["content-length"]??0)>limit)return res.status(413).json({detail:"Request too large."});
     }
     next();
@@ -30,14 +31,14 @@ export async function createAccountApp(settings=accountSettings(),sendEmail) {
   app.get("/api/health",(req,res)=>res.json({status:"ok",accountsEnabled:accounts.enabled}));
   app.get("/api/signup-capacity",(req,res)=>res.json(accounts.admin.capacity(accounts.enabled)));
   app.get("/api/admin/access",async(req,res)=>{
-    try {const session=accounts.enabled?await accounts.auth.api.getSession({headers:fromNodeHeaders(req.headers)}):null;res.json({allowed:accounts.admin.allowed(session?.user)});}
+    try {const session=accounts.enabled?await accounts.auth.api.getSession({headers:fromNodeHeaders(req.headers)}):null;res.json({allowed:forms.anyAdmin(session?.user)});}
     catch {res.json({allowed:false});}
   });
   app.get("/api/admin/dashboard",async(req,res)=>{
     try {
       const session=accounts.enabled?await accounts.auth.api.getSession({headers:fromNodeHeaders(req.headers)}):null;
       if(!session?.user?.emailVerified)return res.status(401).json({detail:"Sign in with a verified email to view administration."});
-      if(!accounts.admin.allowed(session.user))return res.status(403).json({detail:"This account does not have administrator access."});
+      if(!forms.siteAdmin(session.user))return res.status(403).json({detail:"This account does not have administrator access."});
       const day=req.query.day??accounts.admin.dayAt(),page=req.query.page??"1";
       if(typeof day!=="string"||typeof page!=="string"||!/^\d+$/.test(page))return res.status(422).json({detail:"Invalid day or page."});
       try {res.json(accounts.admin.dashboard(day,Number(page)));}catch {res.status(422).json({detail:"Invalid day or page. Use YYYY-MM-DD and a positive page number."});}
@@ -49,7 +50,9 @@ export async function createAccountApp(settings=accountSettings(),sendEmail) {
       session=accounts.enabled?await accounts.auth.api.getSession({headers:fromNodeHeaders(req.headers)}):null;
     } catch {return res.status(401).json({detail:"Your session has expired. Sign in again."});}
     if(!session?.user?.emailVerified)return res.status(401).json({detail:"Sign in with a verified email to view administration."});
-    if(!accounts.admin.allowed(session.user))return res.status(403).json({detail:"This account does not have administrator access."});
+    if(!forms.siteAdmin(session.user))return res.status(403).json({detail:"This account does not have administrator access."});
+    // Pausing or resuming storage changes the live site, so it needs more than read access.
+    if(method==="POST"&&!forms.hasPermission(session.user,"settings.manage"))return res.status(403).json({detail:"Your admin role can view storage but not change it."});
     if(!settings.archiveEnabled)return res.status(503).json({detail:"Archive service is not available."});
     try {
       const target=new URL(upstreamPath,settings.archiveURL??"http://127.0.0.1:8000");
@@ -62,6 +65,7 @@ export async function createAccountApp(settings=accountSettings(),sendEmail) {
   app.get("/api/admin/r2-stats",(req,res)=>proxyR2Admin(req,res,"/api/r2-stats"));
   app.get("/api/admin/r2-analytics",(req,res)=>proxyR2Admin(req,res,"/api/r2-analytics"));
   app.post("/api/admin/r2-control",(req,res)=>proxyR2Admin(req,res,"/api/r2-control","POST"));
+  forms.mount(app);
   app.use("/api/state",async(req,res,next)=>{
     if(!accounts.enabled)return res.status(503).json({detail:"Accounts are not configured."});
     try{const session=await accounts.auth.api.getSession({headers:fromNodeHeaders(req.headers)});if(!session?.user?.emailVerified)return res.status(401).json({detail:"Sign in with a verified email to sync your reading state."});req.readerUser=session.user;next();}catch{res.status(401).json({detail:"Your session has expired. Sign in again."});}
@@ -77,8 +81,9 @@ export async function createAccountApp(settings=accountSettings(),sendEmail) {
     const revision=String(match).replace(/^"|"$/g,"");if(!/^\d+$/.test(revision))return res.status(422).json({detail:"Invalid revision."});
     try{const state=accounts.states.put(req.readerUser.id,req.params.chatId,req.body?.data,Number(revision));res.set("ETag",`"${state.revision}"`).json(state);}catch(e){next(e);}
   });
-  app.use((error,req,res,next)=>{if(!(error instanceof StateError)&&!error.type&&!(error instanceof SyntaxError))void accounts.notify("Account request failed","An internal request could not be completed.",300000,{severity:"critical",fields:{route:`${req.method} ${req.path}`,email:req.readerUser?.email,readerId:req.readerUser?.id,error:"Internal error"}});res.status(error instanceof StateError?error.status:error.type==="entity.too.large"?413:error instanceof SyntaxError?422:500).json({detail:error instanceof StateError?error.message:error.type==="entity.too.large"?"Request too large.":error instanceof SyntaxError?"Invalid JSON.":"The account service could not complete this request."});});
-  return {app,accounts};
+  app.use((error,req,res,next)=>{if(error instanceof FormError)return res.status(error.status).json({detail:error.message,...(error.extra??{})});if(!(error instanceof StateError)&&!error.type&&!(error instanceof SyntaxError))void accounts.notify("Account request failed","An internal request could not be completed.",300000,{severity:"critical",fields:{route:`${req.method} ${req.path}`,email:req.readerUser?.email,readerId:req.readerUser?.id,error:"Internal error"}});res.status(error instanceof StateError?error.status:error.type==="entity.too.large"?413:error instanceof SyntaxError?422:500).json({detail:error instanceof StateError?error.message:error.type==="entity.too.large"?"Request too large.":error instanceof SyntaxError?"Invalid JSON.":"The account service could not complete this request."});});
+  const closeAccounts=accounts.close;accounts.close=()=>{forms.close();closeAccounts();};
+  return {app,accounts,forms};
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
   loadEnv({path:process.env.VN_ENV_FILE??".env.production",quiet:true});

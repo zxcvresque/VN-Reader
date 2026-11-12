@@ -93,7 +93,7 @@ test("applying preferences updates navigation data alongside theme and typograph
 });
 
 test("removed themes migrate in backups and nested presets without discarding reading settings", () => {
- assert.deepEqual(THEMES.map(t=>t.id),["vercel","editorial","cobalt","opal"]);
+ assert.deepEqual(THEMES.map(t=>t.id),["vercel","editorial","cobalt","opal","glass"]);
  for(const [theme,replacement] of [["aurora","vercel"],["niti","opal"],["signal","vercel"]]){
  const restored=validatePreferences({...DEFAULT_PREFERENCES,theme,fontSize:21,presets:[{id:"legacy",name:"Saved setup",preferences:{...DEFAULT_PREFERENCES,theme,readingWidth:90}}]});
  assert.equal(restored.theme,replacement);assert.equal(restored.fontSize,21);assert.equal(restored.presets[0].preferences.theme,replacement);assert.equal(restored.presets[0].preferences.readingWidth,90);

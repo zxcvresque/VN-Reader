@@ -6,13 +6,11 @@ import type { useReaderAccount } from "../lib/useReaderAccount";
 
 type AccountController = ReturnType<typeof useReaderAccount>;
 type Mode = "login" | "register" | "verify" | "forgot" | "reset";
-export default function ReaderAccount({account,onClose,onGuest,onOpenAdmin,initialMode="login",capacity,capacityError,onRefreshCapacity=()=>{}}:{account:AccountController;onClose:()=>void;onGuest?:()=>void;onOpenAdmin?:()=>void;initialMode?:"login"|"register";capacity?:Capacity|null;capacityError?:string;onRefreshCapacity?:()=>void}) {
+export default function ReaderAccount({account,onClose,onGuest,initialMode="login",capacity,capacityError,onRefreshCapacity=()=>{}}:{account:AccountController;onClose:()=>void;onGuest?:()=>void;initialMode?:"login"|"register";capacity?:Capacity|null;capacityError?:string;onRefreshCapacity?:()=>void}) {
   const [mode,setMode]=useState<Mode>(initialMode);const [email,setEmail]=useState("");const [password,setPassword]=useState("");const [code,setCode]=useState("");
   const [displayName,setDisplayName]=useState(account.user?.name==="Reader"?"":account.user?.name??"");
   useEffect(()=>{setDisplayName(account.user?.name==="Reader"?"":account.user?.name??"");},[account.user?.id,account.user?.name]);
   const [busy,setBusy]=useState(false);const [error,setError]=useState("");const [notice,setNotice]=useState("");const [cooldown,setCooldown]=useState(0);
-  const [adminAllowed,setAdminAllowed]=useState(false);
-  useEffect(()=>{setAdminAllowed(false);if(!account.user)return;let active=true;void api<{allowed:boolean}>("/admin/access").then(result=>{if(active)setAdminAllowed(result.allowed);}).catch(()=>{});return()=>{active=false;};},[account.user?.id]);
   const panel=useRef<HTMLDivElement>(null);
   const closeRef=useRef(onClose);closeRef.current=onClose;
   useEffect(()=>{const previous=document.activeElement as HTMLElement|null;const previousOverflow=document.body.style.overflow;document.body.style.overflow="hidden";panel.current?.querySelector<HTMLElement>("input,button")?.focus();const key=(e:KeyboardEvent)=>{
@@ -42,7 +40,6 @@ export default function ReaderAccount({account,onClose,onGuest,onOpenAdmin,initi
       {account.conflicts.length>0?<div className="account-conflict"><h3>Both devices changed the same information.</h3><p>Export a backup in Settings before choosing a copy if you want to keep both. Other edits have already been combined in the device copy.</p><p>Fields: {account.conflicts.slice(0,8).map(p=>p.replace(/^readingState\./,"")).join(", ")}</p><button disabled={busy} onClick={()=>void account.resolve("device")}>Keep this device’s copy</button><button disabled={busy} onClick={()=>void account.resolve("server")}>Use the server copy</button></div>:null}
       {account.guestImport&&account.ready?<div className="account-import"><h3>Bring your browser reading with you?</h3><p>Your guest notes and progress stay in this browser. You can replace this account’s current archive progress with that browser copy, including its appearance.</p><button onClick={()=>{if(window.confirm("Replace this account’s progress for this archive with the guest copy from this browser?"))account.importGuest();}}>Bring browser progress into my account</button></div>:null}
       <p className="account-explainer">Your notes, saved passages, collections, queue, bookmarks, media position, and appearance travel with this account. Signing out returns to your separate guest reading.</p>
-      {adminAllowed&&onOpenAdmin&&<button type="button" className="account-admin-link" onClick={onOpenAdmin}>Open admin dashboard <span aria-hidden="true">↗</span></button>}
       <div className="account-actions"><button onClick={()=>account.sync()} disabled={account.status==="loading"||account.status==="saving"}>Sync now</button><button onClick={()=>{setBusy(true);void account.logout().catch(e=>setError(e.message)).finally(()=>setBusy(false));}} disabled={busy}>Sign out</button></div>
     </>:<><h2 id="account-title">{titles[mode]}</h2><p>{mode==="verify"?"Enter the six-digit code sent to your email. It expires in 10 minutes.":"Read freely as a guest, or keep your reading progress across devices with an account."}</p>
       {(mode==="verify"||mode==="reset")&&<p className="account-delivery-note">Can’t find the code? Check your spam or junk folder. Mark the email as “Not spam” to help future codes reach your inbox.</p>}

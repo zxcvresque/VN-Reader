@@ -102,7 +102,17 @@ export async function createAccounts(settings=accountSettings(), sendEmail) {
   database.exec(`CREATE TABLE IF NOT EXISTS reader_states (
     user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE, chat_id TEXT NOT NULL,
     revision INTEGER NOT NULL, data TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(user_id,chat_id));`);
-  return {auth,database,enabled,admin,notify,states:new StateStore(database),close:()=>{transport?.close();database.close();}};
+  /** One plain-text message outside sign-in, counted against the same daily email allowance. */
+  async function mail({to,subject,text}) {
+    if(!enabled)return false;
+    let id;try{id=admin.reserve(to);}catch(error){if(error instanceof AllowanceError)return false;throw error;}
+    try{
+      if(sendEmail)await sendEmail({email:to,subject,text,type:"notice"});
+      else await transport.sendMail({from:settings.smtpFrom,to,subject,text});
+      admin.complete(id,"accepted");return true;
+    }catch(error){admin.complete(id,deliveryFailureIsDefinitive(error)?"failed":"unknown");return false;}
+  }
+  return {auth,database,enabled,admin,notify,mail,states:new StateStore(database),close:()=>{transport?.close();database.close();}};
 }
 
 export class StateError extends Error {constructor(status,message){super(message);this.status=status;}}
