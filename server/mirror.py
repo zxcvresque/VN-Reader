@@ -121,7 +121,7 @@ def local_parent(message, source):
 class MirrorStore:
     def __init__(self, path):
         Path(path).parent.mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(path, timeout=30)
+        self.db = sqlite3.connect(path, timeout=30, check_same_thread=False)
         self.db.row_factory = sqlite3.Row
         self.db.executescript("""
             PRAGMA journal_mode=WAL;
@@ -790,7 +790,11 @@ class TelegramWriter:
         log.info("R2 uploaded post #%s -> %s (%s bytes)", source_id, key, len(data))
         # Post-write: reuse cached stats for thresholds, then check 98% auto-stop
         try:
-            stats = await __import__("asyncio").to_thread(r2.bucket_stats, acct, force=False)
+            database_path = self.store.db.execute("PRAGMA database_list").fetchone()[2]
+            if database_path:
+                stats = await asyncio.to_thread(r2.bucket_stats_for_database, acct, database_path)
+            else:
+                stats = r2.bucket_stats(acct, db=self.store.db)
             from .r2_store import check_thresholds as _ct
             state = _ct(stats, "primary")
             # Build rich status + keyboard for critical alerts

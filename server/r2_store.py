@@ -29,6 +29,8 @@ import logging
 import mimetypes
 import os
 import re
+import sqlite3
+from contextlib import closing
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -254,6 +256,12 @@ def bucket_stats(account: R2Account, *, force: bool = False, db=None) -> BucketS
     stats = BucketStats(bucket=account.bucket, account_id=account.account_id, objects=total_objects, bytes_used=total_bytes)
     _stats_cache[ck] = (now, stats)
     return stats
+
+
+def bucket_stats_for_database(account: R2Account, database_path: str) -> BucketStats:
+    """Count R2 list requests with a connection owned by the calling thread."""
+    with closing(sqlite3.connect(database_path, timeout=30)) as db:
+        return bucket_stats(account, db=db)
 
 
 def invalidate_stats_cache(account: R2Account | None = None) -> None:
