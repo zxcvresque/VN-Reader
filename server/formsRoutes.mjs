@@ -89,6 +89,31 @@ export function createForms({ accounts, settings, fetchImpl = fetch, env = proce
     catch { formatter = new Intl.DateTimeFormat("en-IN", { ...options, timeZone: "UTC" }); }
     return formatter.format(new Date(timestamp));
   }
+  async function welcomeReply(userId) {
+    const title = "Welcome to Vidurneeti!";
+    const intro = "We share commentary on India, drawing on Vidura of the Mahabharata and the Bhagavad Geeta.";
+    const support = "https://t.me/vidurneetixyz";
+    const sections = [
+      ["Read inside Telegram", "Tap <b>Open Vidurneeti</b> to launch the web app. Browse posts, threads and timelines in VN Reader, save posts and take notes. You can also explore Ground Work and fill out forms."],
+      ["Track your form responses", "After submitting a form, tap <b>Get updates</b> under Telegram on the confirmation page, then tap <b>Start</b>. Send /status here to check your linked responses."],
+      ["Message support", `Join <a href="${support}">@vidurneetixyz</a> first. Once you subscribe, tap the message bubble in the bottom-left corner of the channel to send us a private message. The icon only appears after you join.`]
+    ];
+    const button = { text: "Open Vidurneeti", url: `${origin}/` };
+    const html = [`<h1>${title}</h1><p>${intro}</p>`, ...sections.map(([heading, body]) => `<h2>${heading}</h2><p>${body}</p>`)].join("\n");
+    try {
+      // Leave time for the archive service to receive and send the fallback.
+      await telegram.call("sendRichMessage", {
+        chat_id: userId,
+        rich_message: { html },
+        reply_markup: { inline_keyboard: [[{ text: button.text, web_app: { url: button.url } }], [{ text: "Join support channel", url: support }]] }
+      }, settings.botToken, 5000);
+      // The archive service sends a reply only when this endpoint returns text.
+      return { sent: true };
+    } catch {
+      const text = [`<b>${title}</b>`, intro, ...sections.map(([heading, body]) => `<b>${heading}</b>\n${body}`)].join("\n\n");
+      return { text, button };
+    }
+  }
   /** What the bot says back to one Telegram user. Only responses bound to that user are ever shown. */
   function botReply({ userId, username, text }) {
     const contactCode = /^\/start(?:@\w+)?\s+tguserid_([A-Za-z0-9_-]{24})$/.exec(text)?.[1];
@@ -97,18 +122,7 @@ export function createForms({ accounts, settings, fetchImpl = fetch, env = proce
       const next = linked ? "Copy this ID and paste it into the form." : contactCode ? "Open Telegram from the form again if you need a new link." : "Use the Telegram button in the form to verify your ID.";
       return { text: `Your Telegram user ID is <code>${userId}</code>.${username ? `\nUsername: @${telegram.escapeHTML(username)}` : ""}\n\n${next}`, copyText: userId };
     }
-    if (/^\/start(?:@\w+)?$/.test(text)) {
-      return {
-        text: [
-          "<b>Welcome to Vidurneeti!</b>",
-          "We share commentary on India, drawing on Vidura of the Mahabharata and the Bhagavad Geeta.",
-          "Tap <b>Open Vidurneeti</b> in this chat’s menu to launch the web app inside Telegram. Read posts in VN Reader, browse threads and timelines, save posts, and take notes. You can also explore Ground Work and fill out forms.",
-          "After submitting a form, tap <b>Get updates</b> under Telegram on the confirmation page, then tap <b>Start</b> to link your response. Send /status here anytime to check your linked responses.",
-          "Need help? Visit our support channel, <a href=\"https://t.me/vidurneetixyz\">@vidurneetixyz</a>."
-        ].join("\n\n"),
-        button: { text: "Open Vidurneeti", url: `${origin}/` }
-      };
-    }
+    if (/^\/start(?:@\w+)?$/.test(text)) return welcomeReply(userId);
     const payload = /^\/start(?:@\w+)?\s+r_([A-Za-z0-9_-]{12,32})\s*$/.exec(String(text ?? ""))?.[1];
     const lines = [];
     if (payload) {
@@ -210,12 +224,12 @@ export function createForms({ accounts, settings, fetchImpl = fetch, env = proce
       throw new FormError(422, "Choose Telegram or email.");
     }));
     // Called by the archive service's bot for /start and /status in private chats. Never routed publicly.
-    app.post("/internal/forms/telegram", wrap((req, res) => {
+    app.post("/internal/forms/telegram", wrap(async (req, res) => {
       const given = Buffer.from(String(req.headers.authorization ?? "")), expected = Buffer.from(`Bearer ${settings.botToken ?? ""}`);
       if (!settings.botToken || given.length !== expected.length || !timingSafeEqual(given, expected)) throw new FormError(403, "Forbidden");
       const { userId, username, text } = req.body ?? {};
       if (!isTelegramUserId(String(userId ?? ""))) throw new FormError(422, "Invalid user.");
-      res.json(botReply({ userId: String(userId), username: typeof username === "string" && /^[A-Za-z0-9_]{1,32}$/.test(username) ? username : "", text: typeof text === "string" ? text.trim() : "" }));
+      res.json(await botReply({ userId: String(userId), username: typeof username === "string" && /^[A-Za-z0-9_]{1,32}$/.test(username) ? username : "", text: typeof text === "string" ? text.trim() : "" }));
     }));
 
     // ----- admin -----

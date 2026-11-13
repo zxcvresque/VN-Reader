@@ -51,10 +51,10 @@ const escapeHTML = value => String(value ?? "").replaceAll("&", "&amp;").replace
  * in the admin console apply without a restart.
  */
 export function createTelegramForms(config, fetchImpl = fetch) {
-  async function call(method, payload, token = config().botToken) {
+  async function call(method, payload, token = config().botToken, timeoutMs = 20000) {
     if (!token) throw new Error("No Telegram bot token is set.");
     const isForm = typeof FormData !== "undefined" && payload instanceof FormData;
-    const response = await fetchImpl(`https://api.telegram.org/bot${token}/${method}`, { method: "POST", headers: isForm ? undefined : { "Content-Type": "application/json" }, body: isForm ? payload : JSON.stringify(payload ?? {}), signal: AbortSignal.timeout(20000) });
+    const response = await fetchImpl(`https://api.telegram.org/bot${token}/${method}`, { method: "POST", headers: isForm ? undefined : { "Content-Type": "application/json" }, body: isForm ? payload : JSON.stringify(payload ?? {}), signal: AbortSignal.timeout(timeoutMs) });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || !data.ok) throw new Error(typeof data.description === "string" ? data.description.slice(0, 200) : `Telegram ${method} failed`);
     return data.result;

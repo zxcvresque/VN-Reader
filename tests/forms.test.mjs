@@ -203,7 +203,15 @@ test("form flow: submit, approval-gated link, roles, exports, insights, backups"
 
 test("status updates: Telegram binding through the bot, /status privacy, and opt-in email", async () => {
   const mail = [], token = "123456789:AAExampleExampleExampleExampleExample";
-  const fetchImpl = async url => new Response(JSON.stringify({ ok: true, result: { username: "vn_status_bot" } }), { status: String(url).includes("api.telegram.org") ? 200 : 200 });
+  const richMessages = [];
+  let rejectRichMessage = false;
+  const fetchImpl = async (url, options) => {
+    if (String(url).endsWith("/sendRichMessage")) {
+      richMessages.push({ url: String(url), ...JSON.parse(options.body) });
+      if (rejectRichMessage) return Response.json({ ok: false, description: "Unsupported message" }, { status: 400 });
+    }
+    return Response.json({ ok: true, result: { username: "vn_status_bot" } });
+  };
   const { app, accounts, forms } = await createAccountApp({ database: ":memory:", secret: "test-only-secret-at-least-thirty-two-characters", baseURL: "http://reader.test", origins: ["http://reader.test"], production: false, archiveEnabled: false, adminEmails: ["owner@example.com"], emailDailyLimit: 20, fetchImpl, botToken: token }, m => mail.push(m));
   const server = app.listen(0, "127.0.0.1"); await once(server, "listening"); const base = `http://127.0.0.1:${server.address().port}`;
   const request = (path, { body, headers = {} } = {}) => fetch(base + path, { method: body === undefined ? "GET" : "POST", headers: { origin: "http://reader.test", "x-vn-csrf": "1", "content-type": "application/json", ...headers }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -225,12 +233,18 @@ test("status updates: Telegram binding through the bot, /status privacy, and opt
     assert.equal((await request("/api/forms/groundwork/notify", { body: { channel: "telegram" } })).status, 404, "a receipt is required");
 
     const welcome = await (await bot({ userId: "4242", text: "/start" })).json();
-    assert.match(welcome.text, /Welcome to Vidurneeti!/);
-    assert.match(welcome.text, /web app inside Telegram/);
-    assert.match(welcome.text, /VN Reader/);
-    assert.match(welcome.text, /Send \/status/);
-    assert.ok(welcome.text.includes('href="https://t.me/vidurneetixyz"'));
-    assert.deepEqual(welcome.button, { text: "Open Vidurneeti", url: "http://reader.test/" });
+    assert.deepEqual(welcome, { sent: true }, "the archive does not send a second reply");
+    assert.equal(richMessages.length, 1);
+    const [richWelcome] = richMessages;
+    assert.equal(richWelcome.url, `https://api.telegram.org/bot${token}/sendRichMessage`);
+    assert.equal(richWelcome.chat_id, "4242");
+    assert.match(richWelcome.rich_message.html, /<h1>Welcome to Vidurneeti!<\/h1>/);
+    assert.match(richWelcome.rich_message.html, /<h2>Read inside Telegram<\/h2>/);
+    assert.match(richWelcome.rich_message.html, /message bubble in the bottom-left corner/);
+    assert.deepEqual(richWelcome.reply_markup.inline_keyboard, [
+      [{ text: "Open Vidurneeti", web_app: { url: "http://reader.test/" } }],
+      [{ text: "Join support channel", url: "https://t.me/vidurneetixyz" }]
+    ]);
 
     assert.equal((await bot({ userId: "4242", text: "/status" }, "Bearer wrong")).status, 403);
     assert.match((await (await bot({ userId: "4242", text: "/status" })).json()).text, /No form responses are linked/);
@@ -250,7 +264,14 @@ test("status updates: Telegram binding through the bot, /status privacy, and opt
     assert.equal(changed.length, 1);
     const status = await (await bot({ userId: "4242", text: "/status" })).json();
     assert.match(status.text, /Approved.*submitted 13 Nov 2026, 04:10 IST/); assert.deepEqual(status.button, { text: "Groundwork group link", url: "https://t.me/+EcstnRyYKytlOWE9" });
-    assert.deepEqual(await (await bot({ userId: "4242", text: "/start@vn_status_bot" })).json(), welcome);
+    assert.equal(richMessages.length, 1, "status and linking use the usual replies");
+    rejectRichMessage = true;
+    const fallback = await (await bot({ userId: "4242", text: "/start@vn_status_bot" })).json();
+    assert.equal(richMessages.length, 2);
+    assert.match(fallback.text, /Welcome to Vidurneeti!/);
+    assert.match(fallback.text, /The icon only appears after you join/);
+    assert.match(fallback.text, /Send \/status/);
+    assert.deepEqual(fallback.button, { text: "Open Vidurneeti", url: "http://reader.test/" });
     assert.equal(await accounts.mail({ to: "arjun@example.com", subject: "s", text: "t" }), true);
     assert.equal(mail.at(-1).type, "notice"); assert.equal(accounts.admin.capacity(true).used, 1, "notices count against the daily allowance");
   } finally { await new Promise(resolve => server.close(resolve)); accounts.close(); }
