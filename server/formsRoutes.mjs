@@ -1,7 +1,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { fromNodeHeaders } from "better-auth/node";
 import { FormsStore, FormError, PERMISSIONS, ROLE_PRESETS } from "./formsStore.mjs";
-import { allFields, displayAnswer } from "./formLogic.mjs";
+import { allFields, displayAnswer, isTelegramUserId } from "./formLogic.mjs";
 import { createR2Forms, createTelegramForms, r2FormsSettings } from "./formsBackup.mjs";
 
 const ALL = PERMISSIONS.map(permission => permission.id);
@@ -84,6 +84,12 @@ export function createForms({ accounts, settings, fetchImpl = fetch, env = proce
   const statusWord = status => (status === "approved" ? "Approved ✅" : status === "rejected" ? "Not approved" : "Waiting for review ⏳");
   /** What the bot says back to one Telegram user. Only responses bound to that user are ever shown. */
   function botReply({ userId, username, text }) {
+    const contactCode = /^\/start(?:@\w+)?\s+tguserid_([A-Za-z0-9_-]{24})$/.exec(text)?.[1];
+    if (contactCode || /^\/start(?:@\w+)?\s+tguserid$/.test(text)) {
+      const linked = contactCode && store.confirmTelegramLink(contactCode, userId, username);
+      const next = linked ? "Copy this ID and paste it into the form." : contactCode ? "Open Telegram from the form again if you need a new link." : "Use the Telegram button in the form to verify your ID.";
+      return { text: `Your Telegram user ID is <code>${userId}</code>.${username ? `\nUsername: @${telegram.escapeHTML(username)}` : ""}\n\n${next}`, copyText: userId };
+    }
     const payload = /^\/start(?:@\w+)?\s+r_([A-Za-z0-9_-]{12,32})\s*$/.exec(String(text ?? ""))?.[1];
     const lines = [];
     if (payload) {
@@ -105,7 +111,7 @@ export function createForms({ accounts, settings, fetchImpl = fetch, env = proce
   function emailDecision(form, response, outcome) {
     if (!response.notifyEmail || !accounts.mail || !flag("mail.onDecision")) return;
     const approved = response.status === "approved";
-    const text = [outcome.message || (approved ? "Your response was approved." : "Your response wasn't approved."), approved && outcome.reward?.url ? `\n${outcome.reward.label}: ${outcome.reward.url}` : "", `\nYou asked for this update when you filled “${form.title}” on ${new URL(origin).host}. If that wasn't you, ignore this email.`].filter(Boolean).join("\n");
+    const text = [outcome.message || (approved ? "Your response was approved." : "Your response wasn't approved."), approved && outcome.reward?.url ? `\n${outcome.reward.label}: ${outcome.reward.url}` : "", `\nYou asked for this update when you filled “${form.title}” on ${new URL(origin).host}. If that wasn't you, ignore this email.`, "If you expect an update and don’t see it in your inbox, check your spam or junk folder. If it’s there, mark it as not spam to help future updates reach your inbox."].filter(Boolean).join("\n");
     void quiet(accounts.mail({ to: response.notifyEmail, subject: `${form.title} · ${approved ? "Approved" : "Update on your response"}`, text }));
   }
 
@@ -136,14 +142,31 @@ export function createForms({ accounts, settings, fetchImpl = fetch, env = proce
       if (!throttled(req, "event", 40, 600000)) store.track(form.id, req.body?.kind, typeof req.body?.via === "string" ? req.body.via : "", form.settings.timezone);
       res.json({ ok: true });
     }));
+    app.post("/api/forms/:slug/telegram-link", wrap(async (req, res) => {
+      const form = liveForm(req);
+      if (store.publicForm(form).availability !== "open" || !allFields(form.schema).some(field => field.type === "telegram")) throw new FormError(409, "Telegram linking is unavailable for this form.");
+      if (throttled(req, "telegram-link", 12, 600000)) throw new FormError(429, "Too many attempts. Please try again in a few minutes.");
+      const bot = await statusBot();
+      if (!bot) throw new FormError(503, "Telegram linking is unavailable right now. Try again in a moment.");
+      const { code, key } = store.createTelegramLink(form.id);
+      res.json({ url: `https://t.me/${bot}?start=tguserid_${code}`, key });
+    }));
+    app.get("/api/forms/:slug/telegram-link", wrap((req, res) => {
+      const form = liveForm(req);
+      if (throttled(req, "telegram-poll", 240, 60000)) throw new FormError(429, "Too many requests. Please wait and try again.");
+      const link = store.telegramLink(form.id, req.headers["x-vn-telegram-link"]);
+      if (!link) throw new FormError(404, "This Telegram link has expired. Open Telegram from the form again.");
+      res.json({ telegram: link.id ? link : null });
+    }));
     app.post("/api/forms/:slug/responses", wrap(async (req, res) => {
       const form = liveForm(req), body = req.body ?? {};
       // The hidden "website" field is only ever filled by scripts.
       if (typeof body.website === "string" && body.website) throw new FormError(422, "This response couldn't be accepted.");
       if (throttled(req, "submit", 6, 600000)) throw new FormError(429, "Too many responses from this connection. Please try again in a few minutes.");
       const session = await sessionOf(req), started = Number(body.startedAt), now = Date.now();
-      const { receipt, response } = store.submit(form, { answers: body.answers, userId: session?.user?.emailVerified ? session.user.id : null, link: typeof body.via === "string" ? body.via : "",
-        device: ["mobile", "tablet", "desktop", "telegram"].includes(body.device) ? body.device : "", durationMs: Number.isFinite(started) && started < now ? Math.round(now - started) : null, telegram: telegram.verifyInitData(body.initData) });
+      const input = { answers: body.answers, userId: session?.user?.emailVerified ? session.user.id : null, link: typeof body.via === "string" ? body.via : "",
+        device: ["mobile", "tablet", "desktop", "telegram"].includes(body.device) ? body.device : "", durationMs: Number.isFinite(started) && started < now ? Math.round(now - started) : null, telegram: allFields(form.schema).some(field => field.type === "telegram") ? null : telegram.verifyInitData(body.initData, undefined, undefined, settings.botToken) };
+      const { receipt, response } = body.telegramLink ? store.submitWithTelegramLink(form, input, body.telegramLink) : store.submit(form, input);
       afterSubmit(form, response);
       res.status(201).json({ receipt, outcome: store.outcome(form, response) });
     }));
@@ -171,8 +194,8 @@ export function createForms({ accounts, settings, fetchImpl = fetch, env = proce
       const given = Buffer.from(String(req.headers.authorization ?? "")), expected = Buffer.from(`Bearer ${settings.botToken ?? ""}`);
       if (!settings.botToken || given.length !== expected.length || !timingSafeEqual(given, expected)) throw new FormError(403, "Forbidden");
       const { userId, username, text } = req.body ?? {};
-      if (!/^\d{3,20}$/.test(String(userId ?? ""))) throw new FormError(422, "Invalid user.");
-      res.json(botReply({ userId: String(userId), username: typeof username === "string" ? username : "", text }));
+      if (!isTelegramUserId(String(userId ?? ""))) throw new FormError(422, "Invalid user.");
+      res.json(botReply({ userId: String(userId), username: typeof username === "string" && /^[A-Za-z0-9_]{1,32}$/.test(username) ? username : "", text: typeof text === "string" ? text.trim() : "" }));
     }));
 
     // ----- admin -----

@@ -17,7 +17,8 @@ export const GROUNDWORK_FORM = {
       { id: "gw_birthplace", type: "short", label: "Your place of birth" },
       { id: "gw_address", type: "long", label: "Place you live currently", help: "Full address.", required: true },
       { id: "gw_state", type: "state", label: "State or union territory you live in", required: true, role: "state" },
-      { id: "gw_district", type: "short", label: "District or city", required: true, role: "district" },
+      { id: "gw_district", type: "district", label: "District or city", required: true, role: "district", stateField: "gw_state" },
+      { id: "gw_locality", type: "short", label: "Town, locality or landmark", validation: { maxLength: 160 } },
       { id: "gw_same_address", type: "yesno", label: "Is your permanent address the same as your current address?", required: true },
       { id: "gw_permanent", type: "long", label: "Permanent address", help: "Full address.", required: true, showIf: { mode: "all", rules: [{ field: "gw_same_address", op: "eq", value: "no" }] } },
       { id: "gw_profession", type: "short", label: "Your profession", required: true, role: "profession" },
@@ -26,11 +27,11 @@ export const GROUNDWORK_FORM = {
       { id: "gw_isht", type: "short", label: "Your Isht Devta/Devi, or the God you believe in" }
     ] },
     { id: "contact", title: "How to reach you", fields: [
-      { id: "gw_whatsapp", type: "phone", label: "Active contact / WhatsApp number", required: true, role: "phone" },
+      { id: "gw_whatsapp", type: "phone", label: "Active contact / WhatsApp number", required: true, role: "phone", help: "Include the country code for numbers outside India." },
       { id: "gw_alt_phone", type: "phone", label: "Alternative contact number" },
-      { id: "gw_email", type: "email", label: "Email ID", required: true, role: "email" },
-      { id: "gw_telegram", type: "short", label: "Your genuine Telegram ID (username)", help: "We use this to contact you. Example: @yourname", required: true, role: "telegram", validation: { pattern: "^@?[A-Za-z][A-Za-z0-9_]{3,31}$", patternMessage: "Enter your Telegram username, like @yourname." } },
-      { id: "gw_social", type: "short", label: "Active social media ID", help: "Any other social media on which you can be reached most reliably." }
+      { id: "gw_email", type: "email", label: "Email address", required: true, role: "email", placeholder: "name@example.com" },
+      { id: "gw_telegram", type: "telegram", label: "Telegram account", required: true, role: "telegram" },
+      { id: "gw_social", type: "social", label: "Other social or messaging accounts", help: "Add any other accounts where we can reach you." }
     ] },
     { id: "dharma", title: "Dharma and Vidur Neeti", fields: [
       { id: "gw_dharma", type: "long", label: "Things you can do for your Dharma, today or in future, if you get the position and power", required: true },

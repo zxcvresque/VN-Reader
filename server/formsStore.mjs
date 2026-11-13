@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID, createHash } from "node:crypto";
-import { allFields, displayAnswer, isEmpty, normalizeSchema, validateAnswers, CHOICE_TYPES, INDIA_STATES } from "./formLogic.mjs";
+import { allFields, displayAnswer, isEmpty, normalizeSchema, validateAnswers, CHOICE_TYPES, INDIA_STATES, isEmailAddress } from "./formLogic.mjs";
 import { GROUNDWORK_FORM } from "./formsSeed.mjs";
 
 export class FormError extends Error { constructor(status, message, extra) { super(message); this.status = status; this.extra = extra; } }
@@ -90,6 +90,11 @@ export class FormsStore {
       CREATE TABLE IF NOT EXISTS form_fonts (form_id TEXT PRIMARY KEY REFERENCES forms(id) ON DELETE CASCADE, mime TEXT NOT NULL, data BLOB NOT NULL, updated_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS admin_members (email TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '', permissions TEXT NOT NULL, form_ids TEXT,
         active INTEGER NOT NULL DEFAULT 1, added_by TEXT, added_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS form_telegram_links (
+        code_hash TEXT PRIMARY KEY, poll_hash TEXT NOT NULL UNIQUE, form_id TEXT NOT NULL REFERENCES forms(id) ON DELETE CASCADE,
+        expires_at INTEGER NOT NULL, user_id TEXT, username TEXT
+      );
+      CREATE INDEX IF NOT EXISTS form_telegram_links_expiry ON form_telegram_links(expires_at);
       CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS admin_audit (id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, target TEXT, detail TEXT);`);
     // Columns added after the first release are appended so existing databases upgrade in place.
@@ -99,6 +104,34 @@ export class FormsStore {
     if (!this.getSetting("forms.seeded")) {
       if (!database.prepare("SELECT id FROM forms WHERE slug=?").get(GROUNDWORK_FORM.slug)) this.createForm(GROUNDWORK_FORM, "system");
       this.setSetting("forms.seeded", "1");
+    }
+    if (!this.getSetting("forms.groundwork-contact")) {
+      const row = database.prepare("SELECT id,schema FROM forms WHERE slug=?").get(GROUNDWORK_FORM.slug);
+      if (row) {
+        const schema = parse(row.schema, { pages: [] });
+        const defaults = new Map(allFields(GROUNDWORK_FORM.schema).map(field => [field.id, field]));
+        const hasState = allFields(schema).some(field => field.id === "gw_state" && field.type === "state");
+        const hasLocality = allFields(schema).some(field => field.id === "gw_locality");
+        for (const page of schema.pages) {
+          page.fields = page.fields.flatMap(field => {
+            if (field.type === "short" && field.id === "gw_district" && hasState) {
+              const district = { ...field, type: "district", stateField: "gw_state" };
+              return hasLocality ? [district] : [district, defaults.get("gw_locality")];
+            }
+            if (field.type === "short" && field.id === "gw_telegram") {
+              const { validation, placeholder, ...rest } = field;
+              return [{ ...rest, type: "telegram", label: defaults.get(field.id).label, help: undefined }];
+            }
+            if (field.type === "short" && field.id === "gw_social") {
+              const social = defaults.get(field.id);
+              return [{ ...field, type: social.type, label: social.label, help: social.help }];
+            }
+            return [field];
+          });
+        }
+        database.prepare("UPDATE forms SET schema=? WHERE id=?").run(JSON.stringify(schema), row.id);
+      }
+      this.setSetting("forms.groundwork-contact", "1");
     }
   }
   time() { return this.now().getTime(); }
@@ -241,9 +274,21 @@ export class FormsStore {
     if (available !== "open") throw new FormError(409, available === "full" ? "This form has reached its response limit." : "This form isn't accepting responses right now.");
     if (form.settings.access === "account" && !userId) throw new FormError(401, "Sign in to your Vidurneeti account to fill this form.");
     if (form.settings.oneResponse === "account" && userId && this.database.prepare("SELECT id FROM form_responses WHERE form_id=? AND user_id=?").get(form.id, userId)) throw new FormError(409, "You've already filled this form with this account.");
-    const result = validateAnswers(form.schema, answers);
-    if (!result.ok) throw new FormError(422, "Some answers need attention.", { errors: result.errors });
-    const fields = allFields(form.schema), stateField = fields.find(field => field.role === "state") ?? fields.find(field => field.type === "state");
+    const input = { ...(answers && typeof answers === "object" && !Array.isArray(answers) ? answers : {}) };
+    const fields = allFields(form.schema);
+    const result = validateAnswers(form.schema, input);
+    const telegramFields = fields.filter(field => field.type === "telegram");
+    const enteredIds = telegramFields.filter(field => result.clean[field.id] !== undefined);
+    for (const field of enteredIds) {
+      if (result.clean[field.id] !== telegram?.id) {
+        result.errors[field.id] = telegram?.id
+          ? "Paste the same Telegram user ID the bot sent you."
+          : "Open Telegram from this form and tap Start to verify your user ID.";
+      }
+    }
+    if (Object.keys(result.errors).length) throw new FormError(422, "Some answers need attention.", { errors: result.errors });
+    if (telegramFields.length && !enteredIds.length) telegram = null;
+    const stateField = fields.find(field => field.role === "state") ?? fields.find(field => field.type === "state");
     const state = stateField ? displayAnswer(stateField, result.clean[stateField.id]) || null : null;
     const id = randomUUID(), receipt = randomBytes(24).toString("base64url"), time = this.time();
     const status = form.settings.requireApproval ? "pending" : "approved";
@@ -265,10 +310,42 @@ export class FormsStore {
   }
   // ----- status updates: Telegram binding and email -----
   setNotifyEmail(formId, id, email) {
-    const clean = clip(email, 254).toLowerCase();
-    if (clean && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean)) throw new FormError(422, "Enter a valid email address.");
+    const clean = typeof email === "string" ? email.trim().toLowerCase() : "";
+    if (clean && !isEmailAddress(clean)) throw new FormError(422, "Enter a valid email address.");
     this.database.prepare("UPDATE form_responses SET notify_email=?,updated_at=?,synced_at=NULL WHERE id=? AND form_id=?").run(clean || null, this.time(), id, formId);
     return this.response(formId, id);
+  }
+  createTelegramLink(formId) {
+    const code = randomBytes(18).toString("base64url"), key = randomBytes(24).toString("base64url"), now = this.time();
+    this.database.prepare("DELETE FROM form_telegram_links WHERE expires_at<=?").run(now);
+    this.database.prepare("INSERT INTO form_telegram_links (code_hash,poll_hash,form_id,expires_at) VALUES (?,?,?,?)").run(sha(code), sha(key), formId, now + 3600000);
+    return { code, key };
+  }
+  confirmTelegramLink(code, userId, username) {
+    return !!this.database.prepare("UPDATE form_telegram_links SET user_id=?,username=? WHERE code_hash=? AND expires_at>? AND user_id IS NULL")
+      .run(userId, clip(username, 40) || null, sha(code), this.time()).changes;
+  }
+  telegramLink(formId, key) {
+    if (typeof key !== "string" || !/^[A-Za-z0-9_-]{32}$/.test(key)) return null;
+    return this.database.prepare("SELECT user_id AS id,username FROM form_telegram_links WHERE poll_hash=? AND form_id=? AND expires_at>?").get(sha(key), formId, this.time()) ?? null;
+  }
+  submitWithTelegramLink(form, input, key) {
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      const telegram = this.telegramLink(form.id, key);
+      if (!telegram?.id) {
+        const errors = Object.fromEntries(allFields(form.schema).filter(field => field.type === "telegram")
+          .map(field => [field.id, "Get a new Telegram link and tap Start in the bot."]));
+        throw new FormError(422, "This Telegram link has expired or hasn't been confirmed.", { errors });
+      }
+      const result = this.submit(form, { ...input, telegram });
+      this.database.prepare("DELETE FROM form_telegram_links WHERE poll_hash=?").run(sha(key));
+      this.database.exec("COMMIT");
+      return result;
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
   }
   /** A short single-use code that lets one Telegram account claim this response through the bot. */
   createBind(formId, id) {
@@ -278,7 +355,7 @@ export class FormsStore {
   }
   bindTelegram(code, userId, username = "") {
     if (typeof code !== "string" || !/^[A-Za-z0-9_-]{12,32}$/.test(code) || !/^\d{3,20}$/.test(String(userId))) return null;
-    const row = this.database.prepare("SELECT id,form_id FROM form_responses WHERE bind_hash=? AND bind_expires>?").get(sha(code), this.time());
+    const row = this.database.prepare("SELECT id,form_id FROM form_responses WHERE bind_hash=? AND bind_expires>? AND tg_user_id IS NULL").get(sha(code), this.time());
     if (!row) return null;
     this.database.prepare("UPDATE form_responses SET tg_user_id=?,tg_username=?,bind_hash=NULL,bind_expires=NULL,updated_at=?,synced_at=NULL WHERE id=?").run(String(userId), clip(username, 40) || null, this.time(), row.id);
     return this.response(row.form_id, row.id);
@@ -323,7 +400,7 @@ export class FormsStore {
   exportRows(form, responses) {
     const fields = allFields(form.schema).filter(field => field.type !== "statement");
     const header = ["Response ID", "Submitted (UTC)", "Status", "Reviewed by", "Note", "Link", "Device", "Telegram", ...fields.map(field => field.label)];
-    const rows = responses.map(response => [response.id, response.createdAt, response.status, response.reviewedBy ?? "", response.note, response.link || "direct", response.device, response.telegram?.username ? `@${response.telegram.username}` : response.telegram?.id ?? "", ...fields.map(field => displayAnswer(field, response.answers[field.id]))]);
+    const rows = responses.map(response => [response.id, response.createdAt, response.status, response.reviewedBy ?? "", response.note, response.link || "direct", response.device, response.telegram ? [response.telegram.id, response.telegram.username && `@${response.telegram.username}`].filter(Boolean).join(" ") : "", ...fields.map(field => displayAnswer(field, response.answers[field.id]))]);
     return { header, rows };
   }
   csv(form, responses) {
@@ -378,7 +455,7 @@ export class FormsStore {
       }
       const words = new Map();
       for (const value of values) for (const word of new Set(String(value).toLowerCase().match(/[\p{L}][\p{L}'-]{2,}/gu) ?? [])) if (!STOP.has(word)) words.set(word, (words.get(word) ?? 0) + 1);
-      const sensitive = ["email", "phone", "url"].includes(field.type) || ["name", "phone", "email", "telegram"].includes(field.role);
+      const sensitive = ["email", "phone", "url"].includes(field.type) || ["name", "phone", "email", "telegram"].includes(field.role) || ["telegram", "social"].includes(field.type);
       return { ...base, kind: "text", averageLength: values.length ? Math.round(values.reduce((total, value) => total + String(value).length, 0) / values.length) : 0,
         topWords: sensitive ? [] : [...words].filter(([, count]) => count > 1).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([name, count]) => ({ name, count })) };
     });

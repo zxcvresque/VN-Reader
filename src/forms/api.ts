@@ -1,5 +1,5 @@
 import type { Answers, FormSchema } from "../../server/formLogic.mjs";
-export type { Answers, AnswerValue, Condition, FieldOption, FieldType, FormField, FormPage as SchemaPage, FormSchema, Operator, Rule } from "../../server/formLogic.mjs";
+export type { Answers, AnswerValue, Condition, FieldOption, FieldType, FormField, FormPage as SchemaPage, FormSchema, Operator, Rule, SocialAccount } from "../../server/formLogic.mjs";
 
 export interface FormTheme {
   accent: string; font: "aspekta" | "system" | "serif" | "rounded" | "mono" | "humanist" | "custom"; surface: "glass" | "solid" | "paper";
@@ -10,6 +10,7 @@ export interface PublicForm {
   settings: { access: "public" | "account"; oneResponse: "none" | "device" | "account"; requireApproval: boolean; showProgress: boolean; closedMessage: string; opensAt: string | null; hasReward: boolean; rewardLabel: string };
 }
 export interface Outcome { status: "pending" | "approved" | "rejected"; submittedAt: string; title: string; message: string; reward: { label: string; url: string | null } | null; notify?: { telegram: boolean; email: string } }
+export interface TelegramContact { id: string; username: string | null }
 export interface FormView { form: PublicForm; updates?: { telegram: string; email: boolean }; prefill: Record<string, string>; signedIn: boolean; outcome: Outcome | null }
 
 export interface FormSettings {

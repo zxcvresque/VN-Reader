@@ -80,8 +80,7 @@ export function createTelegramForms(config, fetchImpl = fetch) {
       return true;
     },
     /** Validate Telegram Mini App initData; returns the Telegram user or null. */
-    verifyInitData(initData, maxAgeSeconds = 86400, now = Date.now()) {
-      const token = config().botToken;
+    verifyInitData(initData, maxAgeSeconds = 86400, now = Date.now(), token = config().botToken) {
       if (!token || typeof initData !== "string" || !initData || initData.length > 4096) return null;
       const params = new URLSearchParams(initData), hash = params.get("hash");
       if (!hash || !/^[0-9a-f]{64}$/.test(hash)) return null;
@@ -90,8 +89,8 @@ export function createTelegramForms(config, fetchImpl = fetch) {
       const expected = hmac(hmac("WebAppData", token), check);
       if (!timingSafeEqual(expected, Buffer.from(hash, "hex"))) return null;
       const authDate = Number(params.get("auth_date"));
-      if (!Number.isFinite(authDate) || now / 1000 - authDate > maxAgeSeconds) return null;
-      try { const user = JSON.parse(params.get("user") ?? "null"); return user && Number.isSafeInteger(user.id) ? { id: String(user.id), username: typeof user.username === "string" ? user.username : "", firstName: typeof user.first_name === "string" ? user.first_name : "", canMessage: user.allows_write_to_pm !== false } : null; }
+      if (!Number.isFinite(authDate) || authDate > now / 1000 + 60 || now / 1000 - authDate > maxAgeSeconds) return null;
+      try { const user = JSON.parse(params.get("user") ?? "null"); return user && Number.isSafeInteger(user.id) && user.id > 0 ? { id: String(user.id), username: typeof user.username === "string" ? user.username : "", firstName: typeof user.first_name === "string" ? user.first_name : "", canMessage: user.allows_write_to_pm !== false } : null; }
       catch { return null; }
     }
   };

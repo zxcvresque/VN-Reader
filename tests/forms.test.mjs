@@ -3,11 +3,12 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import { createHmac } from "node:crypto";
 import { createAccountApp } from "../server/accountService.mjs";
-import { validateAnswers, pagePath, normalizeSchema, pipeText } from "../server/formLogic.mjs";
+import { validateAnswers, pagePath, normalizeSchema, pipeText, INDIA_STATES, districtsFor } from "../server/formLogic.mjs";
 import { signR2Request, r2FormsSettings, createTelegramForms } from "../server/formsBackup.mjs";
+import { FormsStore } from "../server/formsStore.mjs";
 import { GROUNDWORK_FORM } from "../server/formsSeed.mjs";
 
-const complete = { gw_name: "Arjun Sharma", gw_age: 29, gw_gender: "male", gw_married: "no", gw_address: "12 MG Road, Pune", gw_state: "Maharashtra", gw_district: "Pune", gw_same_address: "yes", gw_profession: "Engineer", gw_whatsapp: "+91 98765 43210", gw_email: "arjun@example.com", gw_telegram: "@arjun_s", gw_dharma: "Teach and organise locally.", gw_influence: "Clearer thinking.", gw_skills: "Web development" };
+const complete = { gw_name: "Arjun Sharma", gw_age: 29, gw_gender: "male", gw_married: "no", gw_address: "12 MG Road, Pune", gw_state: "Maharashtra", gw_district: "Pune", gw_same_address: "yes", gw_profession: "Engineer", gw_whatsapp: "+91 98765 43210", gw_email: "arjun@example.com", gw_telegram: "4242", gw_dharma: "Teach and organise locally.", gw_influence: "Clearer thinking.", gw_skills: "Web development" };
 
 test("conditional questions, skip rules and validation follow the respondent's path", () => {
   const schema = GROUNDWORK_FORM.schema;
@@ -17,7 +18,21 @@ test("conditional questions, skip rules and validation follow the respondent's p
   // A hidden question's stale answer is dropped rather than stored.
   assert.equal("gw_permanent" in validateAnswers(schema, { ...complete, gw_permanent: "old" }).clean, false);
   assert.match(validateAnswers(schema, { ...complete, gw_email: "nope" }).errors.gw_email, /valid email/);
-  assert.match(validateAnswers(schema, { ...complete, gw_telegram: "a b" }).errors.gw_telegram, /Telegram username/);
+  assert.match(validateAnswers(schema, { ...complete, gw_telegram: "@arjun_s" }).errors.gw_telegram, /Telegram account/);
+  assert.match(validateAnswers(schema, { ...complete, gw_whatsapp: "43636363", gw_alt_phone: "346346346" }).errors.gw_whatsapp, /valid phone number/);
+  assert.match(validateAnswers(schema, { ...complete, gw_alt_phone: "346346346" }).errors.gw_alt_phone, /valid phone number/);
+  assert.match(validateAnswers(schema, { ...complete, gw_email: "a..b@example.com" }).errors.gw_email, /valid email/);
+  assert.equal(validateAnswers(schema, { ...complete, gw_whatsapp: "98765 43210" }).clean.gw_whatsapp, "+919876543210");
+  assert.equal(validateAnswers(schema, { ...complete, gw_state: "Outside India", gw_district: "London", gw_whatsapp: "+44 20 7946 0958" }).ok, true);
+  assert.match(validateAnswers(schema, { ...complete, gw_state: "Outside India", gw_whatsapp: "9876543210" }).errors.gw_whatsapp, /country code/);
+  assert.match(validateAnswers(schema, { ...complete, gw_state: "Assam" }).errors.gw_district, /selected state/);
+  assert.ok(INDIA_STATES.filter(state => state !== "Outside India").every(state => districtsFor(state).length));
+  assert.equal(INDIA_STATES.flatMap(districtsFor).length, 790);
+  assert.ok(districtsFor("Assam").includes("Sribhumi"));
+  const social = [{ platform: " Instagram ", handle: " @arjun " }, { platform: "Custom messenger", handle: "123" }];
+  assert.deepEqual(validateAnswers(schema, { ...complete, gw_social: social }).clean.gw_social,
+    [{ platform: "Instagram", handle: "@arjun" }, social[1]]);
+  assert.match(validateAnswers(schema, { ...complete, gw_social: [{ platform: "Signal", handle: "" }] }).errors.gw_social, /each account/);
   assert.match(validateAnswers(schema, { ...complete, gw_gender: "robot" }).errors.gw_gender, /Choose one/);
   assert.equal(validateAnswers(schema, { ...complete, gw_gender: "~Non-binary" }).ok, true);
   assert.match(validateAnswers(schema, { ...complete, gw_age: 5 }).errors.gw_age, /13 or more/);
@@ -62,7 +77,7 @@ test("Telegram web-app sign-in data is verified against the bot token", () => {
 test("form flow: submit, approval-gated link, roles, exports, insights, backups", async () => {
   const mail = [], calls = [];
   const fetchImpl = async (url, options = {}) => { calls.push({ url: String(url), options }); if (String(url).includes("api.telegram.org")) return new Response(JSON.stringify({ ok: true, result: { username: "vn_forms_bot" } }), { status: 200 }); return new Response("", { status: 200 }); };
-  const { app, accounts, forms } = await createAccountApp({ database: ":memory:", secret: "test-only-secret-at-least-thirty-two-characters", baseURL: "http://reader.test", origins: ["http://reader.test"], production: false, archiveEnabled: false, adminEmails: ["owner@example.com"], emailDailyLimit: 20, fetchImpl,
+  const { app, accounts, forms } = await createAccountApp({ database: ":memory:", secret: "test-only-secret-at-least-thirty-two-characters", baseURL: "http://reader.test", origins: ["http://reader.test"], production: false, archiveEnabled: false, adminEmails: ["owner@example.com"], emailDailyLimit: 20, fetchImpl, botToken: "test-bot-token",
     r2Forms: { enabled: true, bucket: "vn-forms-private", accountId: "acc", accessKeyId: "k", secretAccessKey: "s", prefix: "forms", reason: "" } }, m => mail.push(m));
   const server = app.listen(0, "127.0.0.1"); await once(server, "listening"); const base = `http://127.0.0.1:${server.address().port}`;
   const request = (path, { body, cookie = "", method, headers = {} } = {}) => fetch(base + path, { method: method ?? (body === undefined ? "GET" : "POST"), headers: { origin: "http://reader.test", "x-vn-csrf": "1", "content-type": "application/json", cookie, ...headers }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -75,9 +90,30 @@ test("form flow: submit, approval-gated link, roles, exports, insights, backups"
     assert.equal((await request("/api/forms/groundwork/responses", { body: { answers: complete, website: "spam" } })).status, 422);
     const rejected = await request("/api/forms/groundwork/responses", { body: { answers: { ...complete, gw_email: "" } } });
     assert.equal(rejected.status, 422); assert.ok((await rejected.json()).errors.gw_email);
-    const submitted = await request("/api/forms/groundwork/responses", { body: { answers: complete, startedAt: Date.now() - 60000, device: "mobile" } });
+    const forged = await request("/api/forms/groundwork/responses", { body: { answers: complete } });
+    assert.match((await forged.json()).errors.gw_telegram, /verify your user ID/);
+    const { url, key } = await (await request("/api/forms/groundwork/telegram-link", { body: {} })).json();
+    const start = new URL(url).searchParams.get("start");
+    assert.match(start, /^tguserid_[A-Za-z0-9_-]{24}$/);
+    assert.equal((await request("/api/forms/groundwork/telegram-link", { headers: { "X-VN-Telegram-Link": start } })).status, 404);
+    const poll = () => request("/api/forms/groundwork/telegram-link", { headers: { "X-VN-Telegram-Link": key } });
+    assert.equal((await (await poll()).json()).telegram, null);
+    const sendStart = (userId, username) => request("/internal/forms/telegram", { headers: { Authorization: "Bearer test-bot-token" }, body: { userId, username, text: `/start ${start}` } });
+    const botReply = await (await sendStart("4242", "")).json();
+    assert.equal(botReply.copyText, "4242");
+    await sendStart("9999", "other");
+    assert.deepEqual((await (await poll()).json()).telegram, { id: "4242", username: null });
+    const badSubmit = await request("/api/forms/groundwork/responses", { body: { answers: { ...complete, gw_email: "bad" }, telegramLink: key } });
+    assert.equal(badSubmit.status, 422);
+    assert.equal((await poll()).status, 200, "a validation error does not consume the link");
+    const wrongId = await request("/api/forms/groundwork/responses", { body: { answers: { ...complete, gw_telegram: "9999" }, telegramLink: key } });
+    assert.equal(wrongId.status, 422);
+    assert.match((await wrongId.json()).errors.gw_telegram, /same Telegram user ID/);
+    assert.equal((await poll()).status, 200, "the applicant can correct the pasted ID");
+    const submitted = await request("/api/forms/groundwork/responses", { body: { answers: { ...complete, gw_social: [{ platform: "Signal", handle: "arjun.01" }] }, telegramLink: key, startedAt: Date.now() - 60000, device: "mobile" } });
+    assert.equal((await poll()).status, 404, "a successful submission consumes the link");
     assert.equal(submitted.status, 201); const { receipt, outcome } = await submitted.json();
-    assert.equal(outcome.status, "pending"); assert.equal(outcome.reward.url, null);
+    assert.equal(outcome.status, "pending"); assert.equal(outcome.notify.telegram, true); assert.equal(outcome.reward.url, null);
     const waiting = await (await request("/api/forms/groundwork", { headers: { "x-vn-receipt": receipt } })).json();
     assert.equal(waiting.outcome.status, "pending"); assert.equal(waiting.outcome.reward.url, null);
     assert.equal((await (await request("/api/forms/groundwork", { headers: { "x-vn-receipt": "x".repeat(32) } })).json()).outcome, null);
@@ -100,6 +136,8 @@ test("form flow: submit, approval-gated link, roles, exports, insights, backups"
 
     const responses = await (await request(`/api/admin/forms/${form.id}/responses?state=Maharashtra&q=Arjun`, { cookie: reviewer })).json();
     assert.equal(responses.total, 1); assert.equal(responses.responses[0].answers.gw_name, "Arjun Sharma"); assert.equal(responses.responses[0].device, "mobile");
+    assert.deepEqual(responses.responses[0].telegram, { id: "4242", username: null });
+    assert.equal(responses.responses[0].answers.gw_telegram, "4242");
     assert.equal((await (await request(`/api/admin/forms/${form.id}/responses?state=Kerala`, { cookie: reviewer })).json()).total, 0);
     assert.equal((await (await request(`/api/admin/forms/${form.id}/responses?f.gw_gender=male`, { cookie: reviewer })).json()).total, 1);
     const approved = await request(`/api/admin/forms/${form.id}/responses`, { cookie: reviewer, method: "PATCH", body: { ids: [responses.responses[0].id], status: "approved" } });
@@ -109,7 +147,7 @@ test("form flow: submit, approval-gated link, roles, exports, insights, backups"
     assert.equal((await request(`/api/admin/forms/${form.id}/responses`, { cookie: reviewer, method: "DELETE", body: { ids: [responses.responses[0].id] } })).status, 403);
 
     const csv = await (await request(`/api/admin/forms/${form.id}/export`, { cookie: owner })).text();
-    assert.match(csv, /Full name/); assert.match(csv, /Arjun Sharma/); assert.match(csv, /'\+91 98765 43210/, "formula-like cells are neutralised");
+    assert.match(csv, /Signal: arjun\.01/); assert.match(csv, /Full name/); assert.match(csv, /Arjun Sharma/); assert.match(csv, /'\+919876543210/, "formula-like cells are neutralised");
     const insights = await (await request(`/api/admin/forms/${form.id}/insights`, { cookie: owner })).json();
     assert.equal(insights.totals.responses, 1); assert.equal(insights.states[0].name, "Maharashtra"); assert.ok(insights.insights.length > 0);
     assert.deepEqual(insights.questions.find(q => q.id === "gw_gender").options.find(o => o.name === "Male"), { name: "Male", count: 1 });
@@ -149,7 +187,14 @@ test("status updates: Telegram binding through the bot, /status privacy, and opt
   const request = (path, { body, headers = {} } = {}) => fetch(base + path, { method: body === undefined ? "GET" : "POST", headers: { origin: "http://reader.test", "x-vn-csrf": "1", "content-type": "application/json", ...headers }, body: body === undefined ? undefined : JSON.stringify(body) });
   const bot = (body, authorization = `Bearer ${token}`) => fetch(base + "/internal/forms/telegram", { method: "POST", headers: { "content-type": "application/json", authorization }, body: JSON.stringify(body) });
   try {
-    const { receipt } = await (await request("/api/forms/groundwork/responses", { body: { answers: complete } })).json();
+    // An older response, or a form with optional Telegram contact, can still opt in afterwards.
+    const original = forms.store.formBySlug("groundwork");
+    const schema = structuredClone(original.schema);
+    schema.pages.flatMap(page => page.fields).find(field => field.id === "gw_telegram").required = false;
+    forms.store.updateForm(original.id, { schema }, "owner@example.com");
+    const submission = await request("/api/forms/groundwork/responses", { body: { answers: { ...complete, gw_telegram: undefined } } });
+    assert.equal(submission.status, 201);
+    const { receipt } = await submission.json();
     const mine = { "x-vn-receipt": receipt };
     assert.deepEqual((await (await request("/api/forms/groundwork", { headers: mine })).json()).updates, { telegram: "vn_status_bot", email: true });
     assert.equal((await request("/api/forms/groundwork/notify", { body: { channel: "telegram" } })).status, 404, "a receipt is required");
@@ -175,4 +220,30 @@ test("status updates: Telegram binding through the bot, /status privacy, and opt
     assert.equal(await accounts.mail({ to: "arjun@example.com", subject: "s", text: "t" }), true);
     assert.equal(mail.at(-1).type, "notice"); assert.equal(accounts.admin.capacity(true).used, 1, "notices count against the daily allowance");
   } finally { await new Promise(resolve => server.close(resolve)); accounts.close(); }
+});
+
+test("existing Ground Work form gains contact fields without replacing settings or previous responses", async () => {
+  const { accounts, forms } = await createAccountApp({ database: ":memory:", secret: "test-only-secret-at-least-thirty-two-characters", baseURL: "http://reader.test", origins: [], production: false }, () => {});
+  try {
+    const form = forms.store.formBySlug("groundwork"), schema = structuredClone(form.schema);
+    for (const page of schema.pages) {
+      page.fields = page.fields.filter(field => field.id !== "gw_locality");
+      for (const field of page.fields) if (["gw_district", "gw_telegram", "gw_social"].includes(field.id)) field.type = "short";
+    }
+    const reward = { enabled: true, label: "Existing group", url: "https://example.com/invite" };
+    const old = forms.store.updateForm(form.id, { title: "My live form", schema, settings: { reward } }, "owner@example.com");
+    const previous = forms.store.submit(old, { answers: { ...complete, gw_district: "Old district text", gw_telegram: "@legacy", gw_social: "old handle" } }).response;
+    forms.store.setSetting("forms.groundwork-contact", null);
+    const upgradedStore = new FormsStore(accounts.database);
+    const upgraded = upgradedStore.form(form.id);
+    assert.equal(upgraded.title, "My live form");
+    assert.deepEqual(upgraded.settings.reward, reward);
+    assert.deepEqual(upgradedStore.response(form.id, previous.id).answers, previous.answers);
+    const fields = upgraded.schema.pages.flatMap(page => page.fields);
+    assert.equal(fields.find(field => field.id === "gw_district").stateField, "gw_state");
+    assert.equal(fields.find(field => field.id === "gw_locality").required, undefined);
+    assert.equal(fields.find(field => field.id === "gw_telegram").type, "telegram");
+    assert.equal(fields.find(field => field.id === "gw_social").type, "social");
+    assert.deepEqual(new FormsStore(accounts.database).form(form.id).schema, upgraded.schema);
+  } finally { accounts.close(); }
 });

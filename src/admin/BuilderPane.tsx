@@ -10,12 +10,13 @@ import { Confirm, useAction, useToast } from "./ui";
 const TYPES: Array<{ type: FieldType; label: string; mark: string }> = [
   { type: "short", label: "Short answer", mark: "Aa" }, { type: "long", label: "Paragraph", mark: "¶" }, { type: "single", label: "Single choice", mark: "◉" }, { type: "multi", label: "Checkboxes", mark: "☑" },
   { type: "dropdown", label: "Dropdown", mark: "▾" }, { type: "yesno", label: "Yes / No", mark: "Y/N" }, { type: "state", label: "Indian state", mark: "IN" }, { type: "number", label: "Number", mark: "#" },
+  { type: "social", label: "Social and messaging accounts", mark: "@" }, { type: "telegram", label: "Verified Telegram account", mark: "TG" },
   { type: "email", label: "Email", mark: "@" }, { type: "phone", label: "Phone", mark: "☎" }, { type: "url", label: "Link", mark: "🔗" }, { type: "date", label: "Date", mark: "D" }, { type: "time", label: "Time", mark: "T" },
   { type: "scale", label: "Linear scale", mark: "1–5" }, { type: "rating", label: "Star rating", mark: "★" }, { type: "consent", label: "Consent box", mark: "✓" }, { type: "statement", label: "Text block", mark: "“" }
 ];
-const typeInfo = (type: FieldType) => TYPES.find(item => item.type === type) ?? TYPES[0];
+const typeInfo = (type: FieldType) => type === "district" ? { label: "Indian district", mark: "IN" } : TYPES.find(item => item.type === type) ?? TYPES[0];
 const OPERATORS: Array<{ op: Operator; label: string; needsValue: boolean }> = [{ op: "eq", label: "is", needsValue: true }, { op: "neq", label: "is not", needsValue: true }, { op: "contains", label: "contains", needsValue: true }, { op: "not_contains", label: "doesn't contain", needsValue: true }, { op: "gt", label: "is more than", needsValue: true }, { op: "lt", label: "is less than", needsValue: true }, { op: "answered", label: "is answered", needsValue: false }, { op: "empty", label: "is empty", needsValue: false }];
-const ROLES = [["", "Nothing special"], ["name", "Respondent's name"], ["state", "State (powers the map)"], ["district", "District or city"], ["phone", "Phone number"], ["email", "Email"], ["telegram", "Telegram username"], ["profession", "Profession"]];
+const ROLES = [["", "Nothing special"], ["name", "Respondent's name"], ["state", "State (powers the map)"], ["district", "District or city"], ["phone", "Phone number"], ["email", "Email"], ["telegram", "Telegram account"], ["profession", "Profession"]];
 const ACCENTS = ["#f2a23a", "#ef6f4d", "#e2557f", "#8b7bff", "#4c8dff", "#1fb6a6", "#3fae5f", "#d7dbe6"];
 
 function blankField(type: FieldType): FormField {
@@ -24,6 +25,8 @@ function blankField(type: FieldType): FormField {
   if (type === "scale") field.scale = { min: 1, max: 5 };
   if (type === "rating") field.scale = { min: 1, max: 5 };
   if (type === "consent") field.placeholder = "I agree";
+  if (type === "social") field.label = "Social or messaging accounts";
+  if (type === "telegram") { field.label = "Telegram account"; field.role = "telegram"; }
   if (type === "state") { field.label = "State or union territory"; field.role = "state"; }
   return field;
 }
@@ -50,10 +53,10 @@ function QuestionEditor({ field, earlier, onChange }: { field: FormField; earlie
   const set = (patch: Partial<FormField>) => onChange({ ...field, ...patch });
   const isChoice = (CHOICE_TYPES as string[]).includes(field.type), isText = field.type === "short" || field.type === "long";
   const validation = field.validation ?? {}, setRule = (key: string, value: string) => { const next: Record<string, unknown> = { ...validation }; if (value === "") delete next[key]; else next[key] = ["pattern", "patternMessage"].includes(key) ? value : Number(value); set({ validation: Object.keys(next).length ? next : undefined }); };
-  const changeType = (type: FieldType) => { const fresh = blankField(type); onChange({ ...field, type, options: (CHOICE_TYPES as string[]).includes(type) ? field.options ?? fresh.options : undefined, scale: fresh.scale, allowOther: ["single", "multi"].includes(type) ? field.allowOther : undefined, validation: undefined, placeholder: type === "consent" ? field.placeholder || "I agree" : field.placeholder, required: type === "statement" ? undefined : field.required }); };
+  const changeType = (type: FieldType) => { const fresh = blankField(type); onChange({ ...field, type, stateField: type === "district" ? field.stateField : undefined, options: (CHOICE_TYPES as string[]).includes(type) ? field.options ?? fresh.options : undefined, scale: fresh.scale, allowOther: ["single", "multi"].includes(type) ? field.allowOther : undefined, validation: undefined, placeholder: type === "consent" ? field.placeholder || "I agree" : field.placeholder, required: type === "statement" ? undefined : field.required }); };
   return <div className="vb-q-body">
     <div className="va-fieldgrid"><label className="vg-label" style={{ gridColumn: "1 / -1" }}>{field.type === "statement" ? "Heading" : "Question"}<input className="vg-input" value={field.label} maxLength={400} placeholder="Type your question" onChange={event => set({ label: event.target.value })} /></label>
-      <label className="vg-label">Answer type<select className="vg-select is-small" value={field.type} onChange={event => changeType(event.target.value as FieldType)}>{TYPES.map(item => <option key={item.type} value={item.type}>{item.label}</option>)}</select></label>
+      <label className="vg-label">Answer type<select className="vg-select is-small" value={field.type} onChange={event => changeType(event.target.value as FieldType)}>{(field.type === "district" ? [{ type: "district", label: "Indian district" }, ...TYPES] : TYPES).map(item => <option key={item.type} value={item.type}>{item.label}</option>)}</select></label>
       {field.type !== "statement" && <label className="vg-label">Use this answer as<select className="vg-select is-small" value={field.role ?? ""} onChange={event => set({ role: event.target.value || undefined })}>{ROLES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>}</div>
     <label className="vg-label">{field.type === "statement" ? "Text" : "Hint shown under the question (optional)"}<textarea className="vg-textarea" style={{ minHeight: 64 }} value={field.help ?? ""} maxLength={1000} onChange={event => set({ help: event.target.value || undefined })} /></label>
     {field.type === "consent" && <label className="vg-label">Checkbox text<input className="vg-input is-small" value={field.placeholder ?? ""} onChange={event => set({ placeholder: event.target.value })} /></label>}

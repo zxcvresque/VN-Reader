@@ -1,9 +1,10 @@
 // Form rules shared by the account service and the browser.
-// Keep this file dependency-free: it is imported by Node and bundled by Vite.
+import parsePhoneNumber from "libphonenumber-js/max";
+import { INDIA_DISTRICTS } from "./indiaDistricts.mjs";
 
 export const FIELD_TYPES = [
   "short", "long", "email", "phone", "number", "url", "date", "time",
-  "single", "multi", "dropdown", "yesno", "scale", "rating", "state", "consent", "statement"
+  "single", "multi", "dropdown", "yesno", "scale", "rating", "state", "district", "telegram", "social", "consent", "statement"
 ];
 export const CHOICE_TYPES = ["single", "multi", "dropdown"];
 export const OPERATORS = ["eq", "neq", "contains", "not_contains", "gt", "lt", "any_of", "answered", "empty"];
@@ -17,6 +18,12 @@ export const INDIA_STATES = [
   "Dadra and Nagar Haveli and Daman and Diu", "Delhi", "Jammu and Kashmir", "Ladakh", "Lakshadweep",
   "Puducherry", "Outside India"
 ];
+
+export const SOCIAL_PLATFORMS = ["Instagram", "Facebook", "X", "Bluesky", "Reddit", "Threads", "LinkedIn", "YouTube", "Snapchat", "TikTok", "Signal", "Arattai", "WhatsApp", "Discord", "Messenger"];
+export const MAX_SOCIAL_ACCOUNTS = 10;
+export function districtsFor(state) {
+  return typeof state === "string" && Object.hasOwn(INDIA_DISTRICTS, state) ? INDIA_DISTRICTS[state] : [];
+}
 
 const text = (value, limit) => (typeof value === "string" ? value : "").replace(/\u0000/g, "").trim().slice(0, limit);
 const idOk = value => typeof value === "string" && /^[A-Za-z0-9_-]{1,40}$/.test(value);
@@ -37,6 +44,7 @@ export function displayAnswer(field, value) {
     if (CHOICE_TYPES.includes(field.type)) return field.options?.find(option => option.id === item)?.label ?? item;
     return item;
   };
+  if (field.type === "social" && Array.isArray(value)) return value.map(account => `${account.platform}: ${account.handle}`).join(", ");
   if (field.type === "consent") return value ? "Yes" : "No";
   return Array.isArray(value) ? value.map(one).join(", ") : one(value);
 }
@@ -105,12 +113,25 @@ export function visibleFields(schema, answers, pages = pagePath(schema, answers)
   return pages.flatMap(page => (page.fields ?? []).filter(field => conditionPasses(field.showIf, fieldsById, answers)));
 }
 
-const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,24}$/;
-const PHONE = /^\+?[0-9][0-9\s().-]{5,20}$/;
+const EMAIL_LOCAL = /^[a-z0-9.!#$%&'*+/=?^_`{|}~-]{1,64}$/i;
+const EMAIL_DOMAIN = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:[a-z]{2,63}|xn--[a-z0-9-]{1,59})$/i;
+export function isEmailAddress(value) {
+  if (typeof value !== "string" || value.length > 254) return false;
+  const at = value.lastIndexOf("@"), local = value.slice(0, at);
+  return at > 0 && EMAIL_LOCAL.test(local) && !local.startsWith(".") && !local.endsWith(".") && !local.includes("..") && EMAIL_DOMAIN.test(value.slice(at + 1));
+}
+function phoneNumber(value, state) {
+  if (typeof value !== "string" || value.length > 40) return;
+  if (state === "Outside India" && !value.startsWith("+")) return;
+  const phone = parsePhoneNumber(value, { defaultCountry: "IN", extract: false });
+  if (phone?.isValid() && !phone.ext) return phone.number;
+}
+export const isTelegramUserId = value => typeof value === "string" && /^[1-9]\d{2,15}$/.test(value);
+const validSocial = account => account && typeof account.platform === "string" && account.platform.trim().length > 0 && account.platform.trim().length <= 60 && typeof account.handle === "string" && account.handle.trim().length > 0 && account.handle.trim().length <= 160;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME = /^\d{2}:\d{2}$/;
 
-function checkField(field, value) {
+function checkField(field, value, state) {
   const rules = field.validation ?? {};
   const lengthCheck = string => {
     if (rules.minLength && string.length < rules.minLength) return `Use at least ${rules.minLength} characters.`;
@@ -127,8 +148,13 @@ function checkField(field, value) {
       if (typeof value !== "string" || value.length > (field.type === "long" ? 5000 : 500)) return "This answer is too long.";
       return lengthCheck(value);
     }
-    case "email": return typeof value === "string" && EMAIL.test(value) ? null : "Enter a valid email address, like name@example.com.";
-    case "phone": return typeof value === "string" && PHONE.test(value) && value.replace(/\D/g, "").length >= 7 ? null : "Enter a valid phone number, with country code if outside India.";
+    case "email": return isEmailAddress(value) ? null : "Enter a valid email address, like name@example.com.";
+    case "district": {
+      if (state === "Outside India") return typeof value === "string" && value.length <= 120 ? null : "Enter your district or city.";
+      return districtsFor(state).includes(value) ? null : "Choose a district in the selected state or union territory.";
+    }
+    case "telegram": return isTelegramUserId(value) ? null : "Connect your Telegram account to get your user ID.";
+    case "social": return Array.isArray(value) && value.length <= MAX_SOCIAL_ACCOUNTS && value.every(validSocial) ? null : "Enter a platform and username or user ID for each account, or remove the row.";
     case "url": try { const url = new URL(String(value)); return ["http:", "https:"].includes(url.protocol) ? null : "Start the link with https://"; } catch { return "Enter a full link, starting with https://"; }
     case "number": {
       const number = Number(value);
@@ -165,8 +191,9 @@ function checkField(field, value) {
 export function validateAnswers(schema, answers, onlyPage) {
   const input = answers && typeof answers === "object" && !Array.isArray(answers) ? answers : {};
   const errors = {}, clean = {};
-  const pages = pagePath(schema, input);
-  for (const field of visibleFields(schema, input, pages)) {
+  const fields = visibleFields(schema, input);
+  const phoneState = input[fields.find(field => field.type === "state")?.id];
+  for (const field of fields) {
     if (field.type === "statement") continue;
     if (onlyPage && !onlyPage.fields?.some(candidate => candidate.id === field.id)) {
       if (!isEmpty(input[field.id])) clean[field.id] = input[field.id];
@@ -174,9 +201,17 @@ export function validateAnswers(schema, answers, onlyPage) {
     }
     let value = input[field.id];
     if (typeof value === "string") value = value.trim();
-    if (isEmpty(value)) { if (field.required) errors[field.id] = field.type === "consent" ? "Tick the box to continue." : "This question needs an answer."; continue; }
-    const problem = checkField(field, value);
+    if (isEmpty(value)) { if (field.required && field.type === "telegram") errors[field.id] = "Connect your Telegram account to get your user ID."; else if (field.required) errors[field.id] = field.type === "consent" ? "Tick the box to continue." : "This question needs an answer."; continue; }
+    if (field.type === "phone") {
+      const number = phoneNumber(value, phoneState);
+      if (number) clean[field.id] = number;
+      else errors[field.id] = "Enter a valid phone number. Include the country code for numbers outside India.";
+      continue;
+    }
+    const state = fields.some(candidate => candidate.id === field.stateField && candidate.type === "state") ? input[field.stateField] : undefined;
+    const problem = checkField(field, value, state);
     if (problem) errors[field.id] = problem;
+    else if (field.type === "social") clean[field.id] = value.map(({ platform, handle }) => ({ platform: platform.trim(), handle: handle.trim() }));
     else clean[field.id] = ["number", "scale", "rating"].includes(field.type) ? Number(value) : value;
   }
   return { ok: Object.keys(errors).length === 0, errors, clean };
@@ -235,6 +270,7 @@ export function normalizeSchema(input) {
       const pattern = text(rules.pattern, 200);
       if (pattern) { try { new RegExp(pattern, "u"); validation.pattern = pattern; const message = text(rules.patternMessage, 160); if (message) validation.patternMessage = message; } catch { /* Drop unusable patterns. */ } }
       if (Object.keys(validation).length) next.validation = validation;
+      if (field.type === "district" && idOk(field.stateField)) next.stateField = field.stateField;
       next._showIf = field.showIf;
       return [next];
     });

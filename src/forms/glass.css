@@ -424,3 +424,6 @@ html:has(.vg[data-mode="light"]), html:has(.vg[data-mode="light"]) body { backgr
 .va-swatch[data-backdrop="saffron"] i { background: radial-gradient(circle at 25% 25%, #c2541a, transparent 60%), radial-gradient(circle at 80% 70%, #6e1736, transparent 60%), #120a0c; }
 .va-swatch[data-backdrop="ocean"] i { background: radial-gradient(circle at 25% 25%, #0c5f86, transparent 60%), radial-gradient(circle at 80% 70%, #1aa2a8, transparent 60%), #050b17; }
 .va-swatch[data-backdrop="emerald"] i { background: radial-gradient(circle at 25% 25%, #0f6b47, transparent 60%), radial-gradient(circle at 80% 70%, #b88a1e, transparent 60%), #060d0a; }
+
+.vf-social-row { display: flex; align-items: end; flex-wrap: wrap; gap: 8px; }
+.vf-social-row label { flex: 1 1 10rem; min-width: 0; }
