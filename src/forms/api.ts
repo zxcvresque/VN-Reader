@@ -3,7 +3,7 @@ export type { Answers, AnswerValue, Condition, FieldOption, FieldType, FormField
 
 export interface FormTheme {
   accent: string; font: "aspekta" | "system" | "serif" | "rounded" | "mono" | "humanist" | "custom"; surface: "glass" | "solid" | "paper";
-  mode: "auto" | "light" | "dark"; backdrop: "aurora" | "dawn" | "ink" | "plain"; radius: number; layout: "classic" | "focus"; submitLabel: string; fontName?: string; hasCustomFont?: boolean;
+  mode: "auto" | "light" | "dark"; backdrop: "mono" | "aurora" | "saffron" | "ocean" | "emerald" | "dawn" | "ink" | "plain"; radius: number; layout: "classic" | "focus"; submitLabel: string; fontName?: string; hasCustomFont?: boolean;
 }
 export interface PublicForm {
   slug: string; title: string; description: string; availability: "open" | "closed" | "draft" | "soon" | "full"; schema: FormSchema; theme: FormTheme;
@@ -38,6 +38,7 @@ export interface AdminSettings {
   r2: { enabled: boolean; bucket: string; reason: string; waiting: number };
 }
 
+export const BACKDROPS = [{ id: "mono", name: "Monochrome" }, { id: "aurora", name: "Aurora" }, { id: "saffron", name: "Saffron dusk" }, { id: "ocean", name: "Deep ocean" }, { id: "emerald", name: "Emerald grove" }] as const;
 export class RequestError extends Error { constructor(message: string, public status: number, public errors?: Record<string, string>) { super(message); } }
 export async function call<T>(path: string, options: { method?: string; body?: unknown; headers?: Record<string, string> } = {}): Promise<T> {
   let response: Response;

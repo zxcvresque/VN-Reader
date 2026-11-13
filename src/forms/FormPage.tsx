@@ -68,7 +68,7 @@ export function OutcomePanel({ outcome, requireApproval, onRefresh, refreshing, 
   </section>;
 }
 
-const FALLBACK_THEME: FormTheme = { accent: "#f2a23a", font: "aspekta", surface: "glass", mode: "auto", backdrop: "aurora", radius: 22, layout: "classic", submitLabel: "Submit" };
+const FALLBACK_THEME: FormTheme = { accent: "#f2a23a", font: "aspekta", surface: "glass", mode: "auto", backdrop: "mono", radius: 22, layout: "classic", submitLabel: "Submit" };
 
 export default function FormPage({ slug, linkCode }: { slug?: string; linkCode?: string }) {
   const [resolved, setResolved] = useState(slug ?? "");

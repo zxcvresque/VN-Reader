@@ -60,7 +60,7 @@ export function normalizeTheme(input = {}) {
     font: FONTS.includes(input.font) ? input.font : "aspekta",
     surface: ["glass", "solid", "paper"].includes(input.surface) ? input.surface : "glass",
     mode: ["auto", "light", "dark"].includes(input.mode) ? input.mode : "auto",
-    backdrop: ["aurora", "dawn", "ink", "plain"].includes(input.backdrop) ? input.backdrop : "aurora",
+    backdrop: ["mono", "aurora", "saffron", "ocean", "emerald", "dawn", "ink", "plain"].includes(input.backdrop) ? input.backdrop : "mono",
     radius: Number.isFinite(radius) ? Math.min(32, Math.max(0, Math.round(radius))) : 22,
     layout: input.layout === "focus" ? "focus" : "classic",
     submitLabel: clip(input.submitLabel, 40) || "Submit response",

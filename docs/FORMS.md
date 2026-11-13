@@ -44,7 +44,7 @@ The bot replies come from the archive service's existing Telegram bot (`TELEGRAM
 ## Storage and backups
 
 - **Primary**: SQLite, in the `account-data` volume.
-- **R2**: every response is mirrored as JSON to a private bucket: `R2_FORMS_BUCKET`, under `R2_FORMS_PREFIX` (default `forms/`). The server refuses to use the public media bucket. Create a separate bucket with no public access and make sure the API token can write to it.
+- **R2**: every response is mirrored as JSON to a private bucket: `R2_FORMS_BUCKET`, under `R2_FORMS_PREFIX` (default `forms/`). Create it in the **same Cloudflare account** as the media bucket: R2 → Create bucket, name it e.g. `vn-forms-private`, and leave Public access and Custom domains off. A private bucket needs no domain. The free tier (10 GB) is shared by all buckets in the account; a response is a few KB, so 10,000 responses use roughly 50 MB. If your R2 API token is limited to the media bucket, edit it to include the new bucket, or create a separate token and set the `R2_FORMS_*` keys. The server refuses to use the public media bucket, because everything in it is reachable through `media.vidurneeti.xyz`.
 - **Telegram**: each new response, each decision, and on-demand full backups (JSON and CSV) go to the backup channel set in the console. The bot must be an admin of that channel.
 
 Responses contain addresses and phone numbers. Keep the backup channel private and limit who has the export permission.

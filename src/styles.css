@@ -2781,8 +2781,8 @@ body { isolation: isolate; background-attachment: fixed; }
 /* Minimal reading desk. Existing tools remain in menus; 44px touch targets. */
 .brand-logo img{width:100%;height:100%;object-fit:contain;grid-area:1/1;display:block}
 .brand-logo .brand-logo-dark{display:none}
-:root:is([data-theme="vercel"],[data-theme="editorial"],[data-theme="glass"]) .brand-logo-light{display:none}
-:root:is([data-theme="vercel"],[data-theme="editorial"],[data-theme="glass"]) .brand-logo-dark{display:block}
+:root:is([data-theme="vercel"],[data-theme="editorial"],[data-theme="glass"][data-glass="dark"]) .brand-logo-light{display:none}
+:root:is([data-theme="vercel"],[data-theme="editorial"],[data-theme="glass"][data-glass="dark"]) .brand-logo-dark{display:block}
 .top-bar .top-bar-mark{background:transparent!important;padding:0!important;border:0!important;width:42px;height:42px;min-width:42px;box-shadow:none!important}
 .minimal-nav .top-bar-menu{display:inline-flex!important}
 .minimal-nav .top-bar-actions{gap:4px}
@@ -3432,9 +3432,34 @@ button.top-bar-home:hover .top-bar-mark { filter: brightness(1.12); }
   --bg-elevated: #141a33e6; --overlay: #050711b8;
   color-scheme: dark;
 }
-:root[data-theme="glass"] body { background: radial-gradient(60rem 40rem at 0% 0%, var(--ambient-a), transparent 60%), radial-gradient(55rem 45rem at 100% 35%, var(--ambient-b), transparent 62%), radial-gradient(40rem 28rem at 50% 100%, #f2a23a2b, transparent 65%), var(--bg-0); background-attachment: fixed; }
+:root[data-theme="glass"] body { background: radial-gradient(60rem 40rem at 0% 0%, var(--glass-a), transparent 60%), radial-gradient(55rem 45rem at 100% 35%, var(--glass-b), transparent 62%), radial-gradient(40rem 28rem at 50% 100%, var(--glass-c), transparent 65%), var(--bg-0); background-attachment: fixed; }
+/* Backgrounds: dark values first, light values below. Monochrome is the default. */
+:root[data-theme="glass"] { --glass-a: #5c5c5c55; --glass-b: #8a8a8a33; --glass-c: #ffffff14; --bg-0: #070707; --bg-elevated: #161616eb; }
+:root[data-theme="glass"][data-glass-backdrop="aurora"] { --glass-a: #12a39a4d; --glass-b: #5b46e666; --glass-c: #f2a23a2b; --bg-0: #070a17; --bg-elevated: #141a33e6; }
+:root[data-theme="glass"][data-glass-backdrop="saffron"] { --glass-a: #c2541a55; --glass-b: #6e173666; --glass-c: #e3a12a33; --bg-0: #120a0c; --bg-elevated: #22131ae6; }
+:root[data-theme="glass"][data-glass-backdrop="ocean"] { --glass-a: #0c5f8666; --glass-b: #12307a66; --glass-c: #1aa2a833; --bg-0: #050b17; --bg-elevated: #0f1a30e6; }
+:root[data-theme="glass"][data-glass-backdrop="emerald"] { --glass-a: #0f6b4766; --glass-b: #153f2e66; --glass-c: #b88a1e33; --bg-0: #060d0a; --bg-elevated: #10201ae6; }
+:root[data-theme="glass"][data-glass-backdrop="mono"] body::before { content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none; background: repeating-linear-gradient(115deg, transparent 0 46px, #ffffff08 46px 47px), conic-gradient(from 210deg at 70% 30%, transparent 0 40%, #ffffff12 52%, transparent 64%); }
+:root[data-theme="glass"][data-glass="light"] {
+  --bg-1: #ffffff8c; --bg-2: #ffffffb3; --bg-3: #ffffffd9;
+  --text: #15171f; --text-muted: #4c5062; --text-dim: #6c7084; --text-faint: #9a9daf;
+  --accent: #b5650a; --accent-strong: #8f4f05; --on-accent: #ffffff;
+  --unread: #1f6f86; --success: #23704c; --danger: #b23a32; --warn: #8a5d00;
+  --border: #0f13241a; --border-strong: #0f13242e;
+  --shadow-soft: 0 10px 34px #2a2f4a1f, inset 0 1px 0 #ffffffcc; --shadow-pop: 0 26px 80px #2a2f4a33, inset 0 1px 0 #ffffffe6;
+  --bg-elevated: #ffffffe6; --overlay: #e8e9eeb8;
+  --glass-a: #c9c9c9aa; --glass-b: #ffffffcc; --glass-c: #a8a8a855; --bg-0: #e9e9e9;
+  color-scheme: light;
+}
+:root[data-theme="glass"][data-glass="light"][data-glass-backdrop="aurora"] { --glass-a: #7fd9cf99; --glass-b: #b3a6ff99; --glass-c: #ffcf8f88; --bg-0: #e7eaf4; }
+:root[data-theme="glass"][data-glass="light"][data-glass-backdrop="saffron"] { --glass-a: #ffc08f99; --glass-b: #f4b3c499; --glass-c: #ffe29a88; --bg-0: #f5ece6; }
+:root[data-theme="glass"][data-glass="light"][data-glass-backdrop="ocean"] { --glass-a: #a8dcf099; --glass-b: #b9c8f599; --glass-c: #a9eee688; --bg-0: #e6eef5; }
+:root[data-theme="glass"][data-glass="light"][data-glass-backdrop="emerald"] { --glass-a: #a6e3c499; --glass-b: #cfe9d699; --glass-c: #f2dc9a88; --bg-0: #e8f1ea; }
+:root[data-theme="glass"][data-glass="light"][data-glass-backdrop="mono"] body::before { background: repeating-linear-gradient(115deg, transparent 0 46px, #0000000a 46px 47px), conic-gradient(from 210deg at 70% 30%, transparent 0 40%, #0000000d 52%, transparent 64%); }
+:root[data-theme="glass"][data-glass="light"] :is(select, option) { background-color: #ffffff; }
+.glass-options { margin-top: 14px; }
 :root[data-theme="glass"] :is(.top-bar, .reader-message, .stat-panel, .library-card, .launchpad-tile, .reader-settings, .account-dialog, .command-palette, .reader-tools-menu > div, .welcome-path, .welcome-theme-options, .welcome-walkthrough) { -webkit-backdrop-filter: blur(22px) saturate(170%); backdrop-filter: blur(22px) saturate(170%); border-color: var(--border-strong); }
 :root[data-theme="glass"] :is(.reader-settings, .account-dialog, .command-palette, .welcome-theme-options, .welcome-walkthrough, .top-bar-utility-panel) { background-color: var(--bg-elevated); }
-:root[data-theme="glass"] :is(select, option) { background-color: #141a33; color: var(--text); }
+:root[data-theme="glass"] :is(select, option) { background-color: var(--bg-0); color: var(--text); }
 :root[data-theme="glass"] .top-bar-mark { border-radius: 50%; }
 @media (prefers-reduced-transparency: reduce) { :root[data-theme="glass"] { --bg-1: #121730; --bg-2: #1a2040; --bg-3: #232a50; } }

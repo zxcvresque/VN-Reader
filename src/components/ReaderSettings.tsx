@@ -1,7 +1,7 @@
 import CustomSelect from "./CustomSelect";
 import { restoreCustomFont, uploadCustomFont, removeCustomFont } from "../lib/customFont";
 import { useEffect, useRef, useState } from "react";
-import { DEFAULT_PREFERENCES, NAV_POSITIONS, THEMES, type ReaderPreferences } from "../lib/preferences";
+import { DEFAULT_PREFERENCES, GLASS_BACKDROPS, GLASS_MODES, NAV_POSITIONS, THEMES, type ReaderPreferences } from "../lib/preferences";
 
 interface ReaderSettingsProps {
   preferences: ReaderPreferences;
@@ -93,7 +93,7 @@ export default function ReaderSettings({ preferences, onChange, onClose, onExpor
       <div className="reader-settings-body">
         {onOpenGuide && <button type="button" className="reader-settings-guide" onClick={onOpenGuide}><span aria-hidden="true">?</span><span><strong>Find your way around</strong><small>Take a guided page tour or explore how every reading tool works.</small></span><span aria-hidden="true">↗</span></button>}
         <section className="reader-settings-section" data-tour="themes">
-          <div className="reader-settings-section-title"><h3>Choose an atmosphere</h3><span>Four ways to settle in</span></div>
+          <div className="reader-settings-section-title"><h3>Choose an atmosphere</h3><span>{THEMES.length} ways to settle in</span></div>
           <div className="theme-grid" role="group" aria-label="Reader theme">
             {THEMES.map(theme => <button type="button" key={theme.id} className={`theme-option theme-option-${theme.id} ${preferences.theme === theme.id ? "is-selected" : ""}`} aria-pressed={preferences.theme === theme.id} onClick={() => update("theme", theme.id)}>
               <span className="theme-option-preview" style={{ backgroundColor: theme.colors[0], color: theme.colors[1] }} aria-hidden="true"><span className="theme-preview-nav"><i /><i /><i /></span><span className="theme-preview-heading">Aa</span><span className="theme-preview-lines"><i style={{ background: theme.colors[2] }} /><i style={{ background: theme.colors[2] }} /><i style={{ background: theme.colors[2] }} /></span><span className="theme-preview-dot" style={{ background: theme.colors[1] }} /></span>
@@ -101,6 +101,10 @@ export default function ReaderSettings({ preferences, onChange, onClose, onExpor
               <small>{theme.description}</small>
             </button>)}
           </div>
+          {preferences.theme === "glass" && <div className="reader-settings-grid glass-options">
+            <label>Light or dark<CustomSelect value={preferences.glassMode ?? "auto"} onChange={event => update("glassMode", event.target.value as ReaderPreferences["glassMode"])}>{GLASS_MODES.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</CustomSelect></label>
+            <label>Background<CustomSelect value={preferences.glassBackdrop ?? "mono"} onChange={event => update("glassBackdrop", event.target.value as ReaderPreferences["glassBackdrop"])}>{GLASS_BACKDROPS.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</CustomSelect></label>
+          </div>}
           <p className="reader-settings-description">Your first visit follows your device: Vercel for dark mode, Liquid Opal for light. Choose any atmosphere here to make it your own.</p>
         </section>
         <section className="reader-settings-section" data-tour="nav-placement">

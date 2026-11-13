@@ -5,6 +5,11 @@ export const THEMES = [
   { id: "opal", name: "Liquid Opal", description: "Pearl surfaces · soft iridescence", colors: ["#e9e7f2", "#625b9f", "#7baba6"] },
   { id: "glass", name: "Liquid Glass", description: "Frosted panels · deep aurora light", colors: ["#0a0d1c", "#f2a23a", "#5fb8c9"] }
 ] as const;
+/** Backgrounds for the Liquid Glass theme. Monochrome is the default. */
+export const GLASS_BACKDROPS = [{ id: "mono", name: "Monochrome" }, { id: "aurora", name: "Aurora" }, { id: "saffron", name: "Saffron dusk" }, { id: "ocean", name: "Deep ocean" }, { id: "emerald", name: "Emerald grove" }] as const;
+export type GlassBackdrop = typeof GLASS_BACKDROPS[number]["id"];
+export const GLASS_MODES = [{ id: "auto", name: "Match my device" }, { id: "dark", name: "Dark" }, { id: "light", name: "Light" }] as const;
+export type GlassMode = typeof GLASS_MODES[number]["id"];
 /** Themes drawn on a dark canvas; they use the dark logo and favicon. */
 export const DARK_THEMES: readonly string[] = ["vercel", "editorial", "glass"];
 
@@ -28,6 +33,9 @@ export interface ReaderPreferences {
   paper: "theme" | "warm" | "sepia";
   mediaMode: "compact" | "full" | "collapsed";
   focusMode: boolean;
+  /** Liquid Glass only: background and light/dark. Optional so older saves and backups stay valid. */
+  glassBackdrop?: GlassBackdrop;
+  glassMode?: GlassMode;
   presets?: ReaderPreset[];
 }
 export interface ReaderPreset {
@@ -37,7 +45,7 @@ export interface ReaderPreset {
 }
 export const DEFAULT_PREFERENCES: ReaderPreferences = {
   theme: "opal", navPosition: "top", fontFamily: "sans", fontSize: 17, lineHeight: 1.75,
-  paragraphSpacing: 1, readingWidth: 76, paper: "theme", mediaMode: "compact", focusMode: false, presets: []
+  paragraphSpacing: 1, readingWidth: 76, paper: "theme", mediaMode: "compact", focusMode: false, glassBackdrop: "mono", glassMode: "auto", presets: []
 };
 export const PREFERENCES_KEY = "vn-reader-preferences-v1";
 const clamp = (value: unknown, fallback: number, min: number, max: number) =>
@@ -60,6 +68,8 @@ export function normalizePreferences(value: unknown, includePresets = true): Rea
     paper: choice(candidate.paper, ["theme", "warm", "sepia"], DEFAULT_PREFERENCES.paper),
     mediaMode: choice(candidate.mediaMode, ["compact", "full", "collapsed"], DEFAULT_PREFERENCES.mediaMode),
     focusMode: typeof candidate.focusMode === "boolean" ? candidate.focusMode : false,
+    glassBackdrop: choice(candidate.glassBackdrop, GLASS_BACKDROPS.map(item => item.id), "mono"),
+    glassMode: choice(candidate.glassMode, GLASS_MODES.map(item => item.id), "auto"),
     presets: includePresets && Array.isArray(candidate.presets) ? candidate.presets.slice(0, 12).flatMap((preset) => {
       if (!preset || typeof preset !== "object" || typeof preset.name !== "string" || typeof preset.id !== "string") return [];
       const { presets: _presets, ...preferences } = normalizePreferences(preset.preferences, false);
@@ -93,7 +103,12 @@ export function applyPreferences(preferences: ReaderPreferences): void {
   const prefs = normalizePreferences(preferences);
   const root = document.documentElement;
   root.dataset.theme = prefs.theme;
-  const iconMode = DARK_THEMES.includes(prefs.theme) ? "dark" : "light";
+  let systemDark = true;
+  try { systemDark = window.matchMedia("(prefers-color-scheme: dark)").matches; } catch { /* default to dark glass */ }
+  const glass = prefs.glassMode === "auto" ? (systemDark ? "dark" : "light") : prefs.glassMode ?? "dark";
+  root.dataset.glass = glass;
+  root.dataset.glassBackdrop = prefs.glassBackdrop ?? "mono";
+  const iconMode = prefs.theme === "glass" ? glass : DARK_THEMES.includes(prefs.theme) ? "dark" : "light";
   document.querySelector<HTMLLinkElement>("#reader-favicon")?.setAttribute("href", `/favicon-${iconMode}.svg`);
   document.querySelector<HTMLLinkElement>("#reader-touch-icon")?.setAttribute("href", `/apple-touch-icon-${iconMode}.png`);
   root.dataset.navPosition = prefs.navPosition;
@@ -125,6 +140,8 @@ export function validatePreferences(value: unknown): ReaderPreferences {
     if (typeof number !== "number" || !Number.isFinite(number) || number < min || number > max) throw new Error(`Invalid ${field} in reading backup.`);
   }
   if (typeof candidate.focusMode !== "boolean") throw new Error("Invalid focus mode in reading backup.");
+  if (candidate.glassBackdrop !== undefined && !GLASS_BACKDROPS.some(item => item.id === candidate.glassBackdrop)) throw new Error("Invalid glass background in reading backup.");
+  if (candidate.glassMode !== undefined && !GLASS_MODES.some(item => item.id === candidate.glassMode)) throw new Error("Invalid glass mode in reading backup.");
   if (candidate.presets !== undefined) {
     if (!Array.isArray(candidate.presets) || candidate.presets.length > 12) throw new Error("Invalid reading presets in backup.");
     for (const preset of candidate.presets) {

@@ -403,3 +403,22 @@ html:has(.vg[data-mode="light"]), html:has(.vg[data-mode="light"]) body { backgr
 .vg[data-backdrop="ocean"][data-mode="light"] { --vg-blob-a: #a8dcf0; --vg-blob-b: #b9c8f5; --vg-blob-c: #a9eee6; }
 .vg[data-backdrop="emerald"] { --vg-blob-a: #0f6b47; --vg-blob-b: #153f2e; --vg-blob-c: #b88a1e; --vg-bg: #060d0a; }
 .vg[data-backdrop="emerald"][data-mode="light"] { --vg-blob-a: #a6e3c4; --vg-blob-b: #cfe9d6; --vg-blob-c: #f2dc9a; }
+
+/* Admin appearance menu: opens in place inside the sidebar */
+.va-look { border-radius: 14px; }
+.va-look > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 12px; font-size: .88rem; font-weight: 600; }
+.va-look > summary::-webkit-details-marker { display: none; }
+.va-look > summary:hover { background: var(--vg-glass); }
+.va-look > summary small { margin-left: auto; color: var(--vg-faint); font-weight: 500; font-size: .76rem; }
+.va-look-panel { display: grid; gap: 10px; padding: 4px 4px 10px; }
+.va-look-panel .va-tabs { width: 100%; background: var(--vg-field); }
+.va-look-panel .va-tabs button { flex: 1; justify-content: center; padding: 4px 6px; min-height: 30px; font-size: .78rem; }
+.va-look-swatches { display: flex; justify-content: space-between; gap: 6px; }
+.va-swatch { width: 34px; height: 34px; padding: 0; border: 1px solid var(--vg-edge); border-radius: 11px; cursor: pointer; overflow: hidden; }
+.va-swatch i { display: block; width: 100%; height: 100%; }
+.va-swatch[aria-pressed="true"] { outline: 2px solid var(--vg-text); outline-offset: 2px; }
+.va-swatch[data-backdrop="mono"] i { background: radial-gradient(circle at 25% 25%, #8a8a8a, transparent 60%), radial-gradient(circle at 80% 70%, #4a4a4a, transparent 60%), #0b0b0b; }
+.va-swatch[data-backdrop="aurora"] i { background: radial-gradient(circle at 25% 25%, #1f8f8a, transparent 60%), radial-gradient(circle at 80% 70%, #5b4bd6, transparent 60%), #0b0e1a; }
+.va-swatch[data-backdrop="saffron"] i { background: radial-gradient(circle at 25% 25%, #c2541a, transparent 60%), radial-gradient(circle at 80% 70%, #6e1736, transparent 60%), #120a0c; }
+.va-swatch[data-backdrop="ocean"] i { background: radial-gradient(circle at 25% 25%, #0c5f86, transparent 60%), radial-gradient(circle at 80% 70%, #1aa2a8, transparent 60%), #050b17; }
+.va-swatch[data-backdrop="emerald"] i { background: radial-gradient(circle at 25% 25%, #0f6b47, transparent 60%), radial-gradient(circle at 80% 70%, #b88a1e, transparent 60%), #060d0a; }

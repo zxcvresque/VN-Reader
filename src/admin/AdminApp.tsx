@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type MouseEvent, type ReactNode } from "react";
 import { ActivityLogIcon, ExitIcon, ExternalLinkIcon, FileTextIcon, GearIcon, HomeIcon, MoonIcon, PersonIcon, PlusIcon, SunIcon } from "@radix-ui/react-icons";
-import { RequestError, call, type AdminForm, type AdminMe, type FormSummary } from "../forms/api";
+import { BACKDROPS, RequestError, call, type AdminForm, type AdminMe, type FormSummary } from "../forms/api";
+import { useResolvedMode } from "../forms/FormPage";
 import { Loading, Modal, StatusChip, ToastProvider, number, timeAgo, useAction } from "./ui";
 import FormWorkspace from "./FormWorkspace";
 import TeamPane from "./TeamPane";
@@ -58,13 +59,32 @@ function Home({ context }: { context: AdminContext }) {
   </>;
 }
 
+const remembered = (key: string) => { try { return localStorage.getItem(key); } catch { return null; } };
+const remember = (key: string, value: string | null) => { try { if (value === null) localStorage.removeItem(key); else localStorage.setItem(key, value); } catch { /* optional */ } };
+
+/** Personal look of the console. Defaults: follow the device's light or dark, on the monochrome background. */
+export interface Look { mode: "dark" | "light"; choice: "auto" | "dark" | "light"; backdrop: string; setChoice: (choice: "auto" | "dark" | "light") => void; setBackdrop: (backdrop: string) => void }
+
 export default function AdminApp() {
-  const [mode, setMode] = useState<"dark" | "light">(() => { try { return localStorage.getItem("vn-admin-mode") === "light" ? "light" : "dark"; } catch { return "dark"; } });
-  const toggleMode = () => { const next = mode === "dark" ? "light" : "dark"; setMode(next); try { localStorage.setItem("vn-admin-mode", next); } catch { /* optional */ } };
-  return <div className="vg" data-mode={mode} data-surface="glass" data-backdrop="aurora"><div className="vg-backdrop" aria-hidden="true"><i /><i /><i /></div><ToastProvider><Console mode={mode} toggleMode={toggleMode} /></ToastProvider></div>;
+  const [choice, setChoiceState] = useState<"auto" | "dark" | "light">(() => { const saved = remembered("vn-admin-mode"); return saved === "light" || saved === "dark" ? saved : "auto"; });
+  const [backdrop, setBackdropState] = useState(() => { const saved = remembered("vn-admin-backdrop"); return BACKDROPS.some(item => item.id === saved) ? saved! : "mono"; });
+  const mode = useResolvedMode(choice);
+  const look: Look = { mode, choice, backdrop, setChoice: next => { setChoiceState(next); remember("vn-admin-mode", next === "auto" ? null : next); }, setBackdrop: next => { setBackdropState(next); remember("vn-admin-backdrop", next === "mono" ? null : next); } };
+  return <div className="vg" data-mode={mode} data-surface="glass" data-backdrop={backdrop}><div className="vg-backdrop" aria-hidden="true"><i /><i /><i /></div><ToastProvider><Console look={look} /></ToastProvider></div>;
 }
 
-function Console({ mode, toggleMode }: { mode: "dark" | "light"; toggleMode: () => void }) {
+function AppearanceMenu({ look }: { look: Look }) {
+  const current = BACKDROPS.find(item => item.id === look.backdrop)?.name ?? "";
+  return <details className="va-look">
+    <summary>{look.mode === "dark" ? <MoonIcon aria-hidden="true" /> : <SunIcon aria-hidden="true" />}<span>Appearance</span><small>{current}</small></summary>
+    <div className="va-look-panel">
+      <div className="va-tabs" role="group" aria-label="Light or dark">{(["auto", "light", "dark"] as const).map(item => <button type="button" key={item} aria-pressed={look.choice === item} onClick={() => look.setChoice(item)}>{item === "auto" ? "Device" : item === "light" ? "Light" : "Dark"}</button>)}</div>
+      <div className="va-look-swatches" role="group" aria-label="Background">{BACKDROPS.map(item => <button type="button" key={item.id} className="va-swatch" data-backdrop={item.id} aria-pressed={look.backdrop === item.id} aria-label={item.name} title={item.name} onClick={() => look.setBackdrop(item.id)}><i aria-hidden="true" /></button>)}</div>
+    </div>
+  </details>;
+}
+
+function Console({ look }: { look: Look }) {
   const [me, setMe] = useState<AdminMe | null>(null), [state, setState] = useState<"loading" | "signin" | "denied" | "ready" | "error">("loading"), [problem, setProblem] = useState("");
   const [forms, setForms] = useState<FormSummary[]>([]), [path, setPath] = useState(() => window.location.pathname.replace(/\/+$/, "") || "/admin");
   const run = useAction();
@@ -104,9 +124,10 @@ function Console({ mode, toggleMode }: { mode: "dark" | "light"; toggleMode: () 
         {context.can("team.manage") && link("/admin/team", "Team and access", <PersonIcon aria-hidden="true" />)}
         {context.can("settings.manage") && link("/admin/settings", "Backups and Telegram", <GearIcon aria-hidden="true" />)}
         <div className="va-side-foot">
+          <AppearanceMenu look={look} />
           <div className="va-who"><strong>{me.owner ? "Owner" : "Admin"}</strong>{me.email}</div>
           <div className="va-row" style={{ gap: 4, flexWrap: "nowrap" }}>
-            <button type="button" className="vg-btn is-quiet is-icon" onClick={toggleMode} aria-label={mode === "dark" ? "Switch to light glass" : "Switch to dark glass"} title={mode === "dark" ? "Light glass" : "Dark glass"}>{mode === "dark" ? <SunIcon /> : <MoonIcon />}</button>
+            
             <a className="vg-btn is-quiet is-icon" href="/" aria-label="Open the reader site" title="Open the reader site"><ExternalLinkIcon /></a>
             <button type="button" className="vg-btn is-quiet is-icon" aria-label="Sign out" title="Sign out" onClick={() => void run(async () => { await call("/auth/sign-out", { body: {} }); setMe(null); setState("signin"); })}><ExitIcon /></button>
           </div>

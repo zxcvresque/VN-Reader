@@ -99,3 +99,13 @@ test("removed themes migrate in backups and nested presets without discarding re
  assert.equal(restored.theme,replacement);assert.equal(restored.fontSize,21);assert.equal(restored.presets[0].preferences.theme,replacement);assert.equal(restored.presets[0].preferences.readingWidth,90);
  }
 });
+
+test("Liquid Glass defaults to the monochrome background and follows the device's light or dark", () => {
+  assert.equal(DEFAULT_PREFERENCES.glassBackdrop, "mono"); assert.equal(DEFAULT_PREFERENCES.glassMode, "auto");
+  const older = { ...DEFAULT_PREFERENCES }; delete older.glassBackdrop; delete older.glassMode;
+  assert.equal(validatePreferences(older).theme, DEFAULT_PREFERENCES.theme, "backups made before these options still restore");
+  assert.equal(normalizePreferences(older).glassBackdrop, "mono");
+  assert.equal(normalizePreferences({ ...DEFAULT_PREFERENCES, glassBackdrop: "ocean", glassMode: "light" }).glassBackdrop, "ocean");
+  assert.equal(normalizePreferences({ ...DEFAULT_PREFERENCES, glassBackdrop: "lava" }).glassBackdrop, "mono");
+  assert.throws(() => validatePreferences({ ...DEFAULT_PREFERENCES, glassMode: "dim" }), /glass mode/);
+});

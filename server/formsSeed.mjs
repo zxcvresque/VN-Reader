@@ -55,5 +55,5 @@ export const GROUNDWORK_FORM = {
     rejectedMessage: "This response wasn't approved. If you think that's a mistake, contact the Vidurneeti admins on Telegram.",
     notifyTelegram: true
   },
-  theme: { accent: "#f2a23a", font: "aspekta", surface: "glass", mode: "auto", backdrop: "aurora", radius: 22, layout: "classic", submitLabel: "Submit response" }
+  theme: { accent: "#f2a23a", font: "aspekta", surface: "glass", mode: "auto", backdrop: "mono", radius: 22, layout: "classic", submitLabel: "Submit response" }
 };
