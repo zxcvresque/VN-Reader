@@ -40,8 +40,10 @@ export function displayAnswer(field, value) {
   if (isEmpty(value)) return "";
   const one = item => {
     if (typeof item !== "string") return String(item);
-    if (item.startsWith(OTHER_PREFIX)) return item.slice(1);
-    if (CHOICE_TYPES.includes(field.type)) return field.options?.find(option => option.id === item)?.label ?? item;
+    if (CHOICE_TYPES.includes(field.type)) {
+      if (item.startsWith(OTHER_PREFIX)) return item.slice(1);
+      return field.options?.find(option => option.id === item)?.label ?? item;
+    }
     return item;
   };
   if (field.type === "social" && Array.isArray(value)) return value.map(account => `${account.platform}: ${account.handle}`).join(", ");

@@ -3,7 +3,7 @@ import {restoreCustomFont} from "./lib/customFont";
 import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeftIcon, ArrowRightIcon, MixerHorizontalIcon, MagnifyingGlassIcon, ResetIcon, BookmarkIcon, CounterClockwiseClockIcon, TimerIcon } from "@radix-ui/react-icons";
 import WelcomePage, { FeatureWalkthrough } from "./components/WelcomePage";
-import { hasEnteredAsGuest, rememberGuestEntry, shouldOfferTour, rememberTourInvitation } from "./lib/entry";
+import { rememberGuestEntry, shouldOfferTour, rememberTourInvitation } from "./lib/entry";
 import ReaderSettings from "./components/ReaderSettings";
 import ReadingWidth from "./components/ReadingWidth";
 import ReaderGuide from "./components/ReaderGuide";
@@ -113,7 +113,7 @@ function bookmarkId(targetType: "message" | "thread", targetKey: string): string
 
 export default function App() {
   const [snapshot, setSnapshot] = useState<AppSnapshot>(EMPTY_SNAPSHOT);
-  const [entered, setEntered] = useState(hasEnteredAsGuest);
+  const [entered, setEntered] = useState(false);
   const [localLoaded, setLocalLoaded] = useState(false);
   const [archiveLoading, setArchiveLoading] = useState(false);
   const [archiveError, setArchiveError] = useState("");
@@ -245,7 +245,7 @@ export default function App() {
   const accountDocument=useMemo(()=>({...createBackup(snapshot,personal,preferences),exportedAt:"2000-01-01T00:00:00.000Z"}),[snapshot,personal,preferences]);
   const account=useReaderAccount(accountDocument,applyAccountDocument,restoreGuest,(data)=>parseBackup(data,snapshotRef.current));
   const continueAsGuest=useCallback(()=>{rememberGuestEntry();setEntered(true);setAccountOpen(false);},[]);
-  useEffect(()=>{if(account.user){setEntered(true);setAccountOpen(false);}},[account.user?.id]);
+  useEffect(()=>{if(account.user && accountOpen){setEntered(true);setAccountOpen(false);}},[account.user?.id]);
   const accountFlushRef=useRef(account.flush);accountFlushRef.current=account.flush;
   accountActiveRef.current=account.user!==null;
   const accountDialog=accountOpen?<ReaderAccount account={account} onClose={()=>setAccountOpen(false)} onGuest={!entered?continueAsGuest:undefined} initialMode={accountMode} capacity={signupCapacity.capacity} capacityError={signupCapacity.error} onRefreshCapacity={signupCapacity.refresh}/>:null;

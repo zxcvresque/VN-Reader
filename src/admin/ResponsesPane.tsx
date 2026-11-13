@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { CheckIcon, Cross2Icon, DownloadIcon, MixerHorizontalIcon, TrashIcon, UploadIcon } from "@radix-ui/react-icons";
 import { allFields, displayAnswer, districtsFor } from "../../server/formLogic.mjs";
 import { call, download, type AdminForm, type FormField, type FormResponse } from "../forms/api";
 import type { AdminContext } from "./AdminApp";
+import ResponseAnswer from "./ResponseAnswer";
 import { Confirm, Failure, Loading, Modal, StatusChip, formatDate, number, timeAgo, useAction, useLoad, useToast } from "./ui";
 
 interface Page { total: number; page: number; pageSize: number; responses: FormResponse[]; states: string[] }
@@ -36,6 +37,13 @@ export default function ResponsesPane({ context, form, onChanged }: { context: A
       district: params.get("district") ?? undefined, after: params.get("from") ?? undefined, before: params.get("to") ?? undefined };
   });
   const [search, setSearch] = useState(""), [page, setPage] = useState(1), [selected, setSelected] = useState<Set<string>>(new Set()), [open, setOpen] = useState<FormResponse | null>(null);
+  const opener = useRef<HTMLButtonElement | null>(null);
+  const drawerClose = useRef<HTMLButtonElement>(null);
+  const drawerOpen = open !== null;
+  useEffect(() => {
+    if (!drawerOpen) return;
+    return () => { if (opener.current?.isConnected) opener.current.focus(); };
+  }, [drawerOpen]);
   const [choosing, setChoosing] = useState(false), [confirmDelete, setConfirmDelete] = useState<string[] | null>(null), [note, setNote] = useState(""), [busy, setBusy] = useState(false);
   useEffect(() => { const timer = window.setTimeout(() => { setFilters(current => (current.q === search ? current : { ...current, q: search })); }, 300); return () => window.clearTimeout(timer); }, [search]);
   useEffect(() => { setPage(1); setSelected(new Set()); }, [filters]);
@@ -49,10 +57,17 @@ export default function ResponsesPane({ context, form, onChanged }: { context: A
   const filterField = choiceFields.find(field => field.id === filters.field);
   const shown = columns.map(id => fields.find(field => field.id === id)).filter(Boolean) as FormField[];
   const review = async (ids: string[], status: FormResponse["status"]) => {
+    const close = drawerClose.current;
+    if (close?.closest(".va-drawer")?.contains(document.activeElement)) close.focus();
     setBusy(true);
     const result = await run(() => call<{ updated: FormResponse[] }>(`/admin/forms/${form.id}/responses`, { method: "PATCH", body: { ids, status } }), `${ids.length === 1 ? "Response" : `${ids.length} responses`} ${status === "pending" ? "moved back to pending" : status}.`);
     setBusy(false);
-    if (result) { setSelected(new Set()); if (open) setOpen(result.updated.find(item => item.id === open.id) ?? open); reload(); onChanged(); }
+    if (result) {
+      setSelected(new Set());
+      setOpen(current => current && (result.updated.find(item => item.id === current.id) ?? current));
+      reload();
+      onChanged();
+    }
   };
   const saveNote = async () => { if (!open) return; const result = await run(() => call<{ updated: FormResponse[] }>(`/admin/forms/${form.id}/responses`, { method: "PATCH", body: { ids: [open.id], note } }), "Note saved."); if (result) { setOpen(result.updated[0]); reload(); } };
   const remove = async (ids: string[]) => { const result = await run(() => call<{ removed: string[] }>(`/admin/forms/${form.id}/responses`, { method: "DELETE", body: { ids } }), `${ids.length === 1 ? "Response" : `${ids.length} responses`} deleted.`); if (result) { setSelected(new Set()); setOpen(null); reload(); onChanged(); } };
@@ -66,6 +81,17 @@ export default function ResponsesPane({ context, form, onChanged }: { context: A
   const rows = data?.responses ?? [], allSelected = rows.length > 0 && rows.every(row => selected.has(row.id));
   const pages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
   const toggle = (id: string) => setSelected(current => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  const titleField = shown[0] ?? fields[0];
+  const drawerKeys = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.key === "Escape") {
+      setOpen(null);
+    } else if (event.key === "Tab") {
+      const controls = event.currentTarget.querySelectorAll<HTMLElement>("button:not(:disabled), a[href], textarea:not(:disabled)");
+      const first = controls[0], last = controls[controls.length - 1];
+      const target = event.shiftKey && event.target === first ? last : !event.shiftKey && event.target === last ? first : null;
+      if (target) { event.preventDefault(); target.focus(); }
+    }
+  };
 
   return <>
     <div className="va-filters vg-glass">
@@ -98,10 +124,13 @@ export default function ResponsesPane({ context, form, onChanged }: { context: A
     {error ? <Failure message={error} onRetry={reload} /> : !data && loading ? <Loading /> : rows.length === 0 ? <div className="vg-glass va-empty"><h3>{active ? "No responses match these filters" : "No responses yet"}</h3><p>{active ? "Try removing a filter or widening the dates." : form.status === "live" ? "Share the form link or a QR code from the Share tab." : "Publish the form to start collecting responses."}</p></div>
       : <div className="vg-glass va-tablewrap"><table className="va-table">
         <thead><tr><th style={{ width: 40 }}><input type="checkbox" className="va-check" aria-label="Select all on this page" checked={allSelected} onChange={() => setSelected(allSelected ? new Set() : new Set(rows.map(row => row.id)))} /></th>{shown.map(field => <th key={field.id}>{field.label.length > 28 ? `${field.label.slice(0, 26)}…` : field.label}</th>)}<th>State</th><th>Status</th><th>Submitted</th></tr></thead>
-        <tbody>{rows.map(row => <tr key={row.id} aria-selected={selected.has(row.id)} onClick={() => setOpen(row)}>
+        <tbody>{rows.map(row => <tr key={row.id} aria-selected={selected.has(row.id)} onClick={event => { opener.current = event.currentTarget.querySelector(".va-open-response"); setOpen(row); }}>
           <td onClick={event => event.stopPropagation()}><input type="checkbox" className="va-check" aria-label="Select response" checked={selected.has(row.id)} onChange={() => toggle(row.id)} /></td>
-          {shown.map((field, index) => <td key={field.id} style={index === 0 ? { fontWeight: 600 } : undefined}>{displayAnswer(field, row.answers[field.id]) || <span className="vg-muted">—</span>}</td>)}
-          <td>{row.state ?? <span className="vg-muted">—</span>}</td><td><StatusChip status={row.status} /></td><td className="vg-num" title={formatDate(row.createdAt)}>{timeAgo(row.createdAt)}</td>
+          {shown.map((field, index) => {
+            const answer = displayAnswer(field, row.answers[field.id]);
+            return <td key={field.id}>{index === 0 ? <button type="button" className="va-open-response"><span className="vg-sr">Open response: </span>{answer || "View response"}</button> : answer || <span className="vg-muted">—</span>}</td>;
+          })}
+          <td>{row.state ?? <span className="vg-muted">—</span>}</td><td><StatusChip status={row.status} /></td><td className="vg-num" title={formatDate(row.createdAt)}>{shown.length ? timeAgo(row.createdAt) : <button type="button" className="va-open-response"><span className="vg-sr">Open response submitted </span>{timeAgo(row.createdAt)}</button>}</td>
         </tr>)}</tbody>
       </table>
       <div className="va-pager"><span className="vg-num">Page {page} of {pages}</span><div className="va-row"><button type="button" className="vg-btn is-small" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</button><button type="button" className="vg-btn is-small" disabled={page >= pages} onClick={() => setPage(page + 1)}>Next</button></div></div></div>}
@@ -110,15 +139,15 @@ export default function ResponsesPane({ context, form, onChanged }: { context: A
       {can("responses.delete") && <button type="button" className="vg-btn is-small is-danger" onClick={() => setConfirmDelete([...selected])}><TrashIcon aria-hidden="true" />Delete</button>}
       <button type="button" className="vg-btn is-small is-quiet" onClick={() => setSelected(new Set())}>Clear</button></div>}
 
-    {open && <div className="va-drawer-scrim" onMouseDown={event => { if (event.target === event.currentTarget) setOpen(null); }}><aside className="va-drawer vg-glass" role="dialog" aria-modal="true" aria-label="Response details" onKeyDown={event => { if (event.key === "Escape") setOpen(null); }}>
-      <header><div><StatusChip status={open.status} /><h2 style={{ marginTop: 10, fontSize: "1.4rem" }}>{displayAnswer(shown[0] ?? fields[0], open.answers[(shown[0] ?? fields[0]).id]) || "Response"}</h2><p className="vg-muted vg-num" style={{ fontSize: "0.86rem", marginTop: 4 }}>Submitted {formatDate(open.createdAt)}{open.reviewedBy ? ` · reviewed by ${open.reviewedBy}` : ""}</p></div><button type="button" className="vg-btn is-quiet is-icon" aria-label="Close" autoFocus onClick={() => setOpen(null)}><Cross2Icon /></button></header>
+    {open && <div className="va-drawer-scrim" onMouseDown={event => { if (event.target === event.currentTarget) setOpen(null); }}><aside className="va-drawer vg-glass" role="dialog" aria-modal="true" aria-label="Response details" onKeyDown={drawerKeys}>
+      <header><div><StatusChip status={open.status} /><h2 style={{ marginTop: 10, fontSize: "1.4rem" }}>{(titleField && displayAnswer(titleField, open.answers[titleField.id])) || "Response"}</h2><p className="vg-muted vg-num" style={{ fontSize: "0.86rem", marginTop: 4 }}>Submitted {formatDate(open.createdAt)}{open.reviewedBy ? ` · reviewed by ${open.reviewedBy}` : ""}</p></div><button type="button" ref={drawerClose} className="vg-btn is-quiet is-icon" aria-label="Close" autoFocus onClick={() => setOpen(null)}><Cross2Icon aria-hidden="true" /></button></header>
       {can("responses.review") && <div className="va-row">
         {open.status !== "approved" && <button type="button" className="vg-btn is-primary" disabled={busy} onClick={() => void review([open.id], "approved")}><CheckIcon aria-hidden="true" />Approve{form.settings.reward.enabled ? " and unlock link" : ""}</button>}
         {open.status !== "rejected" && <button type="button" className="vg-btn" disabled={busy} onClick={() => void review([open.id], "rejected")}><Cross2Icon aria-hidden="true" />Reject</button>}
         {open.status !== "pending" && <button type="button" className="vg-btn is-quiet" disabled={busy} onClick={() => void review([open.id], "pending")}>Move back to pending</button>}
       </div>}
       <div className="va-row">{[open.link ? `Source: ${links.data?.links.find(link => link.code === open.link)?.label ?? open.link}` : "Direct link", open.device && `Device: ${open.device}`, open.durationMs && `Took ${Math.max(1, Math.round(open.durationMs / 60000))} min`, open.telegram && `Telegram ID: ${open.telegram.id}${open.telegram.username ? ` (@${open.telegram.username})` : ""}`, open.hasAccount && "Signed-in reader", open.synced && "Mirrored to R2"].filter(Boolean).map(item => <span key={String(item)} className="vg-chip is-plain">{item}</span>)}</div>
-      <dl className="va-answers">{fields.map(field => { const value = displayAnswer(field, open.answers[field.id]); return <div key={field.id}><dt>{field.label}</dt><dd className={value ? "" : "is-empty"}>{value || "Not answered"}</dd></div>; })}</dl>
+      <dl className="va-answers">{fields.map(field => <ResponseAnswer key={field.id} field={field} answer={open.answers[field.id]} />)}</dl>
       {can("responses.review") && <label className="vg-label">Private note for admins<textarea className="vg-textarea" style={{ minHeight: 80 }} value={note} maxLength={1000} onChange={event => setNote(event.target.value)} placeholder="Why it was approved or rejected, follow-ups…" /><span><button type="button" className="vg-btn is-small" disabled={note === open.note} onClick={() => void saveNote()}>Save note</button></span></label>}
       {can("responses.delete") && <div><button type="button" className="vg-btn is-small is-danger is-quiet" onClick={() => setConfirmDelete([open.id])}><TrashIcon aria-hidden="true" />Delete this response</button></div>}
       <p className="va-note">Response ID <span className="va-code">{open.id}</span></p>
