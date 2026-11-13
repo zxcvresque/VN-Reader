@@ -9,6 +9,7 @@ html:has(.vg[data-mode="light"]), html:has(.vg[data-mode="light"]) body { backgr
   --vg-accent: #f2a23a; --vg-on-accent: #17130a; --vg-radius: 22px;
   --vg-font: "Aspekta", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --vg-bg: #0b0e1a; --vg-text: #eef0f8; --vg-muted: #a9aec6; --vg-faint: #7c819b;
+  --vg-on-selected: #0b0e1a;
   --vg-glass: rgba(255, 255, 255, 0.065); --vg-glass-strong: rgba(255, 255, 255, 0.11); --vg-field: rgba(8, 10, 22, 0.42);
   --vg-edge: rgba(255, 255, 255, 0.16); --vg-hairline: rgba(255, 255, 255, 0.09); --vg-sheen: rgba(255, 255, 255, 0.22);
   --vg-shadow: 0 24px 60px -24px rgba(0, 0, 0, 0.7), 0 2px 6px rgba(0, 0, 0, 0.25);
@@ -22,6 +23,7 @@ html:has(.vg[data-mode="light"]), html:has(.vg[data-mode="light"]) body { backgr
 }
 .vg[data-mode="light"] {
   --vg-bg: #e7eaf4; --vg-text: #161a2c; --vg-muted: #4f5576; --vg-faint: #767b98;
+  --vg-on-selected: #e7eaf4;
   --vg-glass: rgba(255, 255, 255, 0.56); --vg-glass-strong: rgba(255, 255, 255, 0.78); --vg-field: rgba(255, 255, 255, 0.72);
   --vg-edge: rgba(255, 255, 255, 0.9); --vg-hairline: rgba(22, 26, 44, 0.1); --vg-sheen: rgba(255, 255, 255, 0.95);
   --vg-shadow: 0 24px 60px -28px rgba(46, 52, 98, 0.38), 0 2px 6px rgba(46, 52, 98, 0.08);
@@ -209,7 +211,7 @@ html:has(.vg[data-mode="light"]), html:has(.vg[data-mode="light"]) body { backgr
 .va-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .va-tabs { display: flex; gap: 4px; padding: 5px; border-radius: 999px; width: fit-content; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
 .va-tabs a, .va-tabs button { display: inline-flex; align-items: center; gap: 8px; min-height: 38px; padding: 6px 15px; border-radius: 999px; border: 0; background: none; cursor: pointer; font-weight: 600; font-size: 0.9rem; color: var(--vg-muted); text-decoration: none; white-space: nowrap; }
-.va-tabs [aria-current="page"], .va-tabs [aria-pressed="true"] { background: var(--vg-text); color: var(--vg-bg); }
+.va-tabs [aria-current="page"], .va-tabs [aria-pressed="true"] { background: var(--vg-text); color: var(--vg-on-selected); }
 .va-card { padding: 20px; }
 .va-card > h2, .va-card > header h2 { font-size: 1.08rem; }
 .va-card > header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 14px; margin-bottom: 14px; }
@@ -377,7 +379,7 @@ html:has(.vg[data-mode="light"]), html:has(.vg[data-mode="light"]) body { backgr
 /* Statistics: sectioned layout */
 .va-grid.cols-overview { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); align-items: start; }
 @media (max-width: 1100px) { .va-grid.cols-overview { grid-template-columns: 1fr; } }
-.vg-chip[aria-pressed="true"] { background: var(--vg-text); color: var(--vg-bg); border-color: transparent; }
+.vg-chip[aria-pressed="true"] { background: var(--vg-text); color: var(--vg-on-selected); border-color: transparent; }
 .vq-rest { border-radius: calc(var(--vg-radius) * .8); padding: 4px 16px; }
 .vq-rest summary { cursor: pointer; padding: 10px 0; font-size: .9rem; font-weight: 600; color: var(--vg-muted); }
 .vq-rest[open] summary { color: var(--vg-text); }
