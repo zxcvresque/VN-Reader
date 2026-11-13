@@ -131,7 +131,10 @@ test("form flow: submit, approval-gated link, roles, exports, insights, backups"
     const me = await (await request("/api/admin/me", { cookie: owner })).json(); assert.equal(me.owner, true); assert.ok(me.permissions.includes("team.manage"));
     const list = await (await request("/api/admin/forms", { cookie: owner })).json(); const form = list.forms[0]; assert.equal(form.counts.pending, 1);
 
-    assert.equal((await request("/api/admin/team", { cookie: owner, method: "PUT", body: { email: "reviewer@example.com", permissions: ["forms.read", "responses.read", "responses.review"] } })).status, 200);
+    const saveReviewer = name => request("/api/admin/team", { cookie: owner, method: "PUT", body: { email: "reviewer@example.com", name, permissions: ["forms.read", "responses.read", "responses.review"] } });
+    assert.equal((await saveReviewer()).status, 422);
+    assert.equal((await saveReviewer("   ")).status, 422);
+    assert.equal((await saveReviewer("  Review Member  ")).status, 200);
     assert.deepEqual(await (await request("/api/admin/access", { cookie: reviewer })).json(), { allowed: true });
     assert.equal((await request("/api/admin/dashboard", { cookie: reviewer })).status, 403, "form reviewers do not see reader accounts");
     assert.equal((await request(`/api/admin/forms/${form.id}`, { cookie: reviewer, method: "PUT", body: { title: "Hijack" } })).status, 403);

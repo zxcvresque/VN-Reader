@@ -183,12 +183,15 @@ export class FormsStore {
   saveMember(input, actor) {
     const email = clip(input?.email, 254).toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new FormError(422, "Enter a valid email address for the admin.");
+    const name = typeof input?.name === "string" ? input.name.replace(/\u0000/g, "").trim() : "";
+    if (!name) throw new FormError(422, "Enter a name for the admin.");
+    if (name.length > 80) throw new FormError(422, "Use a name of 80 characters or fewer.");
     const permissions = [...new Set((Array.isArray(input.permissions) ? input.permissions : []).filter(id => PERMISSION_IDS.has(id)))];
     if (!permissions.length) throw new FormError(422, "Choose at least one permission.");
     const formIds = Array.isArray(input.formIds) && input.formIds.length ? JSON.stringify(input.formIds.filter(id => typeof id === "string").slice(0, 200)) : null;
     const time = this.time();
     this.database.prepare(`INSERT INTO admin_members VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(email) DO UPDATE SET name=excluded.name,permissions=excluded.permissions,form_ids=excluded.form_ids,active=excluded.active,updated_at=excluded.updated_at`)
-      .run(email, clip(input.name, 80), JSON.stringify(permissions), formIds, input.active === false ? 0 : 1, actor, time, time);
+      .run(email, name, JSON.stringify(permissions), formIds, input.active === false ? 0 : 1, actor, time, time);
     this.audit(actor, "team.save", email, permissions.join(", "));
     return this.member(email);
   }

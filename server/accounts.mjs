@@ -50,11 +50,26 @@ export async function createAccounts(settings=accountSettings(), sendEmail) {
     hooks:{before:createAuthMiddleware(async ctx=>{
       // Admission precedes user creation, so a full allowance cannot strand a new signup.
       ctx.request?.headers.delete("x-vn-email-reservation");
-      if(ctx.path!=="/sign-up/email"||!enabled)return;
-      const email=String(ctx.body?.email??"").toLowerCase();
-      if(!email.includes("@")||database.prepare("SELECT id FROM user WHERE email=?").get(email))return;
-      try {const id=admin.reserve(email);ctx.request?.headers.set("x-vn-email-reservation",id);ctx.context.vnEmailReservation=id;}
-      catch(error){if(error instanceof AllowanceError)throw new APIError("TOO_MANY_REQUESTS",{message:error.message});throw error;}
+      const signup = ctx.path === "/sign-up/email";
+      const renaming = ctx.path === "/update-user" && ctx.body?.name !== undefined;
+      if (!signup && !renaming) return;
+      const name = typeof ctx.body?.name === "string" ? ctx.body.name.trim() : "";
+      if (!name) throw new APIError("BAD_REQUEST", { message: "Enter a display name." });
+      if (name.length > 80) throw new APIError("BAD_REQUEST", { message: "Use a display name of 80 characters or fewer." });
+      if (signup && enabled) {
+        const email = String(ctx.body?.email ?? "").toLowerCase();
+        if (email.includes("@") && !database.prepare("SELECT id FROM user WHERE email=?").get(email)) {
+          try {
+            const id = admin.reserve(email);
+            ctx.request?.headers.set("x-vn-email-reservation", id);
+            ctx.context.vnEmailReservation = id;
+          } catch (error) {
+            if (error instanceof AllowanceError) throw new APIError("TOO_MANY_REQUESTS", { message: error.message });
+            throw error;
+          }
+        }
+      }
+      return { context: { body: { ...ctx.body, name } } };
     }),after:createAuthMiddleware(async ctx=>{
       const id=ctx.context.vnEmailReservation??ctx.request?.headers.get("x-vn-email-reservation");
       if(id&&["failed","unknown"].includes(admin.deliveryStatus(id)))throw new APIError("SERVICE_UNAVAILABLE",{message:"The verification email could not be sent. Please try again shortly."});

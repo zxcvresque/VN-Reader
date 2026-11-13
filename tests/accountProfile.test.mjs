@@ -13,13 +13,13 @@ const compile=(path,dependencies={})=>{
  const module={exports:{}};new Function('require','module','exports',js)(name=>dependencies[name]??require(name),module,module.exports);return module.exports;
 };
 const apiModule=compile('../src/lib/api.ts');
-test('signup preserves a chosen name and uses Reader when the optional name is blank',async()=>{
+test('signup trims a chosen name and leaves an empty name for server validation',async()=>{
  const oldFetch=globalThis.fetch,requests=[];
  globalThis.fetch=async(url,options)=>{requests.push({url,body:JSON.parse(options.body)});return new Response('{}',{headers:{'Content-Type':'application/json'}});};
  try{
   await apiModule.authRequest('register',{email:'reader@example.com',password:'unchanged-password',name:'  Vidur daas  '});
   await apiModule.authRequest('register',{email:'guest@example.com',password:'unchanged-password',name:'   '});
-  assert.equal(requests[0].url,'/api/auth/sign-up/email');assert.deepEqual(requests[0].body,{email:'reader@example.com',password:'unchanged-password',name:'Vidur daas'});assert.equal(requests[1].body.name,'Reader');
+  assert.equal(requests[0].url,'/api/auth/sign-up/email');assert.deepEqual(requests[0].body,{email:'reader@example.com',password:'unchanged-password',name:'Vidur daas'});assert.equal(requests[1].body.name,'');
  }finally{globalThis.fetch=oldFetch;}
 });
 test('archive conditional GET exposes ETag, avoids JSON parsing on 304 and retains API errors',async()=>{
@@ -47,11 +47,16 @@ async function panelFixture({user=null,initialMode='register',updateName=async()
  let root;await act(async()=>{root=Renderer.create(React.createElement(ReaderAccount,{account,initialMode,onClose(){}}));});
  return {root,requests,get begins(){return begins;},close(){act(()=>root.unmount());globalThis.document=oldDocument;globalThis.window=oldWindow;}};
 }
-test('signup offers an optional display name and forwards it with unchanged email and password fields',async()=>{
+test('signup requires a display name and forwards it with unchanged email and password fields',async()=>{
  const f=await panelFixture();
  try{
   const inputs=f.root.root.findAllByType('input');
-  assert.equal(inputs.find(input=>input.props.type==='text').props.required,undefined);
+  const name=inputs.find(input=>input.props.type==='text');
+  assert.equal(name.props.required,true);
+  await act(async()=>name.props.onChange({target:{value:'   '}}));
+  await act(async()=>f.root.root.findByType('form').props.onSubmit({preventDefault(){}}));
+  assert.equal(f.begins,0);assert.deepEqual(f.requests,[]);
+  assert.match(JSON.stringify(f.root.toJSON()),/Enter a display name/);
   await act(async()=>{
    inputs.find(input=>input.props.type==='text').props.onChange({target:{value:'Vidur'}});
    inputs.find(input=>input.props.type==='email').props.onChange({target:{value:'reader@example.com'}});
@@ -76,12 +81,17 @@ test('Better Auth updates the signed-in display name while preserving reading st
  const request=(path,body,cookie='')=>accounts.auth.handler(new Request(`http://reader.test/api/auth/${path}`,{method:body===undefined?'GET':'POST',headers:{'content-type':'application/json',origin:'http://reader.test',cookie,'x-forwarded-for':'192.0.2.21'},body:body===undefined?undefined:JSON.stringify(body)}));
  try{
   const credentials={email:'profile@example.com',password:'a-strong-test-password'};
-  assert.equal((await request('sign-up/email',{...credentials,name:'Chosen signup name'})).status,200);
+  assert.equal((await request('sign-up/email',credentials)).status,400);
+  assert.equal((await request('sign-up/email',{...credentials,name:'   '})).status,400);
+  assert.equal((await request('sign-up/email',{...credentials,name:'a'.repeat(81)})).status,400);
+  assert.equal(mail.length,0);
+  assert.equal((await request('sign-up/email',{...credentials,name:'  Chosen signup name  '})).status,200);
   const verified=await request('email-otp/verify-email',{email:credentials.email,otp:mail[0].otp});assert.equal(verified.status,200);
   const user=(await verified.json()).user;assert.equal(user.name,'Chosen signup name');
   const cookie=verified.headers.getSetCookie().map(value=>value.split(';')[0]).join('; ');
   const reading={format:'vn-reader-reading-state',version:1,chatId:-100,readingState:{chatId:-100,notes:{post:'keep my unsynced meaning'}}};accounts.states.put(user.id,'-100',reading,0);
-  assert.equal((await request('update-user',{name:'Updated name'},cookie)).status,200);
+  assert.equal((await request('update-user',{name:'   '},cookie)).status,400);
+  assert.equal((await request('update-user',{name:'  Updated name  '},cookie)).status,200);
   const session=await (await request('get-session',undefined,cookie)).json();assert.equal(session.user.name,'Updated name');assert.equal(session.user.email,credentials.email);assert.equal(session.user.id,user.id);
   assert.deepEqual(accounts.states.get(user.id,'-100'),{revision:1,data:reading});
   assert.equal((await request('update-user',{name:'No session'})).status,401);

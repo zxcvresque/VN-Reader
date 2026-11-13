@@ -8,8 +8,8 @@ type AccountController = ReturnType<typeof useReaderAccount>;
 type Mode = "login" | "register" | "verify" | "forgot" | "reset";
 export default function ReaderAccount({account,onClose,onGuest,initialMode="login",capacity,capacityError,onRefreshCapacity=()=>{}}:{account:AccountController;onClose:()=>void;onGuest?:()=>void;initialMode?:"login"|"register";capacity?:Capacity|null;capacityError?:string;onRefreshCapacity?:()=>void}) {
   const [mode,setMode]=useState<Mode>(initialMode);const [email,setEmail]=useState("");const [password,setPassword]=useState("");const [code,setCode]=useState("");
-  const [displayName,setDisplayName]=useState(account.user?.name==="Reader"?"":account.user?.name??"");
-  useEffect(()=>{setDisplayName(account.user?.name==="Reader"?"":account.user?.name??"");},[account.user?.id,account.user?.name]);
+  const [displayName,setDisplayName]=useState(account.user?.name??"");
+  useEffect(()=>{setDisplayName(account.user?.name??"");},[account.user?.id,account.user?.name]);
   const [busy,setBusy]=useState(false);const [error,setError]=useState("");const [notice,setNotice]=useState("");const [cooldown,setCooldown]=useState(0);
   const panel=useRef<HTMLDivElement>(null);
   const closeRef=useRef(onClose);closeRef.current=onClose;
@@ -20,6 +20,7 @@ export default function ReaderAccount({account,onClose,onGuest,initialMode="logi
   useEffect(()=>{if(!cooldown)return;const t=window.setTimeout(()=>setCooldown(v=>v-1),1000);return()=>window.clearTimeout(t);},[cooldown]);
   const changeMode=(next:Mode)=>{setMode(next);setError("");setNotice("");setPassword("");setCode("");};
   async function submit(){setBusy(true);setError("");setNotice("");try{
+    if(mode==="register"&&!displayName.trim())throw new Error("Enter a display name.");
     if(["login","register","verify"].includes(mode))account.beginAuthentication();
     if(mode==="register"){await authRequest("register",{email,password,name:displayName});setMode("verify");setPassword("");setNotice("Check your inbox for your six-digit verification code.");setCooldown(60);}
     else if(mode==="verify"){const result=await authRequest<{user:AccountUser}>("verify-email",{email,code});await account.initialize(result.user);setCode("");}
@@ -33,7 +34,7 @@ export default function ReaderAccount({account,onClose,onGuest,initialMode="logi
     <header><span className="eyebrow">VN Reader · {account.user?"Your account":"Reading account"}</span><button type="button" aria-label="Close account" onClick={onClose}>×</button></header>
     {account.user?<><h2 id="account-title">Welcome back.</h2><p>{account.user.email}</p><div className="account-sync" role="status"><span className={`sync-dot sync-${account.status}`}/>{({guest:"Browser only",loading:"Opening your reading state…",saving:"Saving across devices…",saved:"Saved across devices",offline:"Saved on this device · sync pending",conflict:"Changes need your attention"})[account.status]}</div>
       <form onSubmit={e=>{e.preventDefault();setBusy(true);setError("");setNotice("");void account.updateName(displayName).then(()=>setNotice("Your display name is saved.")).catch(e=>setError(e instanceof Error?e.message:"Your name could not be saved. Please retry.")).finally(()=>setBusy(false));}}>
-        <label>Display name <small>(optional)</small><input type="text" autoComplete="nickname" maxLength={80} value={displayName} onChange={e=>setDisplayName(e.target.value)} disabled={busy}/></label>
+        <label>Display name<input type="text" required autoComplete="nickname" maxLength={80} value={displayName} onChange={e=>setDisplayName(e.target.value)} disabled={busy}/></label>
         <button type="submit" disabled={busy}>{busy?"Saving…":"Save name"}</button>
       </form>
       {account.message&&<p role="status">{account.message}</p>}
@@ -47,7 +48,7 @@ export default function ReaderAccount({account,onClose,onGuest,initialMode="logi
       {account.configError||account.sessionError?<div className="account-service-note"><p role="alert">{account.sessionError||"The account service couldn’t be reached. Your guest reading is available."}</p><button type="button" onClick={account.refreshConfig}>Retry connection</button></div>:null}
       {["register","verify","forgot","reset"].includes(mode)&&<SignupCapacity capacity={capacity??null} error={capacityError} onRetry={onRefreshCapacity}/>}
       <form onSubmit={e=>{e.preventDefault();void submit();}}>
-        {mode==="register"&&<label>Display name <small>(optional)</small><input type="text" autoComplete="nickname" maxLength={80} value={displayName} onChange={e=>setDisplayName(e.target.value)} disabled={busy}/></label>}
+        {mode==="register"&&<label>Display name<input type="text" required autoComplete="nickname" maxLength={80} value={displayName} onChange={e=>setDisplayName(e.target.value)} disabled={busy}/></label>}
         <label>Email address<input type="email" required autoComplete="email" value={email} onChange={e=>setEmail(e.target.value)} disabled={busy} maxLength={254}/></label>
         {["login","register","reset"].includes(mode)?<label>{mode==="reset"?"New password":"Password"}<input type="password" required autoComplete={mode==="login"?"current-password":"new-password"} minLength={mode==="login"?1:12} maxLength={128} value={password} onChange={e=>setPassword(e.target.value)} disabled={busy}/>{mode!=="login"&&<small>Use at least 12 characters.</small>}</label>:null}
         {["verify","reset"].includes(mode)?<label>Six-digit email code<input className="account-otp" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" minLength={6} maxLength={6} required value={code} onChange={e=>setCode(e.target.value.replace(/\D/g,""))} disabled={busy}/></label>:null}

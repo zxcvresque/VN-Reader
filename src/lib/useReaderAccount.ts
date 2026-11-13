@@ -145,11 +145,11 @@ export function useReaderAccount(document: ReadingBackup, onApply: (data: Readin
   };
   const updateName=async(name:string)=>{
     const account=state.current.user;if(!account)throw new Error("Sign in before updating your name.");
-    const trimmed=name.trim();if(trimmed.length>80)throw new Error("Use a display name of 80 characters or fewer.");
+    const trimmed=name.trim();if(!trimmed)throw new Error("Enter a display name.");if(trimmed.length>80)throw new Error("Use a display name of 80 characters or fewer.");
     const generation=state.current.generation;
-    await authRequest("update-user",{name:trimmed||"Reader"});
+    await authRequest("update-user",{name:trimmed});
     if(state.current.generation!==generation||state.current.user?.id!==account.id)return;
-    const updated={...account,name:trimmed||"Reader"};state.current.user=updated;setUser(updated);
+    const updated={...account,name:trimmed};state.current.user=updated;setUser(updated);
   };
   const flush=(data:ReadingBackup)=>{
     const s=state.current;if(!s.user||s.chat===null||!s.base||data.chatId!==s.chat)return;

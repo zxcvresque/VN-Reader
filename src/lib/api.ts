@@ -18,7 +18,7 @@ async function readJsonResponse<T>(response: Response): Promise<T> {
 export function authRequest<T>(action: string, body: unknown): Promise<T> {
   const input = body as Record<string, unknown>;
   const paths: Record<string,string> = {register:"sign-up/email",login:"sign-in/email",logout:"sign-out","verify-email":"email-otp/verify-email","resend-code":"email-otp/send-verification-otp","request-password-reset":"email-otp/request-password-reset","reset-password":"email-otp/reset-password"};
-  const payload = action === "register" ? {...input,name:typeof input.name === "string" && input.name.trim() ? input.name.trim() : "Reader"} : action === "resend-code" ? {...input,type:"email-verification"} : ["verify-email","reset-password"].includes(action) ? {...input,otp:input.code,code:undefined} : input;
+  const payload = action === "register" ? {...input,name:typeof input.name === "string" ? input.name.trim() : ""} : action === "resend-code" ? {...input,type:"email-verification"} : ["verify-email","reset-password"].includes(action) ? {...input,otp:input.code,code:undefined} : input;
   return api<T>(`/auth/${paths[action]??action}`, {method:"POST",body:JSON.stringify(payload)});
 }
 export function loadCloudState(chatId: number): Promise<CloudState> { return api(`/state/${chatId}`); }
