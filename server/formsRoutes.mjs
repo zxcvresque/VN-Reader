@@ -82,6 +82,13 @@ export function createForms({ accounts, settings, fetchImpl = fetch, env = proce
     return botName;
   }
   const statusWord = status => (status === "approved" ? "Approved ✅" : status === "rejected" ? "Not approved" : "Waiting for review ⏳");
+  function formatSubmissionTime(timestamp, timezone) {
+    const options = { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZoneName: "short" };
+    let formatter;
+    try { formatter = new Intl.DateTimeFormat("en-IN", { ...options, timeZone: timezone }); }
+    catch { formatter = new Intl.DateTimeFormat("en-IN", { ...options, timeZone: "UTC" }); }
+    return formatter.format(new Date(timestamp));
+  }
   /** What the bot says back to one Telegram user. Only responses bound to that user are ever shown. */
   function botReply({ userId, username, text }) {
     const contactCode = /^\/start(?:@\w+)?\s+tguserid_([A-Za-z0-9_-]{24})$/.exec(text)?.[1];
@@ -103,7 +110,7 @@ export function createForms({ accounts, settings, fetchImpl = fetch, env = proce
     let button;
     for (const { response, form } of mine) {
       const outcome = store.outcome(form, response);
-      lines.push(`<b>${telegram.escapeHTML(form.title)}</b>`, `${statusWord(response.status)} · submitted ${response.createdAt.slice(0, 10)}`, "");
+      lines.push(`<b>${telegram.escapeHTML(form.title)}</b>`, `${statusWord(response.status)} · submitted ${formatSubmissionTime(response.createdAt, form.settings.timezone)}`, "");
       if (!button && outcome.reward?.url) button = { text: outcome.reward.label, url: outcome.reward.url };
     }
     return { text: lines.join("\n").trim(), ...(button ? { button } : {}) };

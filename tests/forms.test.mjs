@@ -214,6 +214,9 @@ test("status updates: Telegram binding through the bot, /status privacy, and opt
     const submission = await request("/api/forms/groundwork/responses", { body: { answers: { ...complete, gw_telegram: undefined } } });
     assert.equal(submission.status, 201);
     const { receipt } = await submission.json();
+    const submittedResponse = forms.store.byReceipt(original.id, receipt);
+    accounts.database.prepare("UPDATE form_responses SET created_at=? WHERE id=?")
+      .run(Date.parse("2026-11-12T22:40:00Z"), submittedResponse.id);
     const mine = { "x-vn-receipt": receipt };
     assert.deepEqual((await (await request("/api/forms/groundwork", { headers: mine })).json()).updates, { telegram: "vn_status_bot", email: true });
     assert.equal((await request("/api/forms/groundwork/notify", { body: { channel: "telegram" } })).status, 404, "a receipt is required");
@@ -235,7 +238,7 @@ test("status updates: Telegram binding through the bot, /status privacy, and opt
     const changed = forms.store.review(form.id, [response.id], "approved", "owner@example.com");
     assert.equal(changed.length, 1);
     const status = await (await bot({ userId: "4242", text: "/status" })).json();
-    assert.match(status.text, /Approved/); assert.deepEqual(status.button, { text: "Groundwork group link", url: "https://t.me/+EcstnRyYKytlOWE9" });
+    assert.match(status.text, /Approved.*submitted 13 Nov 2026, 04:10 IST/); assert.deepEqual(status.button, { text: "Groundwork group link", url: "https://t.me/+EcstnRyYKytlOWE9" });
     assert.equal(await accounts.mail({ to: "arjun@example.com", subject: "s", text: "t" }), true);
     assert.equal(mail.at(-1).type, "notice"); assert.equal(accounts.admin.capacity(true).used, 1, "notices count against the daily allowance");
   } finally { await new Promise(resolve => server.close(resolve)); accounts.close(); }
