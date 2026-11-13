@@ -1,6 +1,7 @@
 import React, { Suspense, lazy } from "react";
 import ReactDOM from "react-dom/client";
 import { captureTelegramLaunch } from "./forms/api";
+import "./scrollbars.css";
 
 // Three separate surfaces share one bundle entry: the reader, public forms, and the admin console.
 // Each loads only its own code and styles; links between them are full page navigations.
