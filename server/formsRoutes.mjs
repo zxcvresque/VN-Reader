@@ -3,6 +3,7 @@ import { fromNodeHeaders } from "better-auth/node";
 import { FormsStore, FormError, PERMISSIONS, ROLE_PRESETS } from "./formsStore.mjs";
 import { allFields, displayAnswer, isTelegramUserId } from "./formLogic.mjs";
 import { createR2Forms, createTelegramForms, r2FormsSettings } from "./formsBackup.mjs";
+import { createSampleForms } from "./formsSample.mjs";
 
 const ALL = PERMISSIONS.map(permission => permission.id);
 const TOKEN = /^\d{5,15}:[A-Za-z0-9_-]{30,60}$/;
@@ -16,6 +17,12 @@ export function createForms({ accounts, settings, fetchImpl = fetch, env = proce
   const flag = (key, fallback = true) => { const value = store.getSetting(key); return value === null ? fallback : value === "1"; };
   const origin = new URL(settings.baseURL).origin;
   const quiet = promise => promise.catch(error => { console.warn(`Form backup step failed: ${String(error?.message ?? error).slice(0, 160)}`); return false; });
+  // Sample data mode: the console asks with X-VN-Sample: 1. Permission checks stay the same;
+  // only the data source changes, to an in-memory copy that belongs to that admin.
+  const samples = createSampleForms();
+  const sampled = req => req.headers["x-vn-sample"] === "1";
+  const dataFor = (req, admin, form) => (sampled(req) ? samples.storeFor(admin.email, form) : store);
+  const realOnly = req => { if (sampled(req)) throw new FormError(409, "Exports and backups only ever contain real responses. Turn off sample data to use them."); };
 
   const sessionOf = async req => { try { return accounts.enabled ? await accounts.auth.api.getSession({ headers: fromNodeHeaders(req.headers) }) : null; } catch { return null; } };
   async function adminOf(req) {
@@ -234,7 +241,14 @@ export function createForms({ accounts, settings, fetchImpl = fetch, env = proce
 
     // ----- admin -----
     app.get("/api/admin/me", wrap(async (req, res) => { const admin = await adminOf(req); res.json({ email: admin.email, owner: admin.owner, permissions: [...admin.permissions], formIds: admin.formIds, catalog: PERMISSIONS, presets: ROLE_PRESETS }); }));
-    app.get("/api/admin/forms", wrap(async (req, res) => { const admin = await adminOf(req); admin.need("forms.read"); res.json({ forms: store.forms().filter(form => !admin.formIds || admin.formIds.includes(form.id)) }); }));
+    app.get("/api/admin/forms", wrap(async (req, res) => {
+      const admin = await adminOf(req); admin.need("forms.read");
+      const forms = store.forms().filter(form => !admin.formIds || admin.formIds.includes(form.id));
+      if (!sampled(req)) return res.json({ forms });
+      // Sample counts need responses.read on that form, like the responses themselves.
+      res.json({ sample: true, forms: forms.map(form => (admin.permissions.has("responses.read") ? { ...form, counts: samples.storeFor(admin.email, store.form(form.id)).forms()[0].counts } : form)) });
+    }));
+    app.delete("/api/admin/sample", wrap(async (req, res) => { const admin = await adminOf(req); samples.reset(admin.email); res.json({ ok: true }); }));
     app.post("/api/admin/forms", wrap(async (req, res) => { const admin = await adminOf(req); admin.need("forms.write"); if (admin.formIds) throw new FormError(403, "Your admin role is limited to specific forms."); res.status(201).json({ form: store.createForm(req.body ?? {}, admin.email) }); }));
     const formFor = async (req, permission) => { const admin = await adminOf(req); admin.need(permission, String(req.params.id)); const form = store.form(String(req.params.id)); if (!form) throw new FormError(404, "This form no longer exists."); return { admin, form }; };
     app.get("/api/admin/forms/:id", wrap(async (req, res) => { const { form } = await formFor(req, "forms.read"); res.json({ form, hasCustomFont: !!store.font(form.id), shareImage: store.shareImageInfo(form.id) }); }));
@@ -269,30 +283,36 @@ export function createForms({ accounts, settings, fetchImpl = fetch, env = proce
       return { status: req.query.status, state: req.query.state === "*" ? "" : req.query.state || undefined, district: typeof req.query.district === "string" ? req.query.district : undefined, link: req.query.link, device: req.query.device, q: typeof req.query.q === "string" ? req.query.q.trim() : "", from: time(req.query.from), to: time(req.query.to), sort: req.query.sort, fields };
     };
     app.get("/api/admin/forms/:id/responses", wrap(async (req, res) => {
-      const { form } = await formFor(req, "responses.read");
-      const rows = store.query(form.id, filtersOf(req)), size = 50, page = Math.max(1, Number.parseInt(String(req.query.page ?? "1"), 10) || 1);
-      res.json({ total: rows.length, page, pageSize: size, responses: rows.slice((page - 1) * size, page * size), states: [...new Set(store.query(form.id).map(row => row.state).filter(Boolean))].sort() });
+      const { admin, form } = await formFor(req, "responses.read"), data = dataFor(req, admin, form);
+      const rows = data.query(form.id, filtersOf(req)), size = 50, page = Math.max(1, Number.parseInt(String(req.query.page ?? "1"), 10) || 1);
+      res.json({ ...(sampled(req) ? { sample: true } : {}), total: rows.length, page, pageSize: size, responses: rows.slice((page - 1) * size, page * size), states: [...new Set(data.query(form.id).map(row => row.state).filter(Boolean))].sort() });
     }));
     app.patch("/api/admin/forms/:id/responses", wrap(async (req, res) => {
       const body = req.body ?? {}, ids = Array.isArray(body.ids) ? body.ids.filter(id => typeof id === "string") : [];
       if (!ids.length) throw new FormError(422, "Select at least one response.");
-      if (body.status !== undefined) { const { admin, form } = await formFor(req, "responses.review"); const changed = store.review(form.id, ids, body.status, admin.email, body.note); afterReview(form, changed, admin.email); return res.json({ updated: changed.map(change => change.after) }); }
-      const { admin, form } = await formFor(req, "responses.review"); const updated = store.setNote(form.id, ids[0], String(body.note ?? ""), admin.email); void quiet(syncResponse(form, updated)); res.json({ updated: [updated] });
+      const { admin, form } = await formFor(req, "responses.review");
+      // Sample decisions stay in the sample: no R2 copy, Telegram message or email.
+      if (sampled(req)) { const data = dataFor(req, admin, form); return res.json({ sample: true, updated: body.status !== undefined ? data.review(form.id, ids, body.status, admin.email, body.note).map(change => change.after) : [data.setNote(form.id, ids[0], String(body.note ?? ""), admin.email)] }); }
+      if (body.status !== undefined) { const changed = store.review(form.id, ids, body.status, admin.email, body.note); afterReview(form, changed, admin.email); return res.json({ updated: changed.map(change => change.after) }); }
+      const updated = store.setNote(form.id, ids[0], String(body.note ?? ""), admin.email); void quiet(syncResponse(form, updated)); res.json({ updated: [updated] });
     }));
     app.delete("/api/admin/forms/:id/responses", wrap(async (req, res) => {
       const { admin, form } = await formFor(req, "responses.delete"), ids = Array.isArray(req.body?.ids) ? req.body.ids.filter(id => typeof id === "string") : [];
+      if (sampled(req)) return res.json({ sample: true, removed: dataFor(req, admin, form).deleteResponses(form.id, ids, admin.email) });
       const doomed = ids.map(id => store.response(form.id, id)).filter(Boolean), removed = store.deleteResponses(form.id, ids, admin.email);
       for (const response of doomed) if (removed.includes(response.id)) void quiet(r2.remove(responseKey(form, response)));
       res.json({ removed });
     }));
     app.get("/api/admin/forms/:id/export", wrap(async (req, res) => {
-      const { admin, form } = await formFor(req, "responses.export"), rows = store.query(form.id, { ...filtersOf(req), sort: "oldest" }), stamp = new Date(store.time()).toISOString().slice(0, 10);
+      const { admin, form } = await formFor(req, "responses.export"); realOnly(req);
+      const rows = store.query(form.id, { ...filtersOf(req), sort: "oldest" }), stamp = new Date(store.time()).toISOString().slice(0, 10);
       store.audit(admin.email, "response.export", form.title, `${rows.length} rows · ${req.query.format === "json" ? "json" : "csv"}`);
       if (req.query.format === "json") return res.set({ "Content-Type": "application/json", "Content-Disposition": `attachment; filename="${form.slug}-${stamp}.json"` }).send(JSON.stringify({ form: { id: form.id, slug: form.slug, title: form.title, schema: form.schema }, exportedAt: new Date(store.time()).toISOString(), responses: rows }, null, 2));
       res.set({ "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="${form.slug}-${stamp}.csv"` }).send(store.csv(form, rows));
     }));
     app.post("/api/admin/forms/:id/backup", wrap(async (req, res) => {
-      const { admin, form } = await formFor(req, "responses.export"), rows = store.query(form.id, { sort: "oldest" }), stamp = new Date(store.time()).toISOString().replace(/[:.]/g, "-");
+      const { admin, form } = await formFor(req, "responses.export"); realOnly(req);
+      const rows = store.query(form.id, { sort: "oldest" }), stamp = new Date(store.time()).toISOString().replace(/[:.]/g, "-");
       const snapshot = JSON.stringify({ form, exportedAt: new Date(store.time()).toISOString(), responses: rows }, null, 2), caption = `<b>${telegram.escapeHTML(form.title)}</b> · full backup\n${rows.length} responses · by ${telegram.escapeHTML(admin.email)}`;
       const sentJson = telegram.configured() ? await quiet(telegram.document(`${form.slug}-backup-${stamp}.json`, snapshot, caption)) : false;
       const sentCsv = telegram.configured() ? await quiet(telegram.document(`${form.slug}-backup-${stamp}.csv`, store.csv(form, rows), caption, "text/csv")) : false;
@@ -302,11 +322,11 @@ export function createForms({ accounts, settings, fetchImpl = fetch, env = proce
       res.json({ responses: rows.length, telegram: !!(sentJson && sentCsv), r2: !!stored, telegramConfigured: telegram.configured(), r2Enabled: r2.enabled });
     }));
     app.get("/api/admin/forms/:id/places", wrap(async (req, res) => {
-      const { form } = await formFor(req, "insights.read"), filters = filtersOf(req);
-      res.json(store.places(form, { from: filters.from, to: filters.to }));
+      const { admin, form } = await formFor(req, "insights.read"), filters = filtersOf(req);
+      res.json({ ...dataFor(req, admin, form).places(form, { from: filters.from, to: filters.to }), ...(sampled(req) ? { sample: true } : {}) });
     }));
-    app.get("/api/admin/forms/:id/insights", wrap(async (req, res) => { const { form } = await formFor(req, "insights.read"), filters = filtersOf(req); res.json(store.insights(form, { from: filters.from, to: filters.to })); }));
-    app.get("/api/admin/forms/:id/links", wrap(async (req, res) => { const { form } = await formFor(req, "forms.read"); res.json({ ...store.links(form.id), origin, slug: form.slug }); }));
+    app.get("/api/admin/forms/:id/insights", wrap(async (req, res) => { const { admin, form } = await formFor(req, "insights.read"), filters = filtersOf(req); res.json({ ...dataFor(req, admin, form).insights(form, { from: filters.from, to: filters.to }), ...(sampled(req) ? { sample: true } : {}) }); }));
+    app.get("/api/admin/forms/:id/links", wrap(async (req, res) => { const { admin, form } = await formFor(req, "forms.read"); res.json({ ...dataFor(req, admin, form).links(form.id), origin, slug: form.slug, ...(sampled(req) ? { sample: true } : {}) }); }));
     app.post("/api/admin/forms/:id/links", wrap(async (req, res) => { const { admin, form } = await formFor(req, "links.manage"); res.status(201).json({ code: store.saveLink(form.id, req.body ?? {}, admin.email) }); }));
     app.delete("/api/admin/forms/:id/links/:code", wrap(async (req, res) => { const { form } = await formFor(req, "links.manage"); res.json({ ok: store.deleteLink(form.id, String(req.params.code)) }); }));
 
@@ -365,6 +385,6 @@ export function createForms({ accounts, settings, fetchImpl = fetch, env = proce
       res.json({ ok: true });
     }));
   }
-  return { store, r2, telegram, mount, botReply, siteAdmin, anyAdmin, hasPermission, syncPending, close: () => { if (timer) clearInterval(timer); } };
+  return { store, r2, telegram, mount, botReply, siteAdmin, anyAdmin, hasPermission, syncPending, close: () => { if (timer) clearInterval(timer); samples.close(); } };
 }
 export { FormError };

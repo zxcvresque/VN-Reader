@@ -46,10 +46,11 @@ export interface AdminSettings {
 
 export const BACKDROPS = [{ id: "mono", name: "Monochrome" }, { id: "aurora", name: "Aurora" }, { id: "saffron", name: "Saffron dusk" }, { id: "ocean", name: "Deep ocean" }, { id: "emerald", name: "Emerald grove" }] as const;
 export class RequestError extends Error { constructor(message: string, public status: number, public errors?: Record<string, string>) { super(message); } }
-export async function call<T>(path: string, options: { method?: string; body?: unknown; headers?: Record<string, string> } = {}): Promise<T> {
+/** `sample` asks the admin API for the console's sample data instead of real responses. */
+export async function call<T>(path: string, options: { method?: string; body?: unknown; headers?: Record<string, string>; sample?: boolean } = {}): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(`/api${path}`, { method: options.method ?? (options.body === undefined ? "GET" : "POST"), credentials: "same-origin", headers: { "Content-Type": "application/json", "X-VN-CSRF": "1", ...options.headers }, body: options.body === undefined ? undefined : JSON.stringify(options.body) });
+    response = await fetch(`/api${path}`, { method: options.method ?? (options.body === undefined ? "GET" : "POST"), credentials: "same-origin", headers: { "Content-Type": "application/json", "X-VN-CSRF": "1", ...(options.sample ? { "X-VN-Sample": "1" } : {}), ...options.headers }, body: options.body === undefined ? undefined : JSON.stringify(options.body) });
   } catch { throw new RequestError("You appear to be offline. Check your connection and try again.", 0); }
   if (!(response.headers.get("content-type") ?? "").includes("application/json")) throw new RequestError("The server didn't respond as expected. Try again in a moment.", response.status || 503);
   const data = await response.json();

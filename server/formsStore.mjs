@@ -93,7 +93,8 @@ export function normalizeTheme(input = {}) {
 const STOP = new Set("the and for that this with you your are was have has from not but can will all any our out who what when how why they them his her their its about into than then there been being were had more most some such very just also over only own same too did does doing would could should to of in on at by an a is it i me my we us as be or if so no yes do am im ka ki ke ko hai hain se me mein aur par bhi nahi ho hu hoon tha thi the kya jo ek ye yeh wo woh na hi to".split(" "));
 
 export class FormsStore {
-  constructor(database, { now = () => new Date() } = {}) {
+  /** `seed: false` skips creating Ground Work; used for the isolated sample data stores. */
+  constructor(database, { now = () => new Date(), seed = true } = {}) {
     this.database = database; this.now = now;
     database.function("vn_district_name", { deterministic: true }, districtName);
     database.exec(`
@@ -125,6 +126,7 @@ export class FormsStore {
     const columns = new Set(database.prepare("PRAGMA table_info(form_responses)").all().map(column => column.name));
     for (const [name, type] of [["notify_email", "TEXT"], ["bind_hash", "TEXT"], ["bind_expires", "INTEGER"]]) if (!columns.has(name)) database.exec(`ALTER TABLE form_responses ADD COLUMN ${name} ${type}`);
     database.exec("CREATE INDEX IF NOT EXISTS form_responses_tg ON form_responses(tg_user_id)");
+    if (!seed) return;
     if (!this.getSetting("forms.seeded")) {
       if (!database.prepare("SELECT id FROM forms WHERE slug=?").get(GROUNDWORK_FORM.slug)) this.createForm(GROUNDWORK_FORM, "system");
       this.setSetting("forms.seeded", "1");

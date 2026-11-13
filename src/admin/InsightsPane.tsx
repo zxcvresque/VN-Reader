@@ -24,10 +24,12 @@ type Section = typeof SECTIONS[number]["id"];
 /** A question earns a chart card only when there is something to chart. */
 const chartable = (question: QuestionInsight) => question.answered > 0 && (question.kind !== "text" || (question.topWords?.length ?? 0) > 0);
 
-export default function InsightsPane({ form, onOpenResponses }: { form: AdminForm; onOpenResponses?: (query: URLSearchParams) => void }) {
+export default function InsightsPane({ form, sample = false, onOpenResponses }: { form: AdminForm; sample?: boolean; onOpenResponses?: (query: URLSearchParams) => void }) {
   const [range, setRange] = useState("30"), [table, setTable] = useState(false), [section, setSection] = useState<Section>(() => new URLSearchParams(window.location.search).get("section") === "places" ? "places" : "overview"), [allInsights, setAllInsights] = useState(false), [group, setGroup] = useState("");
-  const query = useMemo(() => (range === "all" ? `?from=${encodeURIComponent(form.createdAt)}` : `?from=${encodeURIComponent(new Date(Date.now() - Number(range) * 86400000).toISOString())}`), [range, form.createdAt]);
-  const { data, error, loading, reload } = useLoad(() => call<Insights>(`/admin/forms/${form.id}/insights${query}`), [form.id, query]);
+  // Sample responses can predate a brand-new form, so "All time" reaches back far enough to include them.
+  const since = sample ? new Date(Math.min(Date.parse(form.createdAt), Date.now() - 90 * 86400000)).toISOString() : form.createdAt;
+  const query = useMemo(() => (range === "all" ? `?from=${encodeURIComponent(since)}` : `?from=${encodeURIComponent(new Date(Date.now() - Number(range) * 86400000).toISOString())}`), [range, since]);
+  const { data, error, loading, reload } = useLoad(() => call<Insights>(`/admin/forms/${form.id}/insights${query}`, { sample }), [form.id, query, sample]);
   if (error) return <Failure message={error} onRetry={reload} />;
   if (!data) return <Loading label="Crunching the numbers" />;
   const { totals } = data, change = totals.prev7 ? Math.round(((totals.last7 - totals.prev7) / totals.prev7) * 100) : null;
@@ -61,7 +63,7 @@ export default function InsightsPane({ form, onOpenResponses }: { form: AdminFor
         <Card title="Smart insights" action={data.insights.length > 3 ? <button type="button" className="vg-btn is-quiet is-small" aria-expanded={allInsights} onClick={() => setAllInsights(!allInsights)}>{allInsights ? "Show fewer" : `All ${data.insights.length}`}</button> : undefined}><div className="vi-list">{insights.map(item => <div key={item.title} className="vi-item" data-tone={item.tone}><i aria-hidden="true" /><div><strong>{item.title}</strong><span>{item.detail}</span></div></div>)}</div></Card>
       </div>
     </>}
-    {section === "places" && <PlacesPane formId={form.id} query={query} onOpenResponses={onOpenResponses} />}
+    {section === "places" && <PlacesPane formId={form.id} query={query} sample={sample} onOpenResponses={onOpenResponses} />}
     {section === "reach" && <>
       <div className="va-grid cols-3">
         <Card title="From opening to approval"><Funnel steps={[{ label: "Opened the form", value: Math.max(totals.views, totals.starts) }, { label: "Started answering", value: totals.starts }, { label: "Submitted", value: totals.responses }, { label: "Approved", value: data.daily.reduce((sum, day) => sum + day.approved, 0) }]} /></Card>

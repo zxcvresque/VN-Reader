@@ -31,7 +31,7 @@ export default function FormWorkspace({ context, formId, tab }: { context: Admin
   const setStatus = async (status: AdminForm["status"]) => { const result = await run(() => call<{ form: AdminForm }>(`/admin/forms/${form.id}`, { method: "PUT", body: { status } }), status === "live" ? "Published. The form is accepting responses." : status === "closed" ? "Closed. The form no longer accepts responses." : "Moved back to draft."); if (result) onSaved(result.form); };
   return <>
     <header className="va-head">
-      <div><div className="va-row" style={{ marginBottom: 8 }}><StatusChip status={form.status} /><span className="va-code">/f/{form.slug}</span></div><h1>{form.title}</h1></div>
+      <div><div className="va-row" style={{ marginBottom: 8 }}><StatusChip status={form.status} />{context.sample && <span className="vg-chip" data-tone="sample">Demo data</span>}<span className="va-code">/f/{form.slug}</span></div><h1>{form.title}</h1></div>
       <div className="va-actions">
         {form.status !== "draft" && <a className="vg-btn" href={`/f/${form.slug}`} target="_blank" rel="noopener noreferrer"><ExternalLinkIcon aria-hidden="true" />Open form</a>}
         {can("forms.write") && (form.status === "live" ? <button type="button" className="vg-btn" onClick={() => void setStatus("closed")}>Stop accepting responses</button> : <button type="button" className="vg-btn is-primary" onClick={() => void setStatus("live")}>{form.status === "draft" ? "Publish form" : "Reopen form"}</button>)}
@@ -39,7 +39,7 @@ export default function FormWorkspace({ context, formId, tab }: { context: Admin
     </header>
     <nav className="va-tabs vg-glass" aria-label="Form sections">{tabs.map(item => <a key={item.id} href={`/admin/forms/${form.id}/${item.id}`} aria-current={active === item.id ? "page" : undefined} onClick={(event: MouseEvent) => { if (event.metaKey || event.ctrlKey) return; event.preventDefault(); go(`/admin/forms/${form.id}/${item.id}`); }}>{item.icon}{item.label}</a>)}</nav>
     {active === "responses" && <ResponsesPane context={context} form={form} onChanged={reloadForms} />}
-    {active === "insights" && <InsightsPane form={form} onOpenResponses={can("responses.read") ? query => go(`/admin/forms/${form.id}/responses?${query}`) : undefined} />}
+    {active === "insights" && <InsightsPane form={form} sample={context.sample} onOpenResponses={can("responses.read") ? query => go(`/admin/forms/${form.id}/responses?${query}`) : undefined} />}
     {active === "build" && <BuilderPane context={context} form={form} hasCustomFont={data.hasCustomFont} onSaved={onSaved} onFont={reload} />}
     {active === "share" && <SharePane context={context} form={form} shareImage={data.shareImage} onShareImage={setShareImage} />}
   </>;

@@ -13,7 +13,7 @@ html:has(.vg[data-mode="light"]), html:has(.vg[data-mode="light"]) body { backgr
   --vg-glass: rgba(255, 255, 255, 0.065); --vg-glass-strong: rgba(255, 255, 255, 0.11); --vg-field: rgba(8, 10, 22, 0.42);
   --vg-edge: rgba(255, 255, 255, 0.16); --vg-hairline: rgba(255, 255, 255, 0.09); --vg-sheen: rgba(255, 255, 255, 0.22);
   --vg-shadow: 0 24px 60px -24px rgba(0, 0, 0, 0.7), 0 2px 6px rgba(0, 0, 0, 0.25);
-  --vg-good: #56d6a0; --vg-warn: #f5c25b; --vg-bad: #ff8f8a; --vg-info: #7fb4ff;
+  --vg-good: #56d6a0; --vg-warn: #f5c25b; --vg-bad: #ff8f8a; --vg-info: #7fb4ff; --vg-sample: #b8a6ff;
   --vg-blob-a: #1f8f8a; --vg-blob-b: #5b4bd6; --vg-blob-c: #c9772a;
   --vg-series-1: #3987e5; --vg-series-2: #d95926; --vg-series-3: #199e70; --vg-series-4: #c98500; --vg-series-5: #d55181; --vg-series-6: #008300; --vg-series-7: #9085e9; --vg-series-8: #e66767; --vg-grid: rgba(255, 255, 255, 0.1);
   color-scheme: dark;
@@ -27,7 +27,7 @@ html:has(.vg[data-mode="light"]), html:has(.vg[data-mode="light"]) body { backgr
   --vg-glass: rgba(255, 255, 255, 0.56); --vg-glass-strong: rgba(255, 255, 255, 0.78); --vg-field: rgba(255, 255, 255, 0.72);
   --vg-edge: rgba(255, 255, 255, 0.9); --vg-hairline: rgba(22, 26, 44, 0.1); --vg-sheen: rgba(255, 255, 255, 0.95);
   --vg-shadow: 0 24px 60px -28px rgba(46, 52, 98, 0.38), 0 2px 6px rgba(46, 52, 98, 0.08);
-  --vg-good: #0d704d; --vg-warn: #805500; --vg-bad: #b12c28; --vg-info: #1f5fbf;
+  --vg-good: #0d704d; --vg-warn: #805500; --vg-bad: #b12c28; --vg-info: #1f5fbf; --vg-sample: #5a3fc4;
   --vg-blob-a: #7fd9cf; --vg-blob-b: #b3a6ff; --vg-blob-c: #ffcf8f;
   --vg-series-1: #2a78d6; --vg-series-2: #eb6834; --vg-series-3: #1baf7a; --vg-series-4: #eda100; --vg-series-5: #e87ba4; --vg-series-6: #008300; --vg-series-7: #6250d6; --vg-series-8: #e34948; --vg-grid: rgba(22, 26, 44, 0.1);
   color-scheme: light;
@@ -458,3 +458,22 @@ html:has(.vg[data-mode="light"]), html:has(.vg[data-mode="light"]) body { backgr
 .vf-history button { display: inline-flex; align-items: baseline; gap: 6px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--vg-hairline); background: var(--vg-field); color: var(--vg-muted); font: inherit; font-size: .8rem; cursor: pointer; }
 .vf-history button small { opacity: .75; }
 .vf-history button[aria-pressed="true"] { background: var(--vg-text); color: var(--vg-bg); border-color: transparent; }
+
+/* Sample data mode: violet marks everything that is demo data. */
+.vg-chip[data-tone="sample"] { color: var(--vg-sample); border-color: color-mix(in srgb, var(--vg-sample) 38%, transparent); background: color-mix(in srgb, var(--vg-sample) 12%, var(--vg-glass)); }
+.va-sample-banner { display: flex; align-items: center; gap: 14px; padding: 11px 12px 11px 16px; border-radius: calc(var(--vg-radius) * 0.7); border-color: color-mix(in srgb, var(--vg-sample) 42%, var(--vg-hairline)); box-shadow: inset 3px 0 0 var(--vg-sample), var(--vg-shadow); }
+.va-sample-banner p { flex: 1; min-width: 0; font-size: 0.9rem; line-height: 1.45; color: var(--vg-muted); }
+.va-sample-banner p strong { color: var(--vg-text); font-weight: 650; }
+.va-sample-switch { padding: 9px 10px; border-radius: 12px; align-items: center; }
+.va-sample-switch:hover { background: var(--vg-glass); }
+.va-sample-switch span { font-size: 0.88rem; }
+.va-sample-switch small { font-size: 0.76rem; }
+.va-sample-switch input { width: 38px; height: 22px; margin: 0; }
+.va-sample-switch input::after { width: 16px; height: 16px; }
+.va-sample-switch input:checked { background: var(--vg-sample); }
+.va-sample-switch input:checked::after { transform: translateX(16px); background: #fff; }
+.va-sample-invite { display: flex; align-items: center; gap: 14px; padding: 16px 18px; border-radius: calc(var(--vg-radius) * 0.8); }
+.va-sample-invite > svg { flex: none; width: 20px; height: 20px; color: var(--vg-sample); }
+.va-sample-invite div { flex: 1; min-width: 0; }
+.va-sample-invite p { color: var(--vg-muted); font-size: 0.9rem; margin-top: 2px; }
+@media (max-width: 760px) { .va-sample-banner, .va-sample-invite { flex-wrap: wrap; } .va-sample-banner p { flex-basis: 100%; } }

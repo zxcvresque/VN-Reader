@@ -160,12 +160,13 @@ function MapCanvas({ regions, outlines, bounds, mode, maximum, value, active, se
   </svg>;
 }
 
-export default function PlacesPane({ formId, query, onOpenResponses }: {
+export default function PlacesPane({ formId, query, sample = false, onOpenResponses }: {
   formId: string;
   query: string;
+  sample?: boolean;
   onOpenResponses?: (query: URLSearchParams) => void;
 }) {
-  const places = useLoad(() => call<PlacesData>(`/admin/forms/${formId}/places${query}`), [formId, query]);
+  const places = useLoad(() => call<PlacesData>(`/admin/forms/${formId}/places${query}`, { sample }), [formId, query, sample]);
   const geography = useLoad<Geography>(async () => {
     const response = await fetch("/maps/ground-work-india.json");
     if (!response.ok) throw new Error("The map boundaries couldn’t be loaded.");

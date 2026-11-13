@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type MouseEvent, type ReactNode } from "react";
-import { ActivityLogIcon, ExitIcon, ExternalLinkIcon, FileTextIcon, GearIcon, HomeIcon, MoonIcon, PersonIcon, PlusIcon, SunIcon } from "@radix-ui/react-icons";
+import { ActivityLogIcon, ExitIcon, ExternalLinkIcon, FileTextIcon, GearIcon, HomeIcon, MagicWandIcon, MoonIcon, PersonIcon, PlusIcon, SunIcon } from "@radix-ui/react-icons";
 import { BACKDROPS, RequestError, call, type AdminForm, type AdminMe, type FormSummary } from "../forms/api";
 import { useResolvedMode } from "../forms/FormPage";
 import { Loading, Modal, StatusChip, ToastProvider, number, timeAgo, useAction } from "./ui";
 import FormWorkspace from "./FormWorkspace";
+import { canSample } from "./sample";
 import TeamPane from "./TeamPane";
 import SettingsPane from "./SettingsPane";
 import ActivityPane from "./ActivityPane";
 import "../forms/glass.css";
 
-export interface AdminContext { me: AdminMe; can: (permission: string) => boolean; go: (path: string) => void; forms: FormSummary[]; reloadForms: () => void }
+/** `sample` is on while the admin explores sample data; every response, chart and count then comes from the sample. */
+export interface AdminContext { me: AdminMe; can: (permission: string) => boolean; go: (path: string) => void; forms: FormSummary[]; reloadForms: () => void; sample: boolean; setSample: (on: boolean) => void }
 
 const TEMPLATES: Array<{ id: string; name: string; note: string; form: Record<string, unknown> }> = [
   { id: "blank", name: "Blank form", note: "Start with one question and build from there.", form: { title: "Untitled form" } },
@@ -39,12 +41,13 @@ function SignIn({ onDone, message }: { onDone: () => void; message?: string }) {
 }
 
 function Home({ context }: { context: AdminContext }) {
-  const { forms, can, go, reloadForms } = context, run = useAction();
+  const { forms, can, go, reloadForms, sample, setSample } = context, run = useAction();
   const [creating, setCreating] = useState(false), [busy, setBusy] = useState("");
   const totals = forms.reduce((sum, form) => ({ total: sum.total + form.counts.total, pending: sum.pending + form.counts.pending, approved: sum.approved + form.counts.approved }), { total: 0, pending: 0, approved: 0 });
   const create = async (template: typeof TEMPLATES[number]) => { setBusy(template.id); const made = await run(() => call<{ form: AdminForm }>("/admin/forms", { body: template.form })); setBusy(""); if (made) { setCreating(false); reloadForms(); go(`/admin/forms/${made.form.id}/build`); } };
   return <>
-    <header className="va-head"><div><h1>Forms</h1><p>Every form on vidurneeti.xyz, with what needs your attention first.</p></div>{can("forms.write") && !context.me.formIds && <div className="va-actions"><button type="button" className="vg-btn is-primary" onClick={() => setCreating(true)}><PlusIcon aria-hidden="true" />New form</button></div>}</header>
+    <header className="va-head"><div><h1>Forms</h1><p>Every form on vidurneeti.xyz, with what needs your attention first.</p></div><div className="va-actions">{canSample(context) && !sample && <button type="button" className="vg-btn" onClick={() => setSample(true)}><MagicWandIcon aria-hidden="true" />Explore sample data</button>}{can("forms.write") && !context.me.formIds && <button type="button" className="vg-btn is-primary" onClick={() => setCreating(true)}><PlusIcon aria-hidden="true" />New form</button>}</div></header>
+    {canSample(context) && !sample && forms.length > 0 && totals.total === 0 && <div className="va-sample-invite vg-glass"><MagicWandIcon aria-hidden="true" /><div><strong>No responses yet?</strong><p>Explore sample data to see how responses, statistics and the map look once people start filling your forms. Your real data stays untouched.</p></div><button type="button" className="vg-btn is-small is-primary" onClick={() => setSample(true)}>Explore sample data</button></div>}
     <div className="va-tiles">
       <div className="va-tile vg-glass"><span>Waiting for review</span><strong>{number(totals.pending)}</strong><small>{totals.pending ? "People are waiting for their link" : "Nothing waiting"}</small></div>
       <div className="va-tile vg-glass"><span>Responses, all forms</span><strong>{number(totals.total)}</strong><small>{number(totals.approved)} approved</small></div>
@@ -57,6 +60,24 @@ function Home({ context }: { context: AdminContext }) {
     </a>)}</div> : <div className="vg-glass va-empty"><h3>No forms yet</h3><p>Create a form to start collecting responses.</p></div>}
     {creating && <Modal title="Start a new form" onClose={() => setCreating(false)} wide><div className="va-grid cols-2">{TEMPLATES.map(template => <button key={template.id} type="button" className="vg-glass va-card" style={{ textAlign: "left", cursor: "pointer" }} disabled={!!busy} onClick={() => void create(template)}><strong>{busy === template.id ? "Creating…" : template.name}</strong><p className="va-note" style={{ marginTop: 4 }}>{template.note}</p></button>)}</div></Modal>}
   </>;
+}
+
+// Sample mode lasts for this tab only, so a new visit always opens on real data.
+const sampleKey = "vn-admin-sample";
+const sampleSaved = () => { try { return sessionStorage.getItem(sampleKey) === "1"; } catch { return false; } };
+const sampleSave = (on: boolean) => { try { if (on) sessionStorage.setItem(sampleKey, "1"); else sessionStorage.removeItem(sampleKey); } catch { /* optional */ } };
+
+/** Shown above every page while sample data is on, with the way back. */
+function SampleBanner({ context, onReset }: { context: AdminContext; onReset: () => void }) {
+  const run = useAction();
+  return <div className="va-sample-banner vg-glass" role="status">
+    <span className="vg-chip" data-tone="sample">Demo data</span>
+    <p><strong>You're exploring sample data.</strong> These responses are made up to show a populated console. No one here is a real person, and approvals, notes and deletions stay in this preview.</p>
+    <div className="va-row" style={{ flexWrap: "nowrap" }}>
+      <button type="button" className="vg-btn is-small is-quiet" title="Start the sample again from its original state" onClick={() => void run(async () => { await call("/admin/sample", { method: "DELETE" }); onReset(); }, "Sample data reset.")}>Reset</button>
+      <button type="button" className="vg-btn is-small is-primary" onClick={() => context.setSample(false)}>Back to real data</button>
+    </div>
+  </div>;
 }
 
 const remembered = (key: string) => { try { return localStorage.getItem(key); } catch { return null; } };
@@ -87,9 +108,12 @@ function AppearanceMenu({ look }: { look: Look }) {
 function Console({ look }: { look: Look }) {
   const [me, setMe] = useState<AdminMe | null>(null), [state, setState] = useState<"loading" | "signin" | "denied" | "ready" | "error">("loading"), [problem, setProblem] = useState("");
   const [forms, setForms] = useState<FormSummary[]>([]), [path, setPath] = useState(() => window.location.pathname.replace(/\/+$/, "") || "/admin");
+  const [sample, setSampleState] = useState(sampleSaved), [sampleRun, setSampleRun] = useState(0);
   const run = useAction();
+  const setSample = useCallback((on: boolean) => { sampleSave(on); setSampleState(on); }, []);
 
-  const reloadForms = useCallback(() => { void call<{ forms: FormSummary[] }>("/admin/forms").then(result => setForms(result.forms)).catch(() => {}); }, []);
+  const reloadForms = useCallback(() => { void call<{ forms: FormSummary[] }>("/admin/forms", { sample }).then(result => setForms(result.forms)).catch(() => {}); }, [sample]);
+  useEffect(() => { if (me?.permissions.includes("forms.read")) reloadForms(); }, [reloadForms]); // eslint-disable-line react-hooks/exhaustive-deps
   const boot = useCallback(async () => {
     setState("loading");
     try { const next = await call<AdminMe>("/admin/me"); setMe(next); setState("ready"); if (next.permissions.includes("forms.read")) reloadForms(); }
@@ -102,7 +126,7 @@ function Console({ look }: { look: Look }) {
     setPath(window.location.pathname);
     window.scrollTo({ top: 0 });
   }, []);
-  const context = useMemo<AdminContext | null>(() => (me ? { me, can: permission => me.permissions.includes(permission), go, forms, reloadForms } : null), [me, go, forms, reloadForms]);
+  const context = useMemo<AdminContext | null>(() => (me ? { me, can: permission => me.permissions.includes(permission), go, forms, reloadForms, sample, setSample } : null), [me, go, forms, reloadForms, sample, setSample]);
 
   let body: ReactNode;
   if (state === "loading") body = <Loading label="Opening the admin console" />;
@@ -128,6 +152,7 @@ function Console({ look }: { look: Look }) {
         {context.can("team.manage") && link("/admin/team", "Team and access", <PersonIcon aria-hidden="true" />)}
         {context.can("settings.manage") && link("/admin/settings", "Backups and Telegram", <GearIcon aria-hidden="true" />)}
         <div className="va-side-foot">
+          {canSample(context) && <label className="vg-switch va-sample-switch" data-on={context.sample || undefined}><input type="checkbox" role="switch" checked={context.sample} onChange={event => context.setSample(event.target.checked)} /><span>Sample data<small>{context.sample ? "Showing demo responses" : "Preview a populated console"}</small></span></label>}
           <AppearanceMenu look={look} />
           <div className="va-who"><strong>{me.owner ? "Owner" : "Admin"}</strong>{me.email}</div>
           <div className="va-row" style={{ gap: 4, flexWrap: "nowrap" }}>
@@ -137,7 +162,8 @@ function Console({ look }: { look: Look }) {
           </div>
         </div>
       </nav>
-      <main className="va-main">{page}</main>
+      {/* Switching data sources remounts the page, so every view reloads from the right place. */}
+      <main className="va-main" key={context.sample ? `sample-${sampleRun}` : "real"} data-sample={context.sample || undefined}>{context.sample && <SampleBanner context={context} onReset={() => { setSampleRun(run => run + 1); reloadForms(); }} />}{page}</main>
     </div>;
   }
   return <>{body}</>;

@@ -3,9 +3,11 @@ import { CheckIcon, Cross2Icon, DownloadIcon, MixerHorizontalIcon, TrashIcon, Up
 import { allFields, displayAnswer, districtsFor } from "../../server/formLogic.mjs";
 import { call, download, type AdminForm, type FormField, type FormResponse } from "../forms/api";
 import type { AdminContext } from "./AdminApp";
+import { canSample } from "./sample";
 import ResponseAnswer from "./ResponseAnswer";
 import { Confirm, Failure, Loading, Modal, StatusChip, formatDate, number, timeAgo, useAction, useLoad, useToast } from "./ui";
 
+const realOnly = "Exports and backups only ever contain real responses. Turn off sample data to use them.";
 interface Page { total: number; page: number; pageSize: number; responses: FormResponse[]; states: string[] }
 interface Filters { q: string; status: string; state: string; district?: string; after?: string; before?: string; link: string; from: string; to: string; sort: string; field: string; value: string }
 const EMPTY: Filters = { q: "", status: "", state: "", link: "", from: "", to: "", sort: "newest", field: "", value: "" };
@@ -25,7 +27,8 @@ function queryOf(filters: Filters, page?: number): string {
 }
 
 export default function ResponsesPane({ context, form, onChanged }: { context: AdminContext; form: AdminForm; onChanged: () => void }) {
-  const { can } = context, run = useAction(), toast = useToast();
+  const { can, sample } = context, run = useAction(), toast = useToast();
+  const inSample = sample ? " in the sample" : "";
   const fields = useMemo(() => allFields(form.schema).filter(field => field.type !== "statement") as FormField[], [form.schema]);
   const byRole = (role: string) => fields.find(field => field.role === role);
   const defaults = useMemo(() => [byRole("name") ?? fields[0], byRole("district"), byRole("phone"), byRole("telegram")].filter(Boolean).map(field => field!.id), [fields]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -47,8 +50,8 @@ export default function ResponsesPane({ context, form, onChanged }: { context: A
   const [choosing, setChoosing] = useState(false), [confirmDelete, setConfirmDelete] = useState<string[] | null>(null), [note, setNote] = useState(""), [busy, setBusy] = useState(false);
   useEffect(() => { const timer = window.setTimeout(() => { setFilters(current => (current.q === search ? current : { ...current, q: search })); }, 300); return () => window.clearTimeout(timer); }, [search]);
   useEffect(() => { setPage(1); setSelected(new Set()); }, [filters]);
-  const { data, error, loading, reload } = useLoad(() => call<Page>(`/admin/forms/${form.id}/responses?${queryOf(filters, page)}`), [form.id, filters, page]);
-  const links = useLoad(() => call<{ links: Array<{ code: string; label: string }> }>(`/admin/forms/${form.id}/links`), [form.id]);
+  const { data, error, loading, reload } = useLoad(() => call<Page>(`/admin/forms/${form.id}/responses?${queryOf(filters, page)}`, { sample }), [form.id, filters, page, sample]);
+  const links = useLoad(() => call<{ links: Array<{ code: string; label: string }> }>(`/admin/forms/${form.id}/links`, { sample }), [form.id, sample]);
   useEffect(() => { setNote(open?.note ?? ""); }, [open?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const set = (patch: Partial<Filters>) => setFilters(current => ({ ...current, ...patch }));
@@ -60,7 +63,7 @@ export default function ResponsesPane({ context, form, onChanged }: { context: A
     const close = drawerClose.current;
     if (close?.closest(".va-drawer")?.contains(document.activeElement)) close.focus();
     setBusy(true);
-    const result = await run(() => call<{ updated: FormResponse[] }>(`/admin/forms/${form.id}/responses`, { method: "PATCH", body: { ids, status } }), `${ids.length === 1 ? "Response" : `${ids.length} responses`} ${status === "pending" ? "moved back to pending" : status}.`);
+    const result = await run(() => call<{ updated: FormResponse[] }>(`/admin/forms/${form.id}/responses`, { method: "PATCH", body: { ids, status }, sample }), `${ids.length === 1 ? "Response" : `${ids.length} responses`} ${status === "pending" ? "moved back to pending" : status}${inSample}.`);
     setBusy(false);
     if (result) {
       setSelected(new Set());
@@ -69,8 +72,8 @@ export default function ResponsesPane({ context, form, onChanged }: { context: A
       onChanged();
     }
   };
-  const saveNote = async () => { if (!open) return; const result = await run(() => call<{ updated: FormResponse[] }>(`/admin/forms/${form.id}/responses`, { method: "PATCH", body: { ids: [open.id], note } }), "Note saved."); if (result) { setOpen(result.updated[0]); reload(); } };
-  const remove = async (ids: string[]) => { const result = await run(() => call<{ removed: string[] }>(`/admin/forms/${form.id}/responses`, { method: "DELETE", body: { ids } }), `${ids.length === 1 ? "Response" : `${ids.length} responses`} deleted.`); if (result) { setSelected(new Set()); setOpen(null); reload(); onChanged(); } };
+  const saveNote = async () => { if (!open) return; const result = await run(() => call<{ updated: FormResponse[] }>(`/admin/forms/${form.id}/responses`, { method: "PATCH", body: { ids: [open.id], note }, sample }), `Note saved${inSample}.`); if (result) { setOpen(result.updated[0]); reload(); } };
+  const remove = async (ids: string[]) => { const result = await run(() => call<{ removed: string[] }>(`/admin/forms/${form.id}/responses`, { method: "DELETE", body: { ids }, sample }), `${ids.length === 1 ? "Response" : `${ids.length} responses`} deleted${inSample}.`); if (result) { setSelected(new Set()); setOpen(null); reload(); onChanged(); } };
   const backup = async () => {
     const result = await run(() => call<{ responses: number; telegram: boolean; r2: boolean; telegramConfigured: boolean; r2Enabled: boolean }>(`/admin/forms/${form.id}/backup`, { body: {} }));
     if (!result) return;
@@ -116,12 +119,12 @@ export default function ResponsesPane({ context, form, onChanged }: { context: A
       <span className="vg-muted vg-num">{data ? `${number(data.total)} response${data.total === 1 ? "" : "s"}${active ? " match these filters" : ""}` : " "}</span>
       <div className="va-actions">
         <button type="button" className="vg-btn is-small" onClick={() => setChoosing(true)}><MixerHorizontalIcon aria-hidden="true" />Columns</button>
-        {can("responses.export") && <><button type="button" className="vg-btn is-small" onClick={() => void run(() => download(`/admin/forms/${form.id}/export?format=csv&${queryOf(filters)}`, `${form.slug}.csv`))}><DownloadIcon aria-hidden="true" />CSV</button>
-          <button type="button" className="vg-btn is-small" onClick={() => void run(() => download(`/admin/forms/${form.id}/export?format=json&${queryOf(filters)}`, `${form.slug}.json`))}><DownloadIcon aria-hidden="true" />JSON</button>
-          <button type="button" className="vg-btn is-small" onClick={() => void backup()}><UploadIcon aria-hidden="true" />Back up now</button></>}
+        {can("responses.export") && <><button type="button" className="vg-btn is-small" disabled={sample} title={sample ? realOnly : undefined} onClick={() => void run(() => download(`/admin/forms/${form.id}/export?format=csv&${queryOf(filters)}`, `${form.slug}.csv`))}><DownloadIcon aria-hidden="true" />CSV</button>
+          <button type="button" className="vg-btn is-small" disabled={sample} title={sample ? realOnly : undefined} onClick={() => void run(() => download(`/admin/forms/${form.id}/export?format=json&${queryOf(filters)}`, `${form.slug}.json`))}><DownloadIcon aria-hidden="true" />JSON</button>
+          <button type="button" className="vg-btn is-small" disabled={sample} title={sample ? realOnly : undefined} onClick={() => void backup()}><UploadIcon aria-hidden="true" />Back up now</button></>}
       </div>
     </div>
-    {error ? <Failure message={error} onRetry={reload} /> : !data && loading ? <Loading /> : rows.length === 0 ? <div className="vg-glass va-empty"><h3>{active ? "No responses match these filters" : "No responses yet"}</h3><p>{active ? "Try removing a filter or widening the dates." : form.status === "live" ? "Share the form link or a QR code from the Share tab." : "Publish the form to start collecting responses."}</p></div>
+    {error ? <Failure message={error} onRetry={reload} /> : !data && loading ? <Loading /> : rows.length === 0 ? <div className="vg-glass va-empty"><h3>{active ? "No responses match these filters" : "No responses yet"}</h3><p>{active ? "Try removing a filter or widening the dates." : form.status === "live" ? "Share the form link or a QR code from the Share tab." : "Publish the form to start collecting responses."}</p>{!active && !sample && canSample(context) && <button type="button" className="vg-btn is-primary" onClick={() => context.setSample(true)}>Explore sample data</button>}</div>
       : <div className="vg-glass va-tablewrap"><table className="va-table">
         <thead><tr><th style={{ width: 40 }}><input type="checkbox" className="va-check" aria-label="Select all on this page" checked={allSelected} onChange={() => setSelected(allSelected ? new Set() : new Set(rows.map(row => row.id)))} /></th>{shown.map(field => <th key={field.id}>{field.label.length > 28 ? `${field.label.slice(0, 26)}…` : field.label}</th>)}<th>State</th><th>Status</th><th>Submitted</th></tr></thead>
         <tbody>{rows.map(row => <tr key={row.id} aria-selected={selected.has(row.id)} onClick={event => { opener.current = event.currentTarget.querySelector(".va-open-response"); setOpen(row); }}>
@@ -140,22 +143,22 @@ export default function ResponsesPane({ context, form, onChanged }: { context: A
       <button type="button" className="vg-btn is-small is-quiet" onClick={() => setSelected(new Set())}>Clear</button></div>}
 
     {open && <div className="va-drawer-scrim" onMouseDown={event => { if (event.target === event.currentTarget) setOpen(null); }}><aside className="va-drawer vg-glass" role="dialog" aria-modal="true" aria-label="Response details" onKeyDown={drawerKeys}>
-      <header><div><StatusChip status={open.status} /><h2 style={{ marginTop: 10, fontSize: "1.4rem" }}>{(titleField && displayAnswer(titleField, open.answers[titleField.id])) || "Response"}</h2><p className="vg-muted vg-num" style={{ fontSize: "0.86rem", marginTop: 4 }}>Submitted {formatDate(open.createdAt)}{open.reviewedBy ? ` · reviewed by ${open.reviewedBy}` : ""}</p></div><button type="button" ref={drawerClose} className="vg-btn is-quiet is-icon" aria-label="Close" autoFocus onClick={() => setOpen(null)}><Cross2Icon aria-hidden="true" /></button></header>
+      <header><div><div className="va-row" style={{ gap: 6 }}><StatusChip status={open.status} />{sample && <span className="vg-chip" data-tone="sample">Demo data</span>}</div><h2 style={{ marginTop: 10, fontSize: "1.4rem" }}>{(titleField && displayAnswer(titleField, open.answers[titleField.id])) || "Response"}</h2><p className="vg-muted vg-num" style={{ fontSize: "0.86rem", marginTop: 4 }}>Submitted {formatDate(open.createdAt)}{open.reviewedBy ? ` · reviewed by ${open.reviewedBy}` : ""}</p></div><button type="button" ref={drawerClose} className="vg-btn is-quiet is-icon" aria-label="Close" autoFocus onClick={() => setOpen(null)}><Cross2Icon aria-hidden="true" /></button></header>
       {can("responses.review") && <div className="va-row">
         {open.status !== "approved" && <button type="button" className="vg-btn is-primary" disabled={busy} onClick={() => void review([open.id], "approved")}><CheckIcon aria-hidden="true" />Approve{form.settings.reward.enabled ? " and unlock link" : ""}</button>}
         {open.status !== "rejected" && <button type="button" className="vg-btn" disabled={busy} onClick={() => void review([open.id], "rejected")}><Cross2Icon aria-hidden="true" />Reject</button>}
         {open.status !== "pending" && <button type="button" className="vg-btn is-quiet" disabled={busy} onClick={() => void review([open.id], "pending")}>Move back to pending</button>}
       </div>}
       <div className="va-row">{[open.link ? `Source: ${links.data?.links.find(link => link.code === open.link)?.label ?? open.link}` : "Direct link", open.device && `Device: ${open.device}`, open.durationMs && `Took ${Math.max(1, Math.round(open.durationMs / 60000))} min`, open.telegram && `Telegram ID: ${open.telegram.id}${open.telegram.username ? ` (@${open.telegram.username})` : ""}`, open.hasAccount && "Signed-in reader", open.synced && "Mirrored to R2"].filter(Boolean).map(item => <span key={String(item)} className="vg-chip is-plain">{item}</span>)}</div>
-      <dl className="va-answers">{fields.map(field => <ResponseAnswer key={field.id} field={field} answer={open.answers[field.id]} />)}</dl>
+      <dl className="va-answers">{fields.map(field => <ResponseAnswer key={field.id} field={field} answer={open.answers[field.id]} links={!sample} />)}</dl>
       {can("responses.review") && <label className="vg-label">Private note for admins<textarea className="vg-textarea" style={{ minHeight: 80 }} value={note} maxLength={1000} onChange={event => setNote(event.target.value)} placeholder="Why it was approved or rejected, follow-ups…" /><span><button type="button" className="vg-btn is-small" disabled={note === open.note} onClick={() => void saveNote()}>Save note</button></span></label>}
       {can("responses.delete") && <div><button type="button" className="vg-btn is-small is-danger is-quiet" onClick={() => setConfirmDelete([open.id])}><TrashIcon aria-hidden="true" />Delete this response</button></div>}
-      <p className="va-note">Response ID <span className="va-code">{open.id}</span></p>
+      <p className="va-note">{sample ? "Sample response. Made up for this preview; no real person sent it." : <>Response ID <span className="va-code">{open.id}</span></>}</p>
     </aside></div>}
     {choosing && <Modal title="Choose table columns" onClose={() => setChoosing(false)} footer={<><button type="button" className="vg-btn is-quiet" onClick={() => setColumns(defaults)}>Reset</button><button type="button" className="vg-btn is-primary" onClick={() => { try { localStorage.setItem(storageKey, JSON.stringify(columns)); } catch { /* optional */ } setChoosing(false); }}>Done</button></>}>
       <p className="va-note">State, status and submitted time are always shown. Pick up to six more.</p>
       <div className="va-stack" style={{ gap: 4, maxHeight: "50vh", overflowY: "auto" }}>{fields.map(field => <label key={field.id} className="va-row" style={{ minHeight: 36, cursor: "pointer", flexWrap: "nowrap" }}><input type="checkbox" className="va-check" checked={columns.includes(field.id)} disabled={!columns.includes(field.id) && columns.length >= 6} onChange={() => setColumns(current => (current.includes(field.id) ? current.filter(id => id !== field.id) : [...current, field.id]))} /><span>{field.label}</span></label>)}</div>
     </Modal>}
-    {confirmDelete && <Confirm title={`Delete ${confirmDelete.length === 1 ? "this response" : `${confirmDelete.length} responses`}?`} body="This removes the answers from the site and from the R2 mirror. It can't be undone. Copies already sent to your Telegram backup channel stay there." action="Delete permanently" danger onConfirm={() => remove(confirmDelete)} onClose={() => setConfirmDelete(null)} />}
+    {confirmDelete && <Confirm title={`Delete ${confirmDelete.length === 1 ? "this response" : `${confirmDelete.length} responses`}?`} body={sample ? "This removes it from the sample only. Reset the sample to bring it back." : "This removes the answers from the site and from the R2 mirror. It can't be undone. Copies already sent to your Telegram backup channel stay there."} action="Delete permanently" danger onConfirm={() => remove(confirmDelete)} onClose={() => setConfirmDelete(null)} />}
   </>;
 }

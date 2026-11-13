@@ -31,6 +31,19 @@ The Ground Work form is created automatically on first start, rebuilt from the o
 - **Reader activity**: the previous in-reader admin dashboard (registrations, sign-ins, email allowance, media storage).
 - **Backups and Telegram**: bot token, backup channel or group (and topic), switches for notifications.
 
+### Sample data
+
+New admins and reviewers can see a populated console before real responses arrive. Turn on **Sample data** in the sidebar, or choose **Explore sample data** on the Forms page or an empty Responses tab.
+
+- About 40 made-up responses are drawn from each form's own questions, rules and options: names, ages, states and districts, contact details, choices, written answers, share links, devices, times of day and review statuses. They pass the form's own validation.
+- Every view uses them through the same code as real data: Responses and filters, each response's answers, Statistics (overview, Places map, reach and timing, answers), the form counts on the Forms page and the review badges in the sidebar.
+- A violet **Demo data** label and a banner stay on screen while it is on. **Back to real data** switches back at once. Sample mode lasts for the current tab only, so a new visit always opens on real data.
+- Approving, rejecting, notes and deleting work on the sample, so people can practise, but only inside the preview. **Reset** starts the sample again.
+- Each admin has a separate sample, kept in memory on the server for a few hours. Sample responses are never written to the database, R2 or the Telegram backup channel, never counted in real statistics, and never sent as notifications or emails. Exports and backups refuse to run in sample mode, and contact links (WhatsApp, Telegram, social profiles) are not linked, so nothing points at real people. Contacts use reserved example numbers and `example.com` addresses.
+- Permissions are unchanged: sample mode shows only the forms and actions a person's role already allows. A reviewer can approve sample responses but cannot delete them.
+
+The server side lives in `server/formsSample.mjs`; the console asks for it with the `X-VN-Sample: 1` header.
+
 ### Places map
 
 Statistics → Places uses the state and district reported in each response. Switch between heatmap, proportional bubbles and spikes. The map and sortable table can use the same time window and units or be compared side by side with independent settings. Use the review-status shortcuts or metric picker to change the map, and select a region to open filtered responses. Auto fits the scale to the current map. A fixed or custom maximum keeps the same scale when comparing regions. Per-capita rates use the October 2021 COVID19India population snapshot; places without an estimate are left blank in rate views. Districts without a boundary, and older answers whose district could not be identified, remain visible in the table.

@@ -19,7 +19,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN corepack pnpm install --frozen-lockfile --prod
 COPY server/accounts.mjs server/accountService.mjs server/adminStore.mjs server/notifications.mjs server/operatorEvents.json \
      server/formLogic.mjs server/indiaDistricts.mjs server/formsStore.mjs server/formsRoutes.mjs server/formsBackup.mjs server/formsSeed.mjs \
-     server/linkPreview.mjs server/seo.mjs ./server/
+     server/linkPreview.mjs server/seo.mjs server/formsSample.mjs ./server/
 # The page shell, so form links can carry their own title, description and picture.
 COPY --from=build /app/dist/index.html ./web/index.html
 RUN chmod 755 /app /app/server /app/web \

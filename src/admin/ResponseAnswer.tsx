@@ -26,11 +26,12 @@ function profileLink(field: FormField, value: string): string | undefined {
   } catch { /* Keep invalid or ambiguous links copyable as text. */ }
 }
 
-export default function ResponseAnswer({ field, answer }: { field: FormField; answer: AnswerValue | undefined }) {
+/** `links` off leaves answers copyable but never links out, as for sample data that only looks like real contacts. */
+export default function ResponseAnswer({ field, answer, links = true }: { field: FormField; answer: AnswerValue | undefined; links?: boolean }) {
   const toast = useToast();
   const value = displayAnswer(field, answer);
-  const href = typeof answer === "string" ? profileLink(field, value) : undefined;
-  const profiles = field.type === "social" && Array.isArray(answer)
+  const href = links && typeof answer === "string" ? profileLink(field, value) : undefined;
+  const profiles = links && field.type === "social" && Array.isArray(answer)
     ? answer.filter((item): item is SocialAccount => typeof item === "object" && item !== null && typeof item.platform === "string" && typeof item.handle === "string")
     : [];
   const domains: Record<string, string> = {
