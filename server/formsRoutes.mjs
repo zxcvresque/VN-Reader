@@ -97,6 +97,18 @@ export function createForms({ accounts, settings, fetchImpl = fetch, env = proce
       const next = linked ? "Copy this ID and paste it into the form." : contactCode ? "Open Telegram from the form again if you need a new link." : "Use the Telegram button in the form to verify your ID.";
       return { text: `Your Telegram user ID is <code>${userId}</code>.${username ? `\nUsername: @${telegram.escapeHTML(username)}` : ""}\n\n${next}`, copyText: userId };
     }
+    if (/^\/start(?:@\w+)?$/.test(text)) {
+      return {
+        text: [
+          "<b>Welcome to Vidurneeti!</b>",
+          "We share commentary on India, drawing on Vidura of the Mahabharata and the Bhagavad Geeta.",
+          "Tap <b>Open Vidurneeti</b> in this chat’s menu to launch the web app inside Telegram. Read posts in VN Reader, browse threads and timelines, save posts, and take notes. You can also explore Ground Work and fill out forms.",
+          "After submitting a form, tap <b>Get updates</b> under Telegram on the confirmation page, then tap <b>Start</b> to link your response. Send /status here anytime to check your linked responses.",
+          "Need help? Visit our support channel, <a href=\"https://t.me/vidurneetixyz\">@vidurneetixyz</a>."
+        ].join("\n\n"),
+        button: { text: "Open Vidurneeti", url: `${origin}/` }
+      };
+    }
     const payload = /^\/start(?:@\w+)?\s+r_([A-Za-z0-9_-]{12,32})\s*$/.exec(String(text ?? ""))?.[1];
     const lines = [];
     if (payload) {

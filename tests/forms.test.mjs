@@ -224,6 +224,14 @@ test("status updates: Telegram binding through the bot, /status privacy, and opt
     assert.deepEqual((await (await request("/api/forms/groundwork", { headers: mine })).json()).updates, { telegram: "vn_status_bot", email: true });
     assert.equal((await request("/api/forms/groundwork/notify", { body: { channel: "telegram" } })).status, 404, "a receipt is required");
 
+    const welcome = await (await bot({ userId: "4242", text: "/start" })).json();
+    assert.match(welcome.text, /Welcome to Vidurneeti!/);
+    assert.match(welcome.text, /web app inside Telegram/);
+    assert.match(welcome.text, /VN Reader/);
+    assert.match(welcome.text, /Send \/status/);
+    assert.ok(welcome.text.includes('href="https://t.me/vidurneetixyz"'));
+    assert.deepEqual(welcome.button, { text: "Open Vidurneeti", url: "http://reader.test/" });
+
     assert.equal((await bot({ userId: "4242", text: "/status" }, "Bearer wrong")).status, 403);
     assert.match((await (await bot({ userId: "4242", text: "/status" })).json()).text, /No form responses are linked/);
     const { url } = await (await request("/api/forms/groundwork/notify", { body: { channel: "telegram" }, headers: mine })).json();
@@ -242,6 +250,7 @@ test("status updates: Telegram binding through the bot, /status privacy, and opt
     assert.equal(changed.length, 1);
     const status = await (await bot({ userId: "4242", text: "/status" })).json();
     assert.match(status.text, /Approved.*submitted 13 Nov 2026, 04:10 IST/); assert.deepEqual(status.button, { text: "Groundwork group link", url: "https://t.me/+EcstnRyYKytlOWE9" });
+    assert.deepEqual(await (await bot({ userId: "4242", text: "/start@vn_status_bot" })).json(), welcome);
     assert.equal(await accounts.mail({ to: "arjun@example.com", subject: "s", text: "t" }), true);
     assert.equal(mail.at(-1).type, "notice"); assert.equal(accounts.admin.capacity(true).used, 1, "notices count against the daily allowance");
   } finally { await new Promise(resolve => server.close(resolve)); accounts.close(); }
