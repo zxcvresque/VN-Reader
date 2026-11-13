@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID, createHash } from "node:crypto";
-import { allFields, displayAnswer, isEmpty, normalizeSchema, validateAnswers, CHOICE_TYPES, INDIA_STATES, isEmailAddress } from "./formLogic.mjs";
+import { allFields, displayAnswer, isEmpty, normalizeSchema, validateAnswers, CHOICE_TYPES, INDIA_STATES, districtsFor, isEmailAddress } from "./formLogic.mjs";
 import { GROUNDWORK_FORM } from "./formsSeed.mjs";
 
 export class FormError extends Error { constructor(status, message, extra) { super(message); this.status = status; this.extra = extra; } }
@@ -28,6 +28,28 @@ const PERMISSION_IDS = new Set(PERMISSIONS.map(permission => permission.id));
 const STATUSES = ["pending", "approved", "rejected"];
 const FONTS = ["aspekta", "system", "serif", "rounded", "mono", "humanist", "custom"];
 const sha = value => createHash("sha256").update(value).digest("hex");
+const placeNameKey = value => typeof value === "string" ? value.normalize("NFKD").toLowerCase().replace(/[^a-z0-9]/g, "") : "";
+const districtNames = new Map(INDIA_STATES.map(state => [state, new Map(districtsFor(state).map(name => [placeNameKey(name), name]))]));
+// The old form accepted city names and previous district spellings as free text.
+for (const [state, previous, current] of [
+  ["Assam", "Karimganj", "Sribhumi"], ["Assam", "Morigaon", "Marigaon"],
+  ["Assam", "Kamrup Metropolitan", "Kamrup Metro"], ["Assam", "Guwahati", "Kamrup Metro"],
+  ["Bihar", "East Champaran", "Purbi Champaran"], ["Bihar", "West Champaran", "Pashchim Champaran"],
+  ["Maharashtra", "Ahmednagar", "Ahilyanagar"], ["Maharashtra", "Aurangabad", "Chhatrapati Sambhajinagar"],
+  ["Maharashtra", "Osmanabad", "Dharashiv"], ["Madhya Pradesh", "Hoshangabad", "Narmadapuram"],
+  ["Uttar Pradesh", "Allahabad", "Prayagraj"], ["Uttar Pradesh", "Faizabad", "Ayodhya"],
+]) {
+  const names = districtNames.get(state);
+  if (names.has(placeNameKey(current))) names.set(placeNameKey(previous), current);
+}
+const districtName = (state, value) => districtNames.get(state)?.get(placeNameKey(value)) ?? "";
+const districtField = form => allFields(form.schema).find(field => field.type === "district" || field.role === "district");
+const districtPath = field => `$."${field.id}"`;
+const placeCounts = () => ({ count: 0, approved: 0, pending: 0, rejected: 0 });
+function addPlaceCounts(totals, status, count) {
+  totals.count += count;
+  totals[status] += count;
+}
 const clip = (value, limit) => (typeof value === "string" ? value : "").replace(/\u0000/g, "").trim().slice(0, limit);
 const slugOk = value => typeof value === "string" && /^[a-z0-9](?:[a-z0-9-]{0,46}[a-z0-9])?$/.test(value);
 const parse = (value, fallback) => { try { return JSON.parse(value); } catch { return fallback; } };
@@ -73,6 +95,7 @@ const STOP = new Set("the and for that this with you your are was have has from 
 export class FormsStore {
   constructor(database, { now = () => new Date() } = {}) {
     this.database = database; this.now = now;
+    database.function("vn_district_name", { deterministic: true }, districtName);
     database.exec(`
       CREATE TABLE IF NOT EXISTS forms (id TEXT PRIMARY KEY, slug TEXT NOT NULL UNIQUE, title TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
         status TEXT NOT NULL DEFAULT 'draft', schema TEXT NOT NULL, settings TEXT NOT NULL, theme TEXT NOT NULL,
@@ -365,7 +388,16 @@ export class FormsStore {
   query(formId, filters = {}) {
     const where = ["form_id=?"], values = [formId];
     if (STATUSES.includes(filters.status)) { where.push("status=?"); values.push(filters.status); }
-    if (filters.state) { where.push("state=?"); values.push(String(filters.state)); }
+    if (filters.state === "") {
+      where.push(`(state IS NULL OR state NOT IN (${INDIA_STATES.map(() => "?").join(",")}))`);
+      values.push(...INDIA_STATES);
+    } else if (filters.state) { where.push("state=?"); values.push(String(filters.state)); }
+    if (filters.district !== undefined) {
+      if (!filters.state || (filters.district && districtName(filters.state, filters.district) !== filters.district)) return [];
+      const form = this.form(formId), field = form && districtField(form);
+      where.push("vn_district_name(state,json_extract(answers,?))=?");
+      values.push(field ? districtPath(field) : "$", filters.district);
+    }
     if (filters.link !== undefined && filters.link !== null && filters.link !== "") { where.push("COALESCE(link,'')=?"); values.push(filters.link === "direct" ? "" : String(filters.link)); }
     if (filters.device) { where.push("device=?"); values.push(String(filters.device)); }
     if (Number.isFinite(filters.from)) { where.push("created_at>=?"); values.push(filters.from); }
@@ -411,6 +443,49 @@ export class FormsStore {
   }
 
   // ----- insights -----
+  places(form, { from, to } = {}) {
+    const end = Number.isFinite(to) ? to : this.time() + 1;
+    const start = Number.isFinite(from) ? from : end - 30 * 86400000;
+    const dailyFrom = Math.max(start, end - 86400000);
+    const recentFrom = Math.max(start, end - 7 * 86400000);
+    const priorWeekEnd = end - 7 * 86400000, previousFrom = end - 14 * 86400000;
+    const field = districtField(form);
+    const rows = this.database.prepare(`
+      SELECT state, vn_district_name(state,json_extract(answers,?)) AS district, status,
+        SUM(created_at>=?) AS count, SUM(created_at>=?) AS daily, SUM(created_at>=?) AS recent,
+        SUM(created_at>=? AND created_at<?) AS previous, MAX(CASE WHEN created_at>=? THEN created_at END) AS latest
+      FROM form_responses WHERE form_id=? AND created_at>=? AND created_at<?
+      GROUP BY state,district,status
+    `).all(field ? districtPath(field) : "$", start, dailyFrom, recentFrom, previousFrom, priorWeekEnd, start, form.id, Math.min(start, previousFrom), end);
+    const makePlace = () => ({ ...placeCounts(), daily: placeCounts(), recent: placeCounts(), previous: 0, latest: null });
+    const record = (entry, row) => {
+      addPlaceCounts(entry, row.status, row.count);
+      addPlaceCounts(entry.daily, row.status, row.daily);
+      addPlaceCounts(entry.recent, row.status, row.recent);
+      entry.previous += row.previous;
+      if (row.latest !== null && (entry.latest === null || row.latest > entry.latest)) entry.latest = row.latest;
+    };
+    const totals = makePlace(), states = new Map();
+    for (const row of rows) {
+      const name = INDIA_STATES.includes(row.state) ? row.state : "";
+      let state = states.get(name);
+      if (!state) {
+        state = { name, ...makePlace(), districts: new Map() };
+        states.set(name, state);
+      }
+      record(totals, row);
+      record(state, row);
+      if (!name || name === "Outside India") continue;
+      let district = state.districts.get(row.district);
+      if (!district) {
+        district = { name: row.district, ...makePlace() };
+        state.districts.set(row.district, district);
+      }
+      record(district, row);
+    }
+    return { totals, states: [...states.values()].map(state => ({ ...state, districts: [...state.districts.values()] })),
+      from: new Date(start).toISOString(), recentFrom: new Date(recentFrom).toISOString(), to: new Date(end).toISOString() };
+  }
   insights(form, { from, to } = {}) {
     const timezone = form.settings.timezone, now = this.time();
     const end = Number.isFinite(to) ? to : now + 1, start = Number.isFinite(from) ? from : end - 30 * 86400000;

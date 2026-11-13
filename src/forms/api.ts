@@ -23,6 +23,11 @@ export interface FormSummary { id: string; slug: string; title: string; descript
 export interface FormResponse { id: string; formId: string; status: Outcome["status"]; state: string | null; link: string; device: string; durationMs: number | null; telegram: { id: string; username: string | null } | null; hasAccount: boolean; note: string; reviewedBy: string | null; reviewedAt: string | null; createdAt: string; synced: boolean; answers: Answers }
 export interface NamedCount { name: string; count: number }
 export interface QuestionInsight { id: string; label: string; type: string; required: boolean; answered: number; total: number; kind: "choice" | "number" | "text"; options?: NamedCount[]; stats?: { min: number; max: number; average: number; median: number } | null; buckets?: NamedCount[]; averageLength?: number; topWords?: NamedCount[] }
+export interface PlaceCounts { count: number; approved: number; pending: number; rejected: number }
+export interface PlaceStats extends PlaceCounts { daily: PlaceCounts; recent: PlaceCounts; previous: number; latest: number | null }
+export interface DistrictStats extends PlaceStats { name: string }
+export interface StateStats extends DistrictStats { districts: DistrictStats[] }
+export interface PlacesData { totals: PlaceStats; states: StateStats[]; from: string; recentFrom: string; to: string }
 export interface Insights {
   range: { from: string; to: string; timezone: string };
   totals: { responses: number; allTime: number; pending: number; approved: number; rejected: number; views: number; starts: number; completionRate: number | null; viewToSubmit: number | null; medianDurationMs: number | null; last7: number; prev7: number; states: number; telegramLinked: number };

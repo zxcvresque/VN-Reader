@@ -45,22 +45,6 @@ export function BarList({ items, total, limit = 12, onPick, empty = "No data yet
     {items.length > limit && <button type="button" className="vg-btn is-quiet is-small" style={{ justifySelf: "start" }} onClick={() => setAll(!all)}>{all ? "Show fewer" : `Show all ${items.length}`}</button>}</div>;
 }
 
-/** Each state's responses split by review status, with a legend. */
-export function StatusBars({ items, limit = 10, onPick }: { items: Array<NamedCount & { approved: number; pending: number }>; limit?: number; onPick?: (name: string) => void }) {
-  const [all, setAll] = useState(false);
-  if (!items.length) return <p className="va-note">No responses with a state yet</p>;
-  const max = Math.max(1, ...items.map(item => item.count)), shown = all ? items : items.slice(0, limit);
-  return <div className="vc-bars">
-    <div className="vc-legend" aria-hidden="true">{STATUS.map(status => <span key={status.key}><i style={{ background: status.color }} />{status.label}</span>)}</div>
-    {shown.map(item => { const parts = { approved: item.approved, pending: item.pending, rejected: Math.max(0, item.count - item.approved - item.pending) };
-      const label = `${item.name}: ${item.count} responses, ${parts.approved} approved, ${parts.pending} pending, ${parts.rejected} rejected`;
-      return <button type="button" key={item.name} className="vc-bar is-button" aria-label={label} title={label} onClick={() => onPick?.(item.name)}>
-        <span>{item.name}</span>
-        <span className="vc-bar-track is-stack" style={{ width: `${(item.count / max) * 100}%` }}>{STATUS.map(status => parts[status.key] ? <i key={status.key} style={{ flex: parts[status.key], background: status.color }} /> : null)}</span>
-        <b>{item.count}</b></button>; })}
-    {items.length > limit && <button type="button" className="vg-btn is-quiet is-small" style={{ justifySelf: "start" }} onClick={() => setAll(!all)}>{all ? "Show fewer" : `Show all ${items.length}`}</button>}
-  </div>;
-}
 /** One stacked bar for the whole review queue. */
 export function StatusSplit({ approved, pending, rejected }: { approved: number; pending: number; rejected: number }) {
   const parts = { approved, pending, rejected }, total = approved + pending + rejected;
@@ -77,27 +61,6 @@ export function Columns({ items, label }: { items: NamedCount[]; label: string }
       <rect x={index * slot} y={0} width={slot} height={height} fill="transparent" /><path d={`M${cx - bar / 2},${height} v${-Math.max(0, h - 4)} q0,-4 4,-4 h${bar - 8} q4,0 4,4 v${Math.max(0, h - 4)} z`} fill="var(--vg-series-1)" opacity={hover === null || hover === index ? 1 : 0.55} />
       {(items.length <= 12 || index % 2 === 0) && <text x={cx} y={height + 14} textAnchor="middle">{item.name}</text>}</g>; })}
   </svg>{hover !== null && <div className="vc-tip" style={{ left: `${((hover + 0.5) * slot / width) * 100}%`, top: 0, transform: "translate(-50%, 0)" }}><b>{items[hover].name}</b><span>{items[hover].count} response{items[hover].count === 1 ? "" : "s"}</span></div>}</div>;
-}
-
-const TILES: Array<[string, string, number, number]> = [
-  ["JK", "Jammu and Kashmir", 3, 0], ["LA", "Ladakh", 4, 0],
-  ["PB", "Punjab", 2, 1], ["CH", "Chandigarh", 3, 1], ["HP", "Himachal Pradesh", 4, 1], ["UK", "Uttarakhand", 5, 1],
-  ["RJ", "Rajasthan", 1, 2], ["HR", "Haryana", 2, 2], ["DL", "Delhi", 3, 2], ["UP", "Uttar Pradesh", 4, 2], ["BR", "Bihar", 5, 2], ["SK", "Sikkim", 7, 2], ["AR", "Arunachal Pradesh", 9, 2],
-  ["GJ", "Gujarat", 1, 3], ["MP", "Madhya Pradesh", 3, 3], ["CG", "Chhattisgarh", 4, 3], ["JH", "Jharkhand", 5, 3], ["WB", "West Bengal", 6, 3], ["AS", "Assam", 8, 3], ["NL", "Nagaland", 9, 3],
-  ["DD", "Dadra and Nagar Haveli and Daman and Diu", 0, 4], ["MH", "Maharashtra", 2, 4], ["TS", "Telangana", 3, 4], ["OD", "Odisha", 5, 4], ["ML", "Meghalaya", 7, 4], ["TR", "Tripura", 8, 4], ["MN", "Manipur", 9, 4],
-  ["GA", "Goa", 1, 5], ["KA", "Karnataka", 2, 5], ["AP", "Andhra Pradesh", 3, 5], ["MZ", "Mizoram", 9, 5],
-  ["LD", "Lakshadweep", 0, 6], ["KL", "Kerala", 2, 6], ["TN", "Tamil Nadu", 3, 6], ["PY", "Puducherry", 4, 6], ["AN", "Andaman and Nicobar Islands", 10, 6]
-];
-/** A tile map: every state and territory gets the same area, so small ones stay visible. */
-export function StateTileMap({ states, onPick }: { states: Array<NamedCount & { approved: number; pending: number }>; onPick?: (state: string) => void }) {
-  const [focus, setFocus] = useState<string | null>(null);
-  const byName = new Map(states.map(state => [state.name, state])), max = Math.max(1, ...states.map(state => state.count)), outside = byName.get("Outside India");
-  const detail = focus ? byName.get(focus) : null;
-  return <div>
-    <div className="vc-tilemap" role="group" aria-label="Responses by state and union territory">{TILES.map(([code, name, column, row]) => { const count = byName.get(name)?.count ?? 0; return <button type="button" key={code} className="vc-tile" data-on={count > 0} aria-pressed={focus === name} aria-label={`${name}: ${count} response${count === 1 ? "" : "s"}`} title={`${name}: ${count}`} style={{ gridColumn: column + 1, gridRow: row + 1, background: count ? ramp(count / max) : undefined }} onPointerEnter={() => setFocus(name)} onFocus={() => setFocus(name)} onClick={() => { setFocus(name); if (count && onPick) onPick(name); }}>{code}</button>; })}</div>
-    <div className="vc-ramp"><span>Fewer</span><i style={{ background: `linear-gradient(90deg, ${ramp(0)}, ${ramp(1)})` }} /><span>More responses</span></div>
-    <p className="va-note" style={{ textAlign: "center", marginTop: 10, minHeight: "2.6em" }} aria-live="polite">{focus ? <><strong style={{ color: "var(--vg-text)" }}>{focus}</strong>: {detail ? `${detail.count} response${detail.count === 1 ? "" : "s"}, ${detail.approved} approved, ${detail.pending} pending` : "no responses yet"}</> : "Hover or tap a tile for details. Click a state with responses to open them."}{outside ? <><br />Outside India: {outside.count}</> : null}</p>
-  </div>;
 }
 
 export function HourStrip({ hours }: { hours: number[] }) {

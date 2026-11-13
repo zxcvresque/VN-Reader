@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { call, type AdminForm, type Insights, type QuestionInsight } from "../forms/api";
-import { BarList, Card, Columns, Funnel, HourStrip, StateTileMap, StatusBars, StatusSplit, TrendChart } from "./charts";
+import { BarList, Card, Columns, Funnel, HourStrip, StatusSplit, TrendChart } from "./charts";
+import PlacesPane from "./PlacesPane";
 import { Failure, Loading, number, useLoad } from "./ui";
 
 const RANGES = [{ id: "7", label: "7 days" }, { id: "30", label: "30 days" }, { id: "90", label: "90 days" }, { id: "all", label: "All time" }];
@@ -23,8 +24,8 @@ type Section = typeof SECTIONS[number]["id"];
 /** A question earns a chart card only when there is something to chart. */
 const chartable = (question: QuestionInsight) => question.answered > 0 && (question.kind !== "text" || (question.topWords?.length ?? 0) > 0);
 
-export default function InsightsPane({ form, onOpenState }: { form: AdminForm; onOpenState: (state: string) => void }) {
-  const [range, setRange] = useState("30"), [table, setTable] = useState(false), [section, setSection] = useState<Section>("overview"), [allInsights, setAllInsights] = useState(false), [group, setGroup] = useState("");
+export default function InsightsPane({ form, onOpenResponses }: { form: AdminForm; onOpenResponses?: (query: URLSearchParams) => void }) {
+  const [range, setRange] = useState("30"), [table, setTable] = useState(false), [section, setSection] = useState<Section>(() => new URLSearchParams(window.location.search).get("section") === "places" ? "places" : "overview"), [allInsights, setAllInsights] = useState(false), [group, setGroup] = useState("");
   const query = useMemo(() => (range === "all" ? `?from=${encodeURIComponent(form.createdAt)}` : `?from=${encodeURIComponent(new Date(Date.now() - Number(range) * 86400000).toISOString())}`), [range, form.createdAt]);
   const { data, error, loading, reload } = useLoad(() => call<Insights>(`/admin/forms/${form.id}/insights${query}`), [form.id, query]);
   if (error) return <Failure message={error} onRetry={reload} />;
@@ -36,7 +37,12 @@ export default function InsightsPane({ form, onOpenState }: { form: AdminForm; o
   const insights = allInsights ? data.insights : data.insights.slice(0, 3);
   return <div className="va-stack" style={{ gap: 18, opacity: loading ? 0.6 : 1, transition: "opacity 160ms ease" }}>
     <div className="va-row" style={{ justifyContent: "space-between" }}>
-      <div className="va-tabs vg-glass" role="group" aria-label="Statistics section">{SECTIONS.map(item => <button type="button" key={item.id} aria-pressed={section === item.id} onClick={() => setSection(item.id)}>{item.label}</button>)}</div>
+      <div className="va-tabs vg-glass" role="group" aria-label="Statistics section">{SECTIONS.map(item => <button type="button" key={item.id} aria-pressed={section === item.id} onClick={() => {
+        setSection(item.id);
+        const url = new URL(window.location.href);
+        if (item.id === "places") url.searchParams.set("section", "places"); else url.searchParams.delete("section");
+        window.history.replaceState(window.history.state, "", url);
+      }}>{item.label}</button>)}</div>
       <div className="va-tabs vg-glass" role="group" aria-label="Time range" title={`Days and hours use ${data.range.timezone.replace("_", " ")} time`}>{RANGES.map(item => <button type="button" key={item.id} aria-pressed={range === item.id} onClick={() => setRange(item.id)}>{item.label}</button>)}</div>
     </div>
     {section === "overview" && <>
@@ -55,10 +61,7 @@ export default function InsightsPane({ form, onOpenState }: { form: AdminForm; o
         <Card title="Smart insights" action={data.insights.length > 3 ? <button type="button" className="vg-btn is-quiet is-small" aria-expanded={allInsights} onClick={() => setAllInsights(!allInsights)}>{allInsights ? "Show fewer" : `All ${data.insights.length}`}</button> : undefined}><div className="vi-list">{insights.map(item => <div key={item.title} className="vi-item" data-tone={item.tone}><i aria-hidden="true" /><div><strong>{item.title}</strong><span>{item.detail}</span></div></div>)}</div></Card>
       </div>
     </>}
-    {section === "places" && <div className="va-grid cols-2">
-      <Card title="Where responses come from" note="One tile per state or territory. Click one to open its responses."><StateTileMap states={data.states} onPick={onOpenState} /></Card>
-      <Card title="States by review status" note="Click a state to open its responses."><StatusBars items={data.states} onPick={onOpenState} /></Card>
-    </div>}
+    {section === "places" && <PlacesPane formId={form.id} query={query} onOpenResponses={onOpenResponses} />}
     {section === "reach" && <>
       <div className="va-grid cols-3">
         <Card title="From opening to approval"><Funnel steps={[{ label: "Opened the form", value: Math.max(totals.views, totals.starts) }, { label: "Started answering", value: totals.starts }, { label: "Submitted", value: totals.responses }, { label: "Approved", value: data.daily.reduce((sum, day) => sum + day.approved, 0) }]} /></Card>

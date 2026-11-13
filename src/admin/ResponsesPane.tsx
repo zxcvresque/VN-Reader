@@ -1,17 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
 import { CheckIcon, Cross2Icon, DownloadIcon, MixerHorizontalIcon, TrashIcon, UploadIcon } from "@radix-ui/react-icons";
-import { allFields, displayAnswer } from "../../server/formLogic.mjs";
+import { allFields, displayAnswer, districtsFor } from "../../server/formLogic.mjs";
 import { call, download, type AdminForm, type FormField, type FormResponse } from "../forms/api";
 import type { AdminContext } from "./AdminApp";
 import { Confirm, Failure, Loading, Modal, StatusChip, formatDate, number, timeAgo, useAction, useLoad, useToast } from "./ui";
 
 interface Page { total: number; page: number; pageSize: number; responses: FormResponse[]; states: string[] }
-interface Filters { q: string; status: string; state: string; link: string; from: string; to: string; sort: string; field: string; value: string }
+interface Filters { q: string; status: string; state: string; district?: string; after?: string; before?: string; link: string; from: string; to: string; sort: string; field: string; value: string }
 const EMPTY: Filters = { q: "", status: "", state: "", link: "", from: "", to: "", sort: "newest", field: "", value: "" };
 
 function queryOf(filters: Filters, page?: number): string {
   const query = new URLSearchParams();
   for (const key of ["q", "status", "state", "link"] as const) if (filters[key]) query.set(key, filters[key]);
+  if (filters.district !== undefined) query.set("district", filters.district);
+  if (filters.after) query.set("from", filters.after);
+  if (filters.before) query.set("to", filters.before);
   if (filters.sort === "oldest") query.set("sort", "oldest");
   if (filters.from) query.set("from", new Date(`${filters.from}T00:00:00`).toISOString());
   if (filters.to) query.set("to", new Date(new Date(`${filters.to}T00:00:00`).getTime() + 86400000).toISOString());
@@ -27,7 +30,11 @@ export default function ResponsesPane({ context, form, onChanged }: { context: A
   const defaults = useMemo(() => [byRole("name") ?? fields[0], byRole("district"), byRole("phone"), byRole("telegram")].filter(Boolean).map(field => field!.id), [fields]); // eslint-disable-line react-hooks/exhaustive-deps
   const storageKey = `vn-admin-columns:${form.id}`;
   const [columns, setColumns] = useState<string[]>(() => { try { const saved = JSON.parse(localStorage.getItem(storageKey) ?? "null"); if (Array.isArray(saved)) return saved.filter(id => fields.some(field => field.id === id)); } catch { /* use defaults */ } return defaults; });
-  const [filters, setFilters] = useState<Filters>(() => ({ ...EMPTY, state: new URLSearchParams(window.location.search).get("state") ?? "" }));
+  const [filters, setFilters] = useState<Filters>(() => {
+    const params = new URLSearchParams(window.location.search);
+    return { ...EMPTY, state: params.get("state") ?? "", status: params.get("status") ?? "",
+      district: params.get("district") ?? undefined, after: params.get("from") ?? undefined, before: params.get("to") ?? undefined };
+  });
   const [search, setSearch] = useState(""), [page, setPage] = useState(1), [selected, setSelected] = useState<Set<string>>(new Set()), [open, setOpen] = useState<FormResponse | null>(null);
   const [choosing, setChoosing] = useState(false), [confirmDelete, setConfirmDelete] = useState<string[] | null>(null), [note, setNote] = useState(""), [busy, setBusy] = useState(false);
   useEffect(() => { const timer = window.setTimeout(() => { setFilters(current => (current.q === search ? current : { ...current, q: search })); }, 300); return () => window.clearTimeout(timer); }, [search]);
@@ -37,7 +44,7 @@ export default function ResponsesPane({ context, form, onChanged }: { context: A
   useEffect(() => { setNote(open?.note ?? ""); }, [open?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const set = (patch: Partial<Filters>) => setFilters(current => ({ ...current, ...patch }));
-  const active = Object.entries(filters).filter(([key, value]) => value && !(key === "sort") && !(key === "field" && !filters.value)).length;
+  const active = Object.entries(filters).filter(([key, value]) => (key === "district" ? value !== undefined : value) && !(key === "sort") && !(key === "field" && !filters.value)).length;
   const choiceFields = fields.filter(field => ["single", "multi", "dropdown", "yesno"].includes(field.type));
   const filterField = choiceFields.find(field => field.id === filters.field);
   const shown = columns.map(id => fields.find(field => field.id === id)).filter(Boolean) as FormField[];
@@ -64,12 +71,18 @@ export default function ResponsesPane({ context, form, onChanged }: { context: A
     <div className="va-filters vg-glass">
       <input className="vg-input is-small" type="search" placeholder="Search names, numbers, any answer…" aria-label="Search responses" value={search} onChange={event => setSearch(event.target.value)} />
       <select className="vg-select is-small" aria-label="Status" value={filters.status} onChange={event => set({ status: event.target.value })}><option value="">All statuses</option><option value="pending">Pending</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select>
-      {(data?.states.length ?? 0) > 0 && <select className="vg-select is-small" aria-label="State" value={filters.state} onChange={event => set({ state: event.target.value })}><option value="">All states</option>{data!.states.map(state => <option key={state}>{state}</option>)}</select>}
+      {((data?.states.length ?? 0) > 0 || filters.state === "*") && <select className="vg-select is-small" aria-label="State" value={filters.state} onChange={event => set({ state: event.target.value, district: undefined })}><option value="">All states</option>{filters.state === "*" && <option value="*">State not reported</option>}{data?.states.map(state => <option key={state}>{state}</option>)}</select>}
+      {!!filters.state && districtsFor(filters.state).length > 0 && fields.some(field => field.type === "district" || field.role === "district") &&
+        <select className="vg-select is-small" aria-label="District" value={filters.district === undefined ? "" : filters.district || "*"} onChange={event => set({ district: event.target.value === "*" ? "" : event.target.value || undefined })}>
+          <option value="">All districts</option><option value="*">District not identified</option>
+          {districtsFor(filters.state).map(name => <option key={name}>{name}</option>)}
+        </select>}
+      {(filters.after || filters.before) && <span className="vg-chip is-plain">Map date range</span>}
       {(links.data?.links.length ?? 0) > 0 && <select className="vg-select is-small" aria-label="Source link" value={filters.link} onChange={event => set({ link: event.target.value })}><option value="">All sources</option><option value="direct">Direct link</option>{links.data!.links.map(link => <option key={link.code} value={link.code}>{link.label}</option>)}</select>}
       {choiceFields.length > 0 && <select className="vg-select is-small" aria-label="Filter by a question" value={filters.field} onChange={event => set({ field: event.target.value, value: "" })} style={{ maxWidth: 200 }}><option value="">Filter by answer…</option>{choiceFields.map(field => <option key={field.id} value={field.id}>{field.label.slice(0, 48)}</option>)}</select>}
       {filterField && <select className="vg-select is-small" aria-label="Answer" value={filters.value} onChange={event => set({ value: event.target.value })}><option value="">Any answer</option>{(filterField.type === "yesno" ? [{ id: "yes", label: "Yes" }, { id: "no", label: "No" }] : filterField.options ?? []).map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select>}
-      <label className="vg-sr" htmlFor="from-date">From date</label><input id="from-date" className="vg-input is-small" type="date" value={filters.from} max={filters.to || undefined} onChange={event => set({ from: event.target.value })} style={{ flex: "0 1 150px" }} />
-      <label className="vg-sr" htmlFor="to-date">To date</label><input id="to-date" className="vg-input is-small" type="date" value={filters.to} min={filters.from || undefined} onChange={event => set({ to: event.target.value })} style={{ flex: "0 1 150px" }} />
+      <label className="vg-sr" htmlFor="from-date">From date</label><input id="from-date" className="vg-input is-small" type="date" value={filters.from} max={filters.to || undefined} onChange={event => set({ from: event.target.value, after: undefined, before: undefined })} style={{ flex: "0 1 150px" }} />
+      <label className="vg-sr" htmlFor="to-date">To date</label><input id="to-date" className="vg-input is-small" type="date" value={filters.to} min={filters.from || undefined} onChange={event => set({ to: event.target.value, after: undefined, before: undefined })} style={{ flex: "0 1 150px" }} />
       <select className="vg-select is-small" aria-label="Sort" value={filters.sort} onChange={event => set({ sort: event.target.value })}><option value="newest">Newest first</option><option value="oldest">Oldest first</option></select>
       {active > 0 && <button type="button" className="vg-btn is-quiet is-small" onClick={() => { setSearch(""); setFilters(EMPTY); }}>Clear filters</button>}
     </div>

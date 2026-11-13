@@ -316,12 +316,6 @@ html:has(.vg[data-mode="light"]), html:has(.vg[data-mode="light"]) body { backgr
 .vc-bar-track i + i { border-radius: 4px; }
 .vc-bar b { text-align: right; font-weight: 650; font-variant-numeric: tabular-nums; }
 .vc-bar small { color: var(--vg-faint); font-weight: 400; margin-left: 4px; }
-.vc-tilemap { display: grid; grid-template-columns: repeat(11, minmax(0, 1fr)); gap: 4px; max-width: 520px; margin: 0 auto; }
-.vc-tile { aspect-ratio: 1; border-radius: 8px; display: grid; place-items: center; font-size: clamp(0.56rem, 1.5vw, 0.72rem); font-weight: 700; border: 0; padding: 0; cursor: pointer; position: relative; color: var(--vg-text); background: var(--vg-grid); }
-.vc-tile[data-on="true"] { color: #fff; }
-.vc-tile:hover, .vc-tile[aria-pressed="true"] { outline: 2px solid var(--vg-text); outline-offset: 1px; z-index: 1; }
-.vc-ramp { display: flex; align-items: center; gap: 8px; justify-content: center; font-size: 0.78rem; color: var(--vg-muted); margin-top: 12px; }
-.vc-ramp i { width: 120px; height: 8px; border-radius: 4px; }
 .vc-heat { display: grid; grid-template-columns: repeat(24, minmax(0, 1fr)); gap: 3px; }
 .vc-heat i { height: 30px; border-radius: 5px; background: var(--vg-grid); }
 .vc-heat-axis { display: grid; grid-template-columns: repeat(24, minmax(0, 1fr)); gap: 3px; font-size: 0.7rem; color: var(--vg-faint); margin-top: 4px; text-align: center; }
@@ -387,10 +381,6 @@ html:has(.vg[data-mode="light"]), html:has(.vg[data-mode="light"]) body { backgr
 
 /* Status-coloured bars: approved, pending, rejected. Mark colours from the fixed status palette. */
 .vg { --vg-mark-good: #0ca30c; --vg-mark-warn: #fab219; --vg-mark-bad: #d03b3b; }
-.vc-bar.is-button { background: none; border: 0; color: inherit; cursor: pointer; text-align: left; font: inherit; font-size: .87rem; }
-.vc-bar-track.is-stack { background: none; justify-self: start; min-width: 6px; }
-.vc-bar-track.is-stack i { border-radius: 0; min-width: 0; }
-.vc-bar-track.is-stack i:last-child { border-radius: 0 4px 4px 0; }
 .vc-split { display: flex; gap: 2px; height: 6px; margin-top: 10px; border-radius: 4px; overflow: hidden; }
 .vc-split i { display: block; height: 100%; }
 

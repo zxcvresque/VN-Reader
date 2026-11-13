@@ -24,12 +24,20 @@ The Ground Work form is created automatically on first start, rebuilt from the o
 ## Admin console
 
 - **Responses**: search, filter by status, state, source link, any answer and date; choose columns; approve or reject one or many; notes; CSV and JSON export.
-- **Statistics**: smart insights, responses over time, a state tile map, funnel from opening to approval, share-link performance, devices, time of day, and a chart per question.
+- **Statistics**: smart insights, responses over time, a state and district map, funnel from opening to approval, share-link performance, devices, time of day, and a chart per question.
 - **Edit form**: question types (short and long text, number, email, phone, link, single and multiple choice, dropdown, yes/no, Indian state, rating, scale, date, time, consent, statement), pages, show-if conditions, skip-to-page rules, answer piping (`{{question}}`), validation, accent colour, fonts including an uploaded font, surface, backdrop and corner radius, schedule, response limit, one response per device or account.
 - **Share**: custom links with prefilled answers and per-link statistics, QR codes (PNG and SVG).
 - **Team and access**: owners add admins by email with any mix of permissions (view forms, edit forms, manage links, view, review, export and delete responses, view statistics, view reader activity, change settings, manage admins), optionally limited to specific forms. Every change is in the audit log.
 - **Reader activity**: the previous in-reader admin dashboard (registrations, sign-ins, email allowance, media storage).
 - **Backups and Telegram**: bot token, backup channel or group (and topic), switches for notifications.
+
+### Places map
+
+Statistics → Places uses the state and district reported in each response. Switch between heatmap, proportional bubbles and spikes. The map and sortable table can use the same time window and units or be compared side by side with independent settings. Use the review-status shortcuts or metric picker to change the map, and select a region to open filtered responses. Auto fits the scale to the current map. A fixed or custom maximum keeps the same scale when comparing regions. Per-capita rates use the October 2021 COVID19India population snapshot; places without an estimate are left blank in rate views. Districts without a boundary, and older answers whose district could not be identified, remain visible in the table.
+
+- Interaction reference: [COVID19India map and table](https://github.com/covid19india/covid19india.github.io).
+- Population: [COVID19India v4 data](https://github.com/covid19india/data), October 31, 2021 snapshot. Only population estimates are included in the map asset.
+- Geometry: [LGD district layer via bharatlas](https://bharatlas.com/view/lgd_districts), projected and simplified for display. The asset uses the current district names from the form's November 2026 LGD snapshot. Older polygons can differ from today's district boundaries.
 
 ## How applicants hear back
 

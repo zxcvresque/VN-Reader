@@ -97,7 +97,11 @@ function Console({ look }: { look: Look }) {
   }, [reloadForms]);
   useEffect(() => { void boot(); document.title = "Admin · Vidurneeti"; }, [boot]);
   useEffect(() => { const pop = () => setPath(window.location.pathname.replace(/\/+$/, "") || "/admin"); window.addEventListener("popstate", pop); return () => window.removeEventListener("popstate", pop); }, []);
-  const go = useCallback((next: string) => { if (next !== window.location.pathname) window.history.pushState(null, "", next); setPath(next); window.scrollTo({ top: 0 }); }, []);
+  const go = useCallback((next: string) => {
+    if (next !== window.location.pathname + window.location.search) window.history.pushState(null, "", next);
+    setPath(window.location.pathname);
+    window.scrollTo({ top: 0 });
+  }, []);
   const context = useMemo<AdminContext | null>(() => (me ? { me, can: permission => me.permissions.includes(permission), go, forms, reloadForms } : null), [me, go, forms, reloadForms]);
 
   let body: ReactNode;

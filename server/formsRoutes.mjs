@@ -219,7 +219,7 @@ export function createForms({ accounts, settings, fetchImpl = fetch, env = proce
     const filtersOf = req => {
       const time = value => (typeof value === "string" && Number.isFinite(Date.parse(value)) ? Date.parse(value) : undefined);
       const fields = Object.fromEntries(Object.entries(req.query).filter(([key, value]) => key.startsWith("f.") && typeof value === "string").map(([key, value]) => [key.slice(2), value]));
-      return { status: req.query.status, state: req.query.state, link: req.query.link, device: req.query.device, q: typeof req.query.q === "string" ? req.query.q.trim() : "", from: time(req.query.from), to: time(req.query.to), sort: req.query.sort, fields };
+      return { status: req.query.status, state: req.query.state === "*" ? "" : req.query.state || undefined, district: typeof req.query.district === "string" ? req.query.district : undefined, link: req.query.link, device: req.query.device, q: typeof req.query.q === "string" ? req.query.q.trim() : "", from: time(req.query.from), to: time(req.query.to), sort: req.query.sort, fields };
     };
     app.get("/api/admin/forms/:id/responses", wrap(async (req, res) => {
       const { form } = await formFor(req, "responses.read");
@@ -253,6 +253,10 @@ export function createForms({ accounts, settings, fetchImpl = fetch, env = proce
       if (r2.enabled) await syncPending();
       store.audit(admin.email, "backup.run", form.title, `telegram:${sentJson && sentCsv ? "sent" : "no"} r2:${stored ? "stored" : "no"}`);
       res.json({ responses: rows.length, telegram: !!(sentJson && sentCsv), r2: !!stored, telegramConfigured: telegram.configured(), r2Enabled: r2.enabled });
+    }));
+    app.get("/api/admin/forms/:id/places", wrap(async (req, res) => {
+      const { form } = await formFor(req, "insights.read"), filters = filtersOf(req);
+      res.json(store.places(form, { from: filters.from, to: filters.to }));
     }));
     app.get("/api/admin/forms/:id/insights", wrap(async (req, res) => { const { form } = await formFor(req, "insights.read"), filters = filtersOf(req); res.json(store.insights(form, { from: filters.from, to: filters.to })); }));
     app.get("/api/admin/forms/:id/links", wrap(async (req, res) => { const { form } = await formFor(req, "forms.read"); res.json({ ...store.links(form.id), origin, slug: form.slug }); }));

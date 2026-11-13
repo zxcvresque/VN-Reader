@@ -148,6 +148,20 @@ test("form flow: submit, approval-gated link, roles, exports, insights, backups"
 
     const csv = await (await request(`/api/admin/forms/${form.id}/export`, { cookie: owner })).text();
     assert.match(csv, /Signal: arjun\.01/); assert.match(csv, /Full name/); assert.match(csv, /Arjun Sharma/); assert.match(csv, /'\+919876543210/, "formula-like cells are neutralised");
+    const placesPath = `/api/admin/forms/${form.id}/places`;
+    assert.equal((await request(placesPath)).status, 401);
+    assert.equal((await request(placesPath, { cookie: reader })).status, 403);
+    assert.equal((await request(placesPath, { cookie: reviewer })).status, 403);
+    const places = await (await request(placesPath, { cookie: owner })).json();
+    assert.deepEqual(places.totals, {
+      count: 1, approved: 1, pending: 0, rejected: 0,
+      daily: { count: 1, approved: 1, pending: 0, rejected: 0 }, latest: Date.parse(responses.responses[0].createdAt),
+      recent: { count: 1, approved: 1, pending: 0, rejected: 0 }, previous: 0
+    });
+    assert.deepEqual(places.states[0].districts[0], { name: "Pune", ...places.totals });
+    const districtResponses = `/api/admin/forms/${form.id}/responses?state=Maharashtra&district=Pune&status=approved`;
+    assert.equal((await (await request(districtResponses, { cookie: owner })).json()).total, 1);
+    assert.equal((await (await request(districtResponses.replace("Pune", "Mumbai"), { cookie: owner })).json()).total, 0);
     const insights = await (await request(`/api/admin/forms/${form.id}/insights`, { cookie: owner })).json();
     assert.equal(insights.totals.responses, 1); assert.equal(insights.states[0].name, "Maharashtra"); assert.ok(insights.insights.length > 0);
     assert.deepEqual(insights.questions.find(q => q.id === "gw_gender").options.find(o => o.name === "Male"), { name: "Male", count: 1 });
@@ -245,5 +259,52 @@ test("existing Ground Work form gains contact fields without replacing settings 
     assert.equal(fields.find(field => field.id === "gw_telegram").type, "telegram");
     assert.equal(fields.find(field => field.id === "gw_social").type, "social");
     assert.deepEqual(new FormsStore(accounts.database).form(form.id).schema, upgraded.schema);
+  } finally { accounts.close(); }
+});
+
+test("Places groups legacy district names, counts the recent and prior weeks, and preserves unmapped responses", async () => {
+  const { accounts, forms } = await createAccountApp({
+    database: ":memory:", secret: "test-only-secret-at-least-thirty-two-characters", baseURL: "http://reader.test",
+    origins: [], production: false
+  }, () => {});
+  try {
+    const form = forms.store.formBySlug("groundwork");
+    const now = Date.parse("2026-11-13T12:00:00Z"), day = 86400000;
+    const add = (state, district, status, age) => {
+      const response = forms.store.submit(form, {
+        answers: { ...complete, gw_state: state, gw_district: district }, telegram: { id: "4242" }
+      }).response;
+      accounts.database.prepare("UPDATE form_responses SET status=?,created_at=? WHERE id=?")
+        .run(status, now - age * day, response.id);
+      return response.id;
+    };
+    add("Assam", "Sribhumi", "approved", 0.5);
+    const older = add("Assam", "Sribhumi", "pending", 9);
+    const unknown = add("Assam", "Sribhumi", "rejected", 3);
+    const noState = add("Assam", "Sribhumi", "pending", 3);
+    const outside = add("Outside India", "London", "approved", 4);
+    const changeDistrict = accounts.database.prepare("UPDATE form_responses SET answers=json_set(answers,'$.gw_district',?) WHERE id=?");
+    changeDistrict.run("karimganj", older);
+    changeDistrict.run("A free-text locality", unknown);
+    accounts.database.prepare("UPDATE form_responses SET state=NULL WHERE id=?").run(noState);
+    const places = forms.store.places(form, { from: now - 30 * day, to: now });
+    const assam = places.states.find(region => region.name === "Assam");
+    assert.equal(assam.count, 3);
+    assert.deepEqual(assam.districts.find(district => district.name === "Sribhumi"), {
+      name: "Sribhumi", count: 2, approved: 1, pending: 1, rejected: 0,
+      daily: { count: 1, approved: 1, pending: 0, rejected: 0 }, latest: now - day / 2,
+      recent: { count: 1, approved: 1, pending: 0, rejected: 0 }, previous: 1
+    });
+    assert.equal(assam.districts.find(district => district.name === "").count, 1);
+    assert.equal(places.totals.count, 5);
+    assert.equal(places.totals.recent.count, 4);
+    assert.equal(places.totals.previous, 1);
+    const lastWeek = forms.store.places(form, { from: now - 7 * day, to: now });
+    assert.equal(lastWeek.totals.count, 4);
+    assert.equal(lastWeek.totals.previous, 1, "growth keeps the prior week when the date filter is seven days");
+    assert.equal(forms.store.query(form.id, { state: "Assam", district: "Sribhumi" }).length, 2);
+    assert.equal(forms.store.query(form.id, { state: "Assam", district: "" })[0].id, unknown);
+    assert.equal(forms.store.query(form.id, { state: "" })[0].id, noState);
+    assert.equal(forms.store.query(form.id, { state: "Outside India" })[0].id, outside);
   } finally { accounts.close(); }
 });

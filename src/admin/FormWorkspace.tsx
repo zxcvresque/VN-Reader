@@ -34,7 +34,7 @@ export default function FormWorkspace({ context, formId, tab }: { context: Admin
     </header>
     <nav className="va-tabs vg-glass" aria-label="Form sections">{tabs.map(item => <a key={item.id} href={`/admin/forms/${form.id}/${item.id}`} aria-current={active === item.id ? "page" : undefined} onClick={(event: MouseEvent) => { if (event.metaKey || event.ctrlKey) return; event.preventDefault(); go(`/admin/forms/${form.id}/${item.id}`); }}>{item.icon}{item.label}</a>)}</nav>
     {active === "responses" && <ResponsesPane context={context} form={form} onChanged={reloadForms} />}
-    {active === "insights" && <InsightsPane form={form} onOpenState={state => go(`/admin/forms/${form.id}/responses?state=${encodeURIComponent(state)}`)} />}
+    {active === "insights" && <InsightsPane form={form} onOpenResponses={can("responses.read") ? query => go(`/admin/forms/${form.id}/responses?${query}`) : undefined} />}
     {active === "build" && <BuilderPane context={context} form={form} hasCustomFont={data.hasCustomFont} onSaved={onSaved} onFont={reload} />}
     {active === "share" && <SharePane context={context} form={form} />}
   </>;
