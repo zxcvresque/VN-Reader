@@ -44,6 +44,19 @@ New admins and reviewers can see a populated console before real responses arriv
 
 The server side lives in `server/formsSample.mjs`; the console asks for it with the `X-VN-Sample: 1` header.
 
+### Temporary reviewers
+
+For a demo or a short outside review, create a reader account with exactly the **Reviewer** role (view forms, view and review responses, view statistics), limited to named forms, that stops working at a set time:
+
+```bash
+docker compose exec accounts node server/tempReviewer.mjs create --email demo.reviewer@example.com --form groundwork --hours 72
+docker compose exec accounts node server/tempReviewer.mjs list
+docker compose exec accounts node server/tempReviewer.mjs revoke --email demo.reviewer@example.com
+docker compose exec accounts node server/tempReviewer.mjs sweep
+```
+
+`create` prints a generated password once (or writes it to `--password-file`, readable only by you). The tool refuses owner addresses, existing admins and existing reader accounts, so it never changes anyone's real access. Access ends at the expiry time on its own: Team and access shows **Until …** and then **Expired**, and the console refuses that account. `revoke` (any time) and `sweep` (everything expired; safe to run from cron) remove the access and the reader account the tool made, with an entry in the audit log.
+
 ### Places map
 
 Statistics → Places uses the state and district reported in each response. Switch between heatmap, proportional bubbles and spikes. The map and sortable table can use the same time window and units or be compared side by side with independent settings. Use the review-status shortcuts or metric picker to change the map, and select a region to open filtered responses. Auto fits the scale to the current map. A fixed or custom maximum keeps the same scale when comparing regions. Per-capita rates use the October 2021 COVID19India population snapshot; places without an estimate are left blank in rate views. Districts without a boundary, and older answers whose district could not be identified, remain visible in the table.

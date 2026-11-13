@@ -37,7 +37,7 @@ export interface Insights {
 }
 export interface ShareLink { code: string; label: string; prefill: Record<string, string>; active: boolean; createdAt: string; views: number; starts: number; responses: number }
 export interface AdminMe { email: string; owner: boolean; permissions: string[]; formIds: string[] | null; catalog: Array<{ id: string; label: string; group: string }>; presets: Record<string, string[]> }
-export interface TeamMember { email: string; name: string; permissions: string[]; formIds: string[] | null; active: boolean; addedBy: string | null; addedAt: string }
+export interface TeamMember { email: string; name: string; permissions: string[]; formIds: string[] | null; active: boolean; expired?: boolean; expiresAt?: string | null; addedBy: string | null; addedAt: string }
 export interface AdminSettings {
   telegram: { tokenSource: "console" | "server" | "none"; tokenHint: string; botUsername: string; backupChat: string; backupThread: string; notifyOnSubmit: boolean; dmOnDecision: boolean; webAppUrl: string };
   email?: { available: boolean; onDecision: boolean };

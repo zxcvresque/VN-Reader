@@ -126,6 +126,8 @@ export class FormsStore {
     const columns = new Set(database.prepare("PRAGMA table_info(form_responses)").all().map(column => column.name));
     for (const [name, type] of [["notify_email", "TEXT"], ["bind_hash", "TEXT"], ["bind_expires", "INTEGER"]]) if (!columns.has(name)) database.exec(`ALTER TABLE form_responses ADD COLUMN ${name} ${type}`);
     database.exec("CREATE INDEX IF NOT EXISTS form_responses_tg ON form_responses(tg_user_id)");
+    // Temporary admins (for example a reviewer account for a demo) stop working at expires_at.
+    if (!database.prepare("PRAGMA table_info(admin_members)").all().some(column => column.name === "expires_at")) database.exec("ALTER TABLE admin_members ADD COLUMN expires_at INTEGER");
     if (!seed) return;
     if (!this.getSetting("forms.seeded")) {
       if (!database.prepare("SELECT id FROM forms WHERE slug=?").get(GROUNDWORK_FORM.slug)) this.createForm(GROUNDWORK_FORM, "system");
@@ -180,7 +182,10 @@ export class FormsStore {
 
   // ----- team -----
   members() { return this.database.prepare("SELECT * FROM admin_members ORDER BY added_at").all().map(row => this.memberRow(row)); }
-  memberRow(row) { return { email: row.email, name: row.name, permissions: parse(row.permissions, []).filter(id => PERMISSION_IDS.has(id)), formIds: row.form_ids ? parse(row.form_ids, null) : null, active: !!row.active, addedBy: row.added_by, addedAt: new Date(row.added_at).toISOString() }; }
+  memberRow(row) {
+    const expired = !!row.expires_at && row.expires_at <= this.time();
+    return { email: row.email, name: row.name, permissions: parse(row.permissions, []).filter(id => PERMISSION_IDS.has(id)), formIds: row.form_ids ? parse(row.form_ids, null) : null, active: !!row.active && !expired, expired, expiresAt: row.expires_at ? new Date(row.expires_at).toISOString() : null, addedBy: row.added_by, addedAt: new Date(row.added_at).toISOString() };
+  }
   member(email) { const row = this.database.prepare("SELECT * FROM admin_members WHERE email=?").get(String(email ?? "").toLowerCase()); return row ? this.memberRow(row) : null; }
   saveMember(input, actor) {
     const email = clip(input?.email, 254).toLowerCase();
@@ -192,9 +197,13 @@ export class FormsStore {
     if (!permissions.length) throw new FormError(422, "Choose at least one permission.");
     const formIds = Array.isArray(input.formIds) && input.formIds.length ? JSON.stringify(input.formIds.filter(id => typeof id === "string").slice(0, 200)) : null;
     const time = this.time();
-    this.database.prepare(`INSERT INTO admin_members VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(email) DO UPDATE SET name=excluded.name,permissions=excluded.permissions,form_ids=excluded.form_ids,active=excluded.active,updated_at=excluded.updated_at`)
-      .run(email, name, JSON.stringify(permissions), formIds, input.active === false ? 0 : 1, actor, time, time);
-    this.audit(actor, "team.save", email, permissions.join(", "));
+    // An expiry is kept when an edit leaves it out; null removes it.
+    const expiry = input.expiresAt === undefined ? undefined : input.expiresAt === null ? null : Date.parse(input.expiresAt);
+    if (expiry !== undefined && expiry !== null && (!Number.isFinite(expiry) || expiry <= time)) throw new FormError(422, "Choose an expiry time in the future.");
+    this.database.prepare(`INSERT INTO admin_members (email,name,permissions,form_ids,active,added_by,added_at,updated_at,expires_at) VALUES (?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(email) DO UPDATE SET name=excluded.name,permissions=excluded.permissions,form_ids=excluded.form_ids,active=excluded.active,updated_at=excluded.updated_at,expires_at=CASE WHEN ? THEN excluded.expires_at ELSE admin_members.expires_at END`)
+      .run(email, name, JSON.stringify(permissions), formIds, input.active === false ? 0 : 1, actor, time, time, expiry ?? null, expiry === undefined ? 0 : 1);
+    this.audit(actor, "team.save", email, `${permissions.join(", ")}${expiry ? ` · expires ${new Date(expiry).toISOString()}` : ""}`);
     return this.member(email);
   }
   removeMember(email, actor) { const changes = this.database.prepare("DELETE FROM admin_members WHERE email=?").run(String(email).toLowerCase()).changes; if (changes) this.audit(actor, "team.remove", email); return !!changes; }

@@ -20,6 +20,13 @@ const TEMPLATES: Array<{ id: string; name: string; note: string; form: Record<st
   { id: "volunteer", name: "Volunteer sign-up", note: "Skills, availability and an approval-gated group link.", form: { title: "Volunteer sign-up", schema: { pages: [{ title: "About you", fields: [{ type: "short", label: "Full name", required: true, role: "name" }, { type: "state", label: "State or union territory", required: true, role: "state" }, { type: "short", label: "Telegram username", required: true, role: "telegram" }] }, { title: "How you can help", fields: [{ type: "multi", label: "What can you help with?", required: true, allowOther: true, options: ["On-ground events", "Design and video", "Writing and research", "Technology", "Legal", "Fundraising"] }, { type: "single", label: "How much time can you give each week?", options: ["1–2 hours", "3–5 hours", "More than 5 hours"] }] }] } } }
 ];
 
+/** The preset a member's permissions match, like "Reviewer", or "Admin". */
+function roleName(me: AdminMe): string {
+  const mine = [...me.permissions].sort().join(",");
+  const preset = Object.entries(me.presets ?? {}).find(([, permissions]) => [...permissions].sort().join(",") === mine)?.[0];
+  return preset ? preset[0].toUpperCase() + preset.slice(1) : "Admin";
+}
+
 function SignIn({ onDone, message }: { onDone: () => void; message?: string }) {
   const [email, setEmail] = useState(""), [password, setPassword] = useState(""), [busy, setBusy] = useState(false), [error, setError] = useState("");
   const submit = async (event: FormEvent) => {
@@ -154,7 +161,7 @@ function Console({ look }: { look: Look }) {
         <div className="va-side-foot">
           {canSample(context) && <label className="vg-switch va-sample-switch" data-on={context.sample || undefined}><input type="checkbox" role="switch" checked={context.sample} onChange={event => context.setSample(event.target.checked)} /><span>Sample data<small>{context.sample ? "Showing demo responses" : "Preview a populated console"}</small></span></label>}
           <AppearanceMenu look={look} />
-          <div className="va-who"><strong>{me.owner ? "Owner" : "Admin"}</strong>{me.email}</div>
+          <div className="va-who"><strong>{me.owner ? "Owner" : roleName(me)}</strong>{me.email}</div>
           <div className="va-row" style={{ gap: 4, flexWrap: "nowrap" }}>
             
             <a className="vg-btn is-quiet is-icon" href="/" aria-label="Open the reader site" title="Open the reader site"><ExternalLinkIcon /></a>
