@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { CheckIcon, ClockIcon, Cross2Icon, ExternalLinkIcon, LockClosedIcon, ReloadIcon } from "@radix-ui/react-icons";
 import FormRunner from "./FormRunner";
-import { RequestError, call, receipts, themeStyle, type FormTheme, type FormView, type Outcome } from "./api";
+import { RequestError, call, receipts, themeStyle, type DeviceReceipt, type FormTheme, type FormView, type Outcome } from "./api";
 import "./glass.css";
 
 export function useResolvedMode(mode: FormTheme["mode"]): "light" | "dark" {
@@ -47,13 +47,18 @@ function StatusUpdates({ outcome, statusLink, options }: { outcome: Outcome; sta
   </div>;
 }
 
-export function OutcomePanel({ outcome, requireApproval, onRefresh, refreshing, onAgain, statusLink, updates }: { outcome: Outcome; requireApproval: boolean; onRefresh?: () => void; refreshing?: boolean; onAgain?: () => void; statusLink?: string; updates?: UpdateOptions }) {
+export function OutcomePanel({ outcome, requireApproval, onRefresh, refreshing, onAgain, statusLink, updates, history }: { outcome: Outcome; requireApproval: boolean; onRefresh?: () => void; refreshing?: boolean; onAgain?: () => void; statusLink?: string; updates?: UpdateOptions; history?: { items: DeviceReceipt[]; active: string; onPick: (receipt: string) => void } }) {
   const { status, reward } = outcome;
   const heading = status === "approved" ? (requireApproval ? "You're approved." : outcome.title) : status === "rejected" ? "This response wasn't approved." : outcome.title;
   return <section className="vf-outcome vg-glass" aria-live="polite">
+    {history && history.items.length > 1 && <div className="vf-history" role="group" aria-label="Responses from this device">{history.items.map((item, index) => <button type="button" key={item.receipt} aria-pressed={item.receipt === history.active} onClick={() => history.onPick(item.receipt)}>Response {history.items.length - index}<small>{new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short" }).format(new Date(item.at))}</small></button>)}</div>}
     <div className="vf-seal" data-status={status} aria-hidden="true">{status === "approved" ? <CheckIcon /> : status === "rejected" ? <Cross2Icon /> : <ClockIcon />}</div>
     <h1>{heading}</h1>
-    {outcome.message && <p>{outcome.message}</p>}
+    {(() => { // Don't repeat the heading when the admin's message starts with it.
+      const lead = heading.replace(/[.!\s]+$/, ""), text = outcome.message?.trim() ?? "";
+      const rest = lead && text.toLowerCase().startsWith(lead.toLowerCase()) ? text.slice(lead.length).replace(/^[\s.!,:;—-]+/, "") : text;
+      return rest ? <p>{rest}</p> : null;
+    })()}
     {requireApproval && status !== "rejected" && <ol className="vf-steps" aria-label="Review progress"><li className="is-done">Submitted</li><li className={status === "approved" ? "is-done" : "is-now"}>Admin review</li><li className={status === "approved" ? "is-done" : ""}>{reward ? "Link unlocked" : "Approved"}</li></ol>}
     {reward && status !== "rejected" && (reward.url
       ? <div className="vf-reward is-open"><small>Your link is ready</small><a className="vg-btn is-primary" href={reward.url} target="_blank" rel="noopener noreferrer">{reward.label}<ExternalLinkIcon aria-hidden="true" /></a></div>
@@ -112,7 +117,7 @@ export default function FormPage({ slug, linkCode }: { slug?: string; linkCode?:
   let body: ReactNode;
   if (error) body = <section className="vf-outcome vg-glass" role="alert"><h1>{error.missing ? "This form isn't available." : "This form couldn't be opened."}</h1><p>{error.message}</p><div className="va-row" style={{ justifyContent: "center" }}>{!error.missing && <button type="button" className="vg-btn is-primary" onClick={() => void load()}>Try again</button>}<a className="vg-btn" href="/">Back to Vidurneeti</a></div></section>;
   else if (!view || !form) body = <div className="vg-center" role="status"><div className="vg-spinner" aria-label="Opening the form" /></div>;
-  else if (showOutcome && view.outcome) body = <OutcomePanel outcome={view.outcome} requireApproval={form.settings.requireApproval} statusLink={receipt ? `${window.location.origin}/f/${form.slug}#r=${receipt}` : undefined} updates={receipt && view.updates ? { slug: form.slug, receipt, telegram: view.updates.telegram, email: view.updates.email, onOutcome: outcome => setView(current => (current ? { ...current, outcome } : current)) } : undefined} onRefresh={() => void load(true)} refreshing={refreshing} onAgain={form.settings.oneResponse === "none" && form.availability === "open" ? () => setAgain(true) : undefined} />;
+  else if (showOutcome && view.outcome) body = <OutcomePanel outcome={view.outcome} requireApproval={form.settings.requireApproval} statusLink={receipt ? `${window.location.origin}/f/${form.slug}#r=${receipt}` : undefined} updates={receipt && view.updates ? { slug: form.slug, receipt, telegram: view.updates.telegram, email: view.updates.email, onOutcome: outcome => setView(current => (current ? { ...current, outcome } : current)) } : undefined} onRefresh={() => void load(true)} refreshing={refreshing} onAgain={form.settings.oneResponse !== "account" && form.availability === "open" ? () => { setAgain(true); window.scrollTo({ top: 0 }); } : undefined} history={{ items: receipts.list(form.slug), active: receipt, onPick: picked => { receipts.set(form.slug, picked); void load(true); } }} />;
   else if (form.availability !== "open") body = <section className="vf-outcome vg-glass"><div className="vf-seal" data-status="pending" aria-hidden="true"><LockClosedIcon /></div><h1>{form.availability === "soon" ? "This form opens soon." : form.availability === "full" ? "This form has all the responses it needs." : "This form is closed."}</h1><p>{form.settings.closedMessage || (form.availability === "soon" && form.settings.opensAt ? `It opens on ${new Intl.DateTimeFormat(undefined, { dateStyle: "long", timeStyle: "short" }).format(new Date(form.settings.opensAt))}.` : "It isn't accepting responses right now.")}</p><a className="vg-btn" href="/">Back to Vidurneeti</a></section>;
   else if (form.settings.access === "account" && !view.signedIn) body = <section className="vf-outcome vg-glass"><div className="vf-seal" data-status="pending" aria-hidden="true"><LockClosedIcon /></div><h1>Sign in to fill this form.</h1><p>{form.title} is open to people with a Vidurneeti reader account. Sign in on the home page, then come back to this link.</p><a className="vg-btn is-primary" href="/">Go to sign in</a></section>;
   else body = <>

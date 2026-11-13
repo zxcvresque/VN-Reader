@@ -3463,3 +3463,55 @@ button.top-bar-home:hover .top-bar-mark { filter: brightness(1.12); }
 :root[data-theme="glass"] :is(select, option) { background-color: var(--bg-0); color: var(--text); }
 :root[data-theme="glass"] .top-bar-mark { border-radius: 50%; }
 @media (prefers-reduced-transparency: reduce) { :root[data-theme="glass"] { --bg-1: #121730; --bg-2: #1a2040; --bg-3: #232a50; } }
+
+/* ---- Link previews: hover card and in-reader viewer ---- */
+.link-favicon { width: 16px; height: 16px; flex-shrink: 0; border-radius: 4px; object-fit: contain; color: var(--text-dim); }
+.link-hovercard { position: fixed; z-index: 1200; overflow: hidden; border: 1px solid var(--border-strong); border-radius: 16px; background: var(--bg-elevated, var(--bg-2)); box-shadow: var(--shadow-pop); color: var(--text); cursor: pointer; animation: link-pop 140ms ease-out; -webkit-backdrop-filter: blur(20px) saturate(160%); backdrop-filter: blur(20px) saturate(160%); }
+.link-hovercard-image { display: block; width: 100%; aspect-ratio: 1200 / 630; object-fit: cover; background: var(--bg-3); }
+.link-hovercard-body { display: grid; gap: 6px; padding: 12px 14px 14px; }
+.link-hovercard-site { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text-dim); }
+.link-hovercard-body strong { font-size: 14px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.link-hovercard-body p { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--text-muted); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.link-hovercard-body small { font-size: 11px; color: var(--text-faint); }
+.link-hovercard-loading { display: grid; gap: 8px; padding: 16px; }
+.link-hovercard-loading span { height: 10px; border-radius: 6px; background: linear-gradient(90deg, var(--bg-2), var(--bg-3), var(--bg-2)); background-size: 200% 100%; animation: link-shimmer 1.1s linear infinite; }
+.link-hovercard-loading span:nth-child(1) { width: 40%; } .link-hovercard-loading span:nth-child(3) { width: 70%; }
+.link-viewer-overlay { position: fixed; inset: 0; z-index: 1300; display: grid; place-items: center; padding: 24px; background: var(--overlay, rgba(0,0,0,.6)); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); animation: link-fade 160ms ease-out; }
+.link-viewer { display: flex; flex-direction: column; width: min(1180px, 100%); height: min(92vh, 1000px); overflow: hidden; border: 1px solid var(--border-strong); border-radius: var(--radius-lg, 22px); background: var(--bg-elevated, var(--bg-1)); box-shadow: var(--shadow-pop); animation: link-rise 200ms cubic-bezier(.2,.8,.2,1); }
+.link-viewer-bar { display: flex; align-items: center; gap: 12px; padding: 10px 10px 10px 16px; border-bottom: 1px solid var(--border); }
+.link-viewer-title { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
+.link-viewer-title > div { display: grid; min-width: 0; }
+.link-viewer-title strong { font-size: 14px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.link-viewer-title span { font-size: 12px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.link-viewer-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.link-viewer .link-viewer-btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 38px; padding: 0 14px; border: 1px solid var(--border-strong); border-radius: 999px; background: var(--bg-2); color: var(--text); font: 500 13px/1 var(--sans); text-decoration: none; cursor: pointer; white-space: nowrap; box-shadow: none; }
+.link-viewer .link-viewer-btn:hover { background: var(--bg-3); }
+.link-viewer .link-viewer-btn.is-icon { width: 38px; padding: 0; }
+.link-viewer .link-viewer-btn.is-primary { background: var(--accent); color: var(--on-accent, #fff); border-color: transparent; min-height: 44px; padding: 0 20px; }
+.link-viewer-body { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--bg-0); }
+.link-viewer-body iframe { flex: 1; width: 100%; border: 0; background: #fff; opacity: 0; transition: opacity 200ms ease; }
+.link-viewer-body iframe.is-loaded { opacity: 1; }
+.link-viewer-wait { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 12px; color: var(--text-muted); font-size: 14px; }
+.link-viewer-spinner { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--border-strong); border-top-color: var(--accent); animation: link-spin .8s linear infinite; }
+.link-viewer-hint { margin: 0; padding: 8px 16px; border-top: 1px solid var(--border); font-size: 12px; color: var(--text-dim); background: var(--bg-elevated, var(--bg-1)); }
+.link-viewer-hint a { color: var(--accent); }
+.link-viewer-summary { margin: auto; width: min(640px, 100%); padding: 28px; display: grid; gap: 18px; overflow: auto; }
+.link-viewer-summary > img { width: 100%; aspect-ratio: 1200 / 630; object-fit: cover; border-radius: 14px; border: 1px solid var(--border); background: var(--bg-2); }
+.link-viewer-summary > div { display: grid; gap: 10px; justify-items: start; }
+.link-viewer-summary h2 { margin: 0; font: 600 22px/1.3 var(--sans); letter-spacing: -.02em; color: var(--text); }
+.link-viewer-summary p { margin: 0; font-size: 15px; line-height: 1.6; color: var(--text-muted); }
+.link-viewer-summary .link-viewer-note { font-size: 13px; color: var(--text-dim); }
+@media (max-width: 720px) {
+  .link-viewer-overlay { padding: 0; place-items: end stretch; }
+  .link-viewer { width: 100%; height: calc(100dvh - max(12px, env(safe-area-inset-top))); border-radius: 20px 20px 0 0; border-bottom: 0; }
+  .link-viewer-bar { padding: 8px 8px 8px 14px; }
+  .link-viewer-actions .link-viewer-btn:not(.is-icon) span { display: none; }
+  .link-viewer-actions .link-viewer-btn:not(.is-icon) { width: 38px; padding: 0; }
+  .link-viewer-summary { padding: 20px 18px calc(20px + env(safe-area-inset-bottom)); }
+}
+@keyframes link-pop { from { opacity: 0; transform: translateY(4px) scale(.98); } }
+@keyframes link-fade { from { opacity: 0; } }
+@keyframes link-rise { from { opacity: 0; transform: translateY(18px); } }
+@keyframes link-spin { to { transform: rotate(360deg); } }
+@keyframes link-shimmer { to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .link-hovercard, .link-viewer-overlay, .link-viewer { animation: none; } }

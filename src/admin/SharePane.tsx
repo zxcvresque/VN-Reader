@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { CopyIcon, DownloadIcon, PlusIcon, TrashIcon } from "@radix-ui/react-icons";
+import { CopyIcon, DownloadIcon, ImageIcon, PlusIcon, ReloadIcon, TrashIcon } from "@radix-ui/react-icons";
+import { drawShareCard, fitShareImage, uploadShareImage, type ShareImageInfo } from "./shareCard";
 import { allFields } from "../../server/formLogic.mjs";
 import { call, type AdminForm, type ShareLink } from "../forms/api";
 import { qrSvg } from "../forms/qr";
@@ -30,7 +31,32 @@ function QrBlock({ url, name, title }: { url: string; name: string; title: strin
   </div>;
 }
 
-export default function SharePane({ context, form }: { context: AdminContext; form: AdminForm }) {
+/** How the link looks when pasted into Telegram, WhatsApp or X, with the picture controls beside it. */
+function LinkPreviewCard({ form, url, shareImage, onShareImage, canEdit }: { form: AdminForm; url: string; shareImage: ShareImageInfo | null; onShareImage: (info: ShareImageInfo | null) => void; canEdit: boolean }) {
+  const run = useAction(), [busy, setBusy] = useState("");
+  const src = shareImage ? `/api/admin/forms/${form.id}/share-image?v=${shareImage.updatedAt}` : "/og/vidurneeti.png";
+  const act = async (kind: string, job: () => Promise<ShareImageInfo | null>, done: string) => { setBusy(kind); const result = await run(job, done); setBusy(""); if (result !== undefined) onShareImage(result); };
+  const pick = () => { const input = document.createElement("input"); input.type = "file"; input.accept = "image/png,image/jpeg,image/webp"; input.onchange = () => { const file = input.files?.[0]; if (file) void act("upload", async () => uploadShareImage(form.id, await fitShareImage(file), false), "Picture saved. New shares use it."); }; input.click(); };
+  return <div className="vs-preview">
+    <figure className="vs-card" aria-label="Link preview">
+      <img src={src} alt="" width={1200} height={630} />
+      <figcaption><small>{new URL(url).host}</small><strong>{form.title} · VidurNeeti</strong><span>{form.description || `Fill the ${form.title} form on VidurNeeti.`}</span></figcaption>
+    </figure>
+    <div className="va-stack" style={{ gap: 10 }}>
+      <p className="va-note">{shareImage ? (shareImage.auto ? "This picture is made from the form's title and description, and updates when you save the form." : "You uploaded this picture. It stays until you remove it.") : "Making the picture…"}</p>
+      <p className="va-note">Apps cache previews. A link already shared may keep its old picture for a while.</p>
+      {canEdit && <div className="va-row">
+        <button type="button" className="vg-btn is-small" disabled={!!busy} onClick={pick}><ImageIcon aria-hidden="true" />{busy === "upload" ? "Saving…" : "Upload a picture"}</button>
+        {shareImage && !shareImage.auto
+          ? <button type="button" className="vg-btn is-small is-quiet" disabled={!!busy} onClick={() => void act("auto", async () => { await call(`/admin/forms/${form.id}/share-image`, { method: "DELETE" }); return uploadShareImage(form.id, await drawShareCard(form), true); }, "Back to the generated picture.")}><ReloadIcon aria-hidden="true" />Use generated picture</button>
+          : <button type="button" className="vg-btn is-small is-quiet" disabled={!!busy} onClick={() => void act("auto", async () => uploadShareImage(form.id, await drawShareCard(form), true), "Picture refreshed.")}><ReloadIcon aria-hidden="true" />Redraw</button>}
+      </div>}
+      <p className="va-note">Best size: 1200 × 630. Other sizes are cropped to fit.</p>
+    </div>
+  </div>;
+}
+
+export default function SharePane({ context, form, shareImage = null, onShareImage = () => {} }: { context: AdminContext; form: AdminForm; shareImage?: ShareImageInfo | null; onShareImage?: (info: ShareImageInfo | null) => void }) {
   const run = useAction(), canManage = context.can("links.manage");
   const { data, error, reload } = useLoad(() => call<LinksData>(`/admin/forms/${form.id}/links`), [form.id]);
   const [creating, setCreating] = useState(false), [label, setLabel] = useState(""), [code, setCode] = useState(""), [prefillField, setPrefillField] = useState(""), [prefillValue, setPrefillValue] = useState(""), [busy, setBusy] = useState(false);
@@ -49,6 +75,7 @@ export default function SharePane({ context, form }: { context: AdminContext; fo
   return <div className="va-stack" style={{ gap: 18 }}>
     {form.status !== "live" && <p className="vg-alert" data-tone="warn">This form is {form.status === "draft" ? "still a draft" : "closed"}. Links and QR codes work once you publish it.</p>}
     <Card title="Form link and QR code" note={`${number(data.direct.views)} opens · ${number(data.direct.responses)} responses from the plain link`}><QrBlock url={base} name={form.slug} title={form.title} /></Card>
+    <Card title="Link preview" note="What people see when the form's link is shared."><LinkPreviewCard form={form} url={base} shareImage={shareImage} onShareImage={onShareImage} canEdit={context.can("forms.write")} /></Card>
     <Card title="Custom links" note="Give each channel its own short link to see which one brings responses." action={canManage ? <button type="button" className="vg-btn is-small is-primary" onClick={() => setCreating(true)}><PlusIcon aria-hidden="true" />New link</button> : undefined}>
       {data.links.length === 0 ? <p className="va-note">No custom links yet. Create one for each place you post the form: a Telegram post, WhatsApp groups, a printed poster.</p>
         : <div>{data.links.map(link => <div key={link.code} className="vs-link">

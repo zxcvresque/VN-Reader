@@ -3,6 +3,8 @@ import { createNotifier } from "./notifications.mjs";
 import { toNodeHandler, fromNodeHeaders } from "better-auth/node";
 import { createAccounts, accountSettings, StateError } from "./accounts.mjs";
 import { createForms, FormError } from "./formsRoutes.mjs";
+import { createLinkPreviews } from "./linkPreview.mjs";
+import { createSeo } from "./seo.mjs";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { config as loadEnv } from "dotenv";
@@ -17,7 +19,7 @@ export async function createAccountApp(settings=accountSettings(),sendEmail) {
     res.set({"X-Content-Type-Options":"nosniff","Referrer-Policy":"same-origin","Cache-Control":"no-store"});
     if(!["GET","HEAD","OPTIONS"].includes(req.method)&&req.path!=="/internal/forms/telegram"){
       if(!origins.has(req.headers.origin)||req.headers["x-vn-csrf"]!=="1")return res.status(403).json({detail:"This request did not pass the browser security check."});
-      const limit=req.path.startsWith("/api/state/")?1024*1024+4096:/^\/api\/admin\/forms\/[^/]+\/font$/.test(req.path)?900*1024:/^\/api\/(admin|forms)\//.test(req.path)?300*1024:8192;
+      const limit=req.path.startsWith("/api/state/")?1024*1024+4096:/^\/api\/admin\/forms\/[^/]+\/(font|share-image)$/.test(req.path)?960*1024:/^\/api\/(admin|forms)\//.test(req.path)?300*1024:8192;
       if(Number(req.headers["content-length"]??0)>limit)return res.status(413).json({detail:"Request too large."});
     }
     next();
@@ -66,6 +68,8 @@ export async function createAccountApp(settings=accountSettings(),sendEmail) {
   app.get("/api/admin/r2-analytics",(req,res)=>proxyR2Admin(req,res,"/api/r2-analytics"));
   app.post("/api/admin/r2-control",(req,res)=>proxyR2Admin(req,res,"/api/r2-control","POST"));
   forms.mount(app);
+  createLinkPreviews({origin:new URL(settings.baseURL).origin}).mount(app);
+  createSeo({store:forms.store,origin:new URL(settings.baseURL).origin,indexPath:settings.webIndex}).mount(app);
   app.use("/api/state",async(req,res,next)=>{
     if(!accounts.enabled)return res.status(503).json({detail:"Accounts are not configured."});
     try{const session=await accounts.auth.api.getSession({headers:fromNodeHeaders(req.headers)});if(!session?.user?.emailVerified)return res.status(401).json({detail:"Sign in with a verified email to sync your reading state."});req.readerUser=session.user;next();}catch{res.status(401).json({detail:"Your session has expired. Sign in again."});}

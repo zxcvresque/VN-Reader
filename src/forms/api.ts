@@ -66,7 +66,26 @@ export async function download(path: string, fallbackName: string): Promise<void
 }
 
 const store = { get(key: string) { try { return localStorage.getItem(key); } catch { return null; } }, set(key: string, value: string | null) { try { if (value === null) localStorage.removeItem(key); else localStorage.setItem(key, value); } catch { /* storage is optional */ } } };
-export const receipts = { get: (slug: string) => store.get(`vn-form-receipt:${slug}`), set: (slug: string, receipt: string | null) => store.set(`vn-form-receipt:${slug}`, receipt) };
+/** Every response sent from this browser, newest first. The active one is what the status page shows. */
+export interface DeviceReceipt { receipt: string; at: number }
+interface ReceiptBook { active: string | null; list: DeviceReceipt[] }
+const readBook = (slug: string): ReceiptBook => {
+  try { const book = JSON.parse(store.get(`vn-form-receipts:${slug}`) ?? "null"); if (book && Array.isArray(book.list)) return { active: typeof book.active === "string" ? book.active : null, list: book.list.filter((item: DeviceReceipt) => typeof item?.receipt === "string").slice(0, 20) }; } catch { /* rebuilt below */ }
+  const legacy = store.get(`vn-form-receipt:${slug}`); // one receipt per form, from before several were kept
+  return legacy ? { active: legacy, list: [{ receipt: legacy, at: Date.now() }] } : { active: null, list: [] };
+};
+const writeBook = (slug: string, book: ReceiptBook) => { store.set(`vn-form-receipts:${slug}`, JSON.stringify(book)); store.set(`vn-form-receipt:${slug}`, null); };
+export const receipts = {
+  get: (slug: string) => readBook(slug).active,
+  list: (slug: string) => readBook(slug).list,
+  /** Remember a receipt (new submission or a status link) and show it. */
+  set(slug: string, receipt: string | null) {
+    const book = readBook(slug);
+    if (receipt === null) { writeBook(slug, { active: null, list: book.list }); return; }
+    const list = book.list.some(item => item.receipt === receipt) ? book.list : [{ receipt, at: Date.now() }, ...book.list].slice(0, 20);
+    writeBook(slug, { active: receipt, list });
+  }
+};
 export const drafts = {
   get(slug: string): { answers: Answers; startedAt: number } | null { try { const value = JSON.parse(store.get(`vn-form-draft:${slug}`) ?? "null"); return value && typeof value.answers === "object" ? value : null; } catch { return null; } },
   set(slug: string, value: { answers: Answers; startedAt: number } | null) { store.set(`vn-form-draft:${slug}`, value ? JSON.stringify(value) : null); }

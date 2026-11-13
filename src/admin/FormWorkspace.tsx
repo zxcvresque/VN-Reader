@@ -1,4 +1,5 @@
-import { useCallback, type MouseEvent } from "react";
+import { useCallback, useEffect, type MouseEvent } from "react";
+import { refreshAutoShareImage, type ShareImageInfo } from "./shareCard";
 import { BarChartIcon, ExternalLinkIcon, ListBulletIcon, Pencil2Icon, Share1Icon } from "@radix-ui/react-icons";
 import { call, type AdminForm } from "../forms/api";
 import type { AdminContext } from "./AdminApp";
@@ -11,8 +12,12 @@ import SharePane from "./SharePane";
 type Tab = "responses" | "insights" | "build" | "share";
 export default function FormWorkspace({ context, formId, tab }: { context: AdminContext; formId: string; tab: Tab }) {
   const { can, go, reloadForms } = context, run = useAction();
-  const { data, setData, error, loading, reload } = useLoad(() => call<{ form: AdminForm; hasCustomFont: boolean }>(`/admin/forms/${formId}`), [formId]);
-  const onSaved = useCallback((form: AdminForm) => { setData(current => (current ? { ...current, form } : current)); reloadForms(); }, [setData, reloadForms]);
+  const { data, setData, error, loading, reload } = useLoad(() => call<{ form: AdminForm; hasCustomFont: boolean; shareImage: ShareImageInfo | null }>(`/admin/forms/${formId}`), [formId]);
+  const setShareImage = useCallback((shareImage: ShareImageInfo | null) => setData(current => (current ? { ...current, shareImage } : current)), [setData]);
+  // The generated share picture follows the form's title and description. Uploaded pictures are left alone.
+  const onSaved = useCallback((form: AdminForm) => { setData(current => (current ? { ...current, form } : current)); reloadForms(); if (can("forms.write")) void refreshAutoShareImage(form, data?.shareImage).then(setShareImage); }, [setData, reloadForms, can, data?.shareImage, setShareImage]);
+  const missingPicture = !!data && !data.shareImage && can("forms.write");
+  useEffect(() => { if (missingPicture && data) void refreshAutoShareImage(data.form, null).then(setShareImage); }, [missingPicture]); // eslint-disable-line react-hooks/exhaustive-deps
   if (loading && !data) return <Loading label="Opening the form" />;
   if (error || !data) return <Failure message={error} onRetry={reload} />;
   const { form } = data;
@@ -36,6 +41,6 @@ export default function FormWorkspace({ context, formId, tab }: { context: Admin
     {active === "responses" && <ResponsesPane context={context} form={form} onChanged={reloadForms} />}
     {active === "insights" && <InsightsPane form={form} onOpenResponses={can("responses.read") ? query => go(`/admin/forms/${form.id}/responses?${query}`) : undefined} />}
     {active === "build" && <BuilderPane context={context} form={form} hasCustomFont={data.hasCustomFont} onSaved={onSaved} onFont={reload} />}
-    {active === "share" && <SharePane context={context} form={form} />}
+    {active === "share" && <SharePane context={context} form={form} shareImage={data.shareImage} onShareImage={setShareImage} />}
   </>;
 }

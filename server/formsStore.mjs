@@ -111,6 +111,7 @@ export class FormsStore {
       CREATE TABLE IF NOT EXISTS form_links (code TEXT PRIMARY KEY, form_id TEXT NOT NULL REFERENCES forms(id) ON DELETE CASCADE, label TEXT NOT NULL,
         prefill TEXT NOT NULL DEFAULT '{}', active INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL, created_by TEXT);
       CREATE TABLE IF NOT EXISTS form_fonts (form_id TEXT PRIMARY KEY REFERENCES forms(id) ON DELETE CASCADE, mime TEXT NOT NULL, data BLOB NOT NULL, updated_at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS form_share_images (form_id TEXT PRIMARY KEY REFERENCES forms(id) ON DELETE CASCADE, mime TEXT NOT NULL, data BLOB NOT NULL, auto INTEGER NOT NULL DEFAULT 1, updated_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS admin_members (email TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '', permissions TEXT NOT NULL, form_ids TEXT,
         active INTEGER NOT NULL DEFAULT 1, added_by TEXT, added_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS form_telegram_links (
@@ -241,6 +242,16 @@ export class FormsStore {
     return this.updateForm(id, { theme: { ...form.theme, font: "custom", fontName: clip(name, 80) || "Custom font" } }, actor);
   }
   font(id) { return this.database.prepare("SELECT mime,data,updated_at FROM form_fonts WHERE form_id=?").get(id); }
+  /** The picture shown when a form's link is shared. `auto` marks one drawn from the form's title and description. */
+  setShareImage(id, mime, data, auto, actor) {
+    const form = this.form(id); if (!form) throw new FormError(404, "This form no longer exists.");
+    this.database.prepare("INSERT INTO form_share_images VALUES (?,?,?,?,?) ON CONFLICT(form_id) DO UPDATE SET mime=excluded.mime,data=excluded.data,auto=excluded.auto,updated_at=excluded.updated_at").run(id, mime, data, auto ? 1 : 0, this.time());
+    if (!auto) this.audit(actor, "form.shareImage", form.title);
+    return this.shareImageInfo(id);
+  }
+  clearShareImage(id) { this.database.prepare("DELETE FROM form_share_images WHERE form_id=?").run(id); }
+  shareImage(id) { return this.database.prepare("SELECT mime,data,auto,updated_at FROM form_share_images WHERE form_id=?").get(id); }
+  shareImageInfo(id) { const row = this.database.prepare("SELECT auto,updated_at FROM form_share_images WHERE form_id=?").get(id); return row ? { auto: !!row.auto, updatedAt: row.updated_at } : null; }
 
   /** What a respondent's browser may know about a form. Never includes the gated link. */
   publicForm(form) {

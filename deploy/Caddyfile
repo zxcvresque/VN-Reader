@@ -28,6 +28,16 @@
       header_up X-Forwarded-Proto https
     }
   }
+  # Forms and share links get their own title, description and picture for link previews.
+  @pages path /f/* /go/* /sitemap.xml
+  handle @pages {
+    reverse_proxy accounts:3005 {
+      header_up X-Forwarded-For {client_ip}
+      header_up X-Forwarded-Proto https
+    }
+  }
+  @private path /admin /admin/*
+  header @private X-Robots-Tag "noindex, nofollow"
   handle {
     root * /srv
     @assets path /assets/*

@@ -39,6 +39,16 @@ Statistics → Places uses the state and district reported in each response. Swi
 - Population: [COVID19India v4 data](https://github.com/covid19india/data), October 31, 2021 snapshot. Only population estimates are included in the map asset.
 - Geometry: [LGD district layer via bharatlas](https://bharatlas.com/view/lgd_districts), projected and simplified for display. The asset uses the current district names from the form's November 2026 LGD snapshot. Older polygons can differ from today's district boundaries.
 
+## Sharing a form
+
+Every form link (`/f/<form>` and custom `/go/<code>` links) carries its own title, description and picture when pasted into Telegram, WhatsApp, X or search. The picture is drawn automatically from the form's title and description and redraws when you save the form. Upload your own in Share → Link preview (any image; it's cropped to 1200 × 630). The home page uses `public/og/vidurneeti.png`. Apps cache previews, so a link shared before a change may keep its old card for a while.
+
+Requires the updated `deploy/Caddyfile`, which sends `/f/*`, `/go/*` and `/sitemap.xml` to the accounts service.
+
+## Several responses from one device
+
+The confirmation page always offers "Submit another response" (unless the form is limited to one per reader account). Every response sent from a browser is remembered there, and a switcher at the top of the status page moves between them.
+
 ## How applicants hear back
 
 After submitting, the confirmation page offers three ways, all optional:

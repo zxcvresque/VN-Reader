@@ -7,6 +7,11 @@ import { validateAnswers, pagePath, normalizeSchema, pipeText, INDIA_STATES, dis
 import { signR2Request, r2FormsSettings, createTelegramForms } from "../server/formsBackup.mjs";
 import { FormsStore } from "../server/formsStore.mjs";
 import { GROUNDWORK_FORM } from "../server/formsSeed.mjs";
+import { isPrivateAddress, normalizeUrl, parseMeta, frameable, embedFor } from "../server/linkPreview.mjs";
+import { withMeta } from "../server/seo.mjs";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const complete = { gw_name: "Arjun Sharma", gw_age: 29, gw_gender: "male", gw_married: "no", gw_address: "12 MG Road, Pune", gw_state: "Maharashtra", gw_district: "Pune", gw_same_address: "yes", gw_profession: "Engineer", gw_whatsapp: "+91 98765 43210", gw_email: "arjun@example.com", gw_telegram: "4242", gw_dharma: "Teach and organise locally.", gw_influence: "Clearer thinking.", gw_skills: "Web development" };
 
@@ -307,4 +312,57 @@ test("Places groups legacy district names, counts the recent and prior weeks, an
     assert.equal(forms.store.query(form.id, { state: "" })[0].id, noState);
     assert.equal(forms.store.query(form.id, { state: "Outside India" })[0].id, outside);
   } finally { accounts.close(); }
+});
+
+test("link previews refuse private addresses and read page metadata", () => {
+  for (const address of ["127.0.0.1", "10.0.0.8", "192.168.1.1", "172.20.0.2", "169.254.169.254", "100.64.0.1", "::1", "fd00::1", "::ffff:10.0.0.1"]) assert.equal(isPrivateAddress(address), true, address);
+  for (const address of ["8.8.8.8", "104.16.1.1", "2606:4700::1111"]) assert.equal(isPrivateAddress(address), false, address);
+  for (const bad of ["http://localhost/", "http://127.0.0.1/", "ftp://example.com/", "https://user:pw@example.com/", "https://example.com:22/", "http://router.local/", "javascript:alert(1)"]) assert.equal(normalizeUrl(bad), null, bad);
+  assert.equal(normalizeUrl("https://example.com/a#frag").href, "https://example.com/a");
+  const meta = parseMeta('<head><title>Plain</title><meta property="og:title" content="Rich &amp; full"><meta content="Desc" name="description"><meta property="og:image" content="/cover.jpg"></head>', "https://news.example/story/1");
+  assert.deepEqual([meta.title, meta.description, meta.image], ["Rich & full", "Desc", "https://news.example/cover.jpg"]);
+  const site = "https://vidurneeti.xyz", page = new URL("https://news.example/");
+  assert.equal(frameable({}, page, site), true);
+  assert.equal(frameable({ "x-frame-options": "SAMEORIGIN" }, page, site), false);
+  assert.equal(frameable({ "content-security-policy": "frame-ancestors 'self'" }, page, site), false);
+  assert.equal(frameable({ "content-security-policy": "frame-ancestors *" }, page, site), true);
+  assert.equal(frameable({}, new URL("http://news.example/"), site), false, "http pages can't load inside an https site");
+  assert.equal(embedFor(new URL("https://youtu.be/dQw4w9WgXcQ")), "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ");
+});
+
+test("share metadata: each form gets its own title, description, picture and a sitemap entry", async () => {
+  const folder = mkdtempSync(join(tmpdir(), "vn-seo-")), index = join(folder, "index.html");
+  writeFileSync(index, '<!doctype html><html><head><title>VidurNeeti</title><meta name="description" content="Site" /><meta property="og:title" content="Site" /><meta property="og:image" content="https://vidurneeti.xyz/og/vidurneeti.png" /></head><body><div id="root"></div><script type="module" src="/assets/index-abc.js"></script></body></html>');
+  const mail = [];
+  const { app, accounts } = await createAccountApp({ database: ":memory:", secret: "test-only-secret-at-least-thirty-two-characters", baseURL: "http://reader.test", origins: ["http://reader.test"], production: false, archiveEnabled: false, adminEmails: ["owner@example.com"], emailDailyLimit: 20, webIndex: index }, m => mail.push(m));
+  const server = app.listen(0, "127.0.0.1"); await once(server, "listening"); const base = `http://127.0.0.1:${server.address().port}`;
+  const request = (path, { body, cookie = "", method } = {}) => fetch(base + path, { method: method ?? (body === undefined ? "GET" : "POST"), headers: { origin: "http://reader.test", "x-vn-csrf": "1", "content-type": "application/json", cookie }, body: body === undefined ? undefined : JSON.stringify(body) });
+  try {
+    const page = await request("/f/groundwork"); const html = await page.text();
+    assert.equal(page.status, 200);
+    assert.match(html, /<title>Vidurneeti Ground Work · VidurNeeti<\/title>/);
+    assert.match(html, /property="og:title" content="Vidurneeti Ground Work · VidurNeeti"/);
+    assert.match(html, /property="og:url" content="http:\/\/reader.test\/f\/groundwork"/);
+    assert.match(html, /property="og:image" content="http:\/\/reader.test\/og\/vidurneeti.png"/, "without its own picture a form uses the site picture");
+    assert.equal((html.match(/og:title/g) ?? []).length, 1, "the site's tags are replaced, not duplicated");
+    assert.match(html, /\/assets\/index-abc.js/, "the app still loads");
+    assert.equal((await request("/f/nope")).status, 404);
+    assert.match(await (await request("/sitemap.xml")).text(), /<loc>http:\/\/reader.test\/f\/groundwork<\/loc>/);
+    assert.equal((await request("/api/link-preview?url=http://127.0.0.1/")).status, 422);
+
+    assert.equal((await request("/api/auth/sign-up/email", { body: { name: "Owner", email: "owner@example.com", password: "strong-test-password-123" } })).status, 200);
+    const verified = await request("/api/auth/email-otp/verify-email", { body: { email: "owner@example.com", otp: mail.findLast(m => m.email === "owner@example.com").otp } });
+    const cookie = verified.headers.getSetCookie().map(value => value.split(";")[0]).join("; ");
+    const { forms: [form] } = await (await request("/api/admin/forms", { cookie })).json();
+    const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(800)]).toString("base64");
+    assert.equal((await request(`/api/admin/forms/${form.id}/share-image`, { cookie, method: "PUT", body: { data: Buffer.from("not an image at all, just words".repeat(30)).toString("base64") } })).status, 422);
+    const saved = await (await request(`/api/admin/forms/${form.id}/share-image`, { cookie, method: "PUT", body: { data: png, auto: false } })).json();
+    assert.equal(saved.shareImage.auto, false);
+    const kept = await (await request(`/api/admin/forms/${form.id}/share-image`, { cookie, method: "PUT", body: { data: png, auto: true } })).json();
+    assert.equal(kept.shareImage.auto, false, "a generated picture never replaces an uploaded one");
+    const withPicture = await (await request("/f/groundwork")).text();
+    assert.match(withPicture, new RegExp(`og:image" content="http://reader.test/api/forms/groundwork/share-image\\?v=${saved.shareImage.updatedAt}"`));
+    const image = await request("/api/forms/groundwork/share-image"); assert.equal(image.status, 200); assert.equal(image.headers.get("content-type"), "image/png");
+    assert.match(withMeta("<html><head><title>x</title></head></html>", { title: 'A "quoted" <title>', description: "d", url: "https://a/", image: "https://a/i.png" }), /<title>A &quot;quoted&quot; &lt;title&gt;<\/title>/);
+  } finally { await new Promise(resolve => server.close(resolve)); accounts.close(); }
 });

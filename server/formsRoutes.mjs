@@ -136,6 +136,7 @@ export function createForms({ accounts, settings, fetchImpl = fetch, env = proce
       const mine = store.byReceipt(form.id, req.headers["x-vn-receipt"]) ?? (session?.user?.emailVerified ? store.byUser(form.id, session.user.id) : null);
       res.json({ form: store.publicForm(form), updates: { telegram: await statusBot(), email: !!accounts.enabled && flag("mail.onDecision") }, prefill: link?.formId === form.id ? link.prefill : {}, signedIn: !!session?.user?.emailVerified, outcome: mine ? store.outcome(form, mine) : null });
     }));
+    app.get("/api/forms/:slug/share-image", wrap((req, res) => { const form = liveForm(req), image = store.shareImage(form.id); if (!image) throw new FormError(404, "No share image."); res.set({ "Content-Type": image.mime, "Cache-Control": "public, max-age=86400", ETag: `"${image.updated_at}"` }).send(Buffer.from(image.data)); }));
     app.get("/api/forms/:slug/font", wrap((req, res) => { const form = liveForm(req), font = store.font(form.id); if (!font) throw new FormError(404, "No custom font."); res.set({ "Content-Type": font.mime, "Cache-Control": "public, max-age=86400", ETag: `"${font.updated_at}"` }).send(Buffer.from(font.data)); }));
     app.post("/api/forms/:slug/events", wrap((req, res) => {
       const form = liveForm(req);
@@ -203,7 +204,20 @@ export function createForms({ accounts, settings, fetchImpl = fetch, env = proce
     app.get("/api/admin/forms", wrap(async (req, res) => { const admin = await adminOf(req); admin.need("forms.read"); res.json({ forms: store.forms().filter(form => !admin.formIds || admin.formIds.includes(form.id)) }); }));
     app.post("/api/admin/forms", wrap(async (req, res) => { const admin = await adminOf(req); admin.need("forms.write"); if (admin.formIds) throw new FormError(403, "Your admin role is limited to specific forms."); res.status(201).json({ form: store.createForm(req.body ?? {}, admin.email) }); }));
     const formFor = async (req, permission) => { const admin = await adminOf(req); admin.need(permission, String(req.params.id)); const form = store.form(String(req.params.id)); if (!form) throw new FormError(404, "This form no longer exists."); return { admin, form }; };
-    app.get("/api/admin/forms/:id", wrap(async (req, res) => { const { form } = await formFor(req, "forms.read"); res.json({ form, hasCustomFont: !!store.font(form.id) }); }));
+    app.get("/api/admin/forms/:id", wrap(async (req, res) => { const { form } = await formFor(req, "forms.read"); res.json({ form, hasCustomFont: !!store.font(form.id), shareImage: store.shareImageInfo(form.id) }); }));
+    // Share picture: PNG, JPEG or WebP, already sized to 1200×630 by the console.
+    app.put("/api/admin/forms/:id/share-image", wrap(async (req, res) => {
+      const { admin, form } = await formFor(req, "forms.write");
+      const data = Buffer.from(String(req.body?.data ?? ""), "base64"), head = data.subarray(0, 12);
+      const mime = head.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) ? "image/png" : head[0] === 0xff && head[1] === 0xd8 ? "image/jpeg" : head.subarray(0, 4).toString("latin1") === "RIFF" && head.subarray(8, 12).toString("latin1") === "WEBP" ? "image/webp" : null;
+      if (!mime || data.length < 500) throw new FormError(422, "Use a PNG, JPEG or WebP image.");
+      if (data.length > 700 * 1024) throw new FormError(413, "The image is too large. Use one under 700 KB.");
+      const auto = req.body?.auto === true;
+      if (auto && store.shareImageInfo(form.id)?.auto === false) return res.json({ shareImage: store.shareImageInfo(form.id) }); // never replace a chosen picture
+      res.json({ shareImage: store.setShareImage(form.id, mime, data, auto, admin.email) });
+    }));
+    app.get("/api/admin/forms/:id/share-image", wrap(async (req, res) => { const { form } = await formFor(req, "forms.read"), image = store.shareImage(form.id); if (!image) throw new FormError(404, "No share image."); res.set({ "Content-Type": image.mime, "Cache-Control": "private, max-age=60" }).send(Buffer.from(image.data)); }));
+    app.delete("/api/admin/forms/:id/share-image", wrap(async (req, res) => { const { form } = await formFor(req, "forms.write"); store.clearShareImage(form.id); res.json({ shareImage: null }); }));
     app.put("/api/admin/forms/:id", wrap(async (req, res) => { const { admin, form } = await formFor(req, "forms.write"); const next = store.updateForm(form.id, req.body ?? {}, admin.email); void quiet(r2.put(`${form.id}/definition.json`, next)); res.json({ form: next }); }));
     app.post("/api/admin/forms/:id/duplicate", wrap(async (req, res) => { const { admin, form } = await formFor(req, "forms.write"); res.status(201).json({ form: store.duplicateForm(form.id, admin.email) }); }));
     app.delete("/api/admin/forms/:id", wrap(async (req, res) => { const { admin, form } = await formFor(req, "forms.write"); admin.need("responses.delete", form.id); store.deleteForm(form.id, admin.email); res.json({ ok: true }); }));

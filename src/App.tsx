@@ -3,6 +3,7 @@ import {restoreCustomFont} from "./lib/customFont";
 import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeftIcon, ArrowRightIcon, MixerHorizontalIcon, MagnifyingGlassIcon, ResetIcon, BookmarkIcon, CounterClockwiseClockIcon, TimerIcon } from "@radix-ui/react-icons";
 import WelcomePage, { FeatureWalkthrough } from "./components/WelcomePage";
+import LinkViewer from "./components/LinkViewer";
 import { rememberGuestEntry, shouldOfferTour, rememberTourInvitation } from "./lib/entry";
 import ReaderSettings from "./components/ReaderSettings";
 import ReadingWidth from "./components/ReadingWidth";
@@ -1207,6 +1208,7 @@ export default function App() {
         setQuoteHighlight({ messageKey, ...highlight });
       }} onReadAround={readAround} /> : null}
       {accountDialog}
+      <LinkViewer />
       {settingsDialog}
       {view === "read" ? (
         <ReadingView

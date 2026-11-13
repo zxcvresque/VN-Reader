@@ -25,6 +25,7 @@ Telegram extraction scripts remain available for server-side archive preparation
 - **Direct navigation:** jump by message ID, thread root ID, or date.
 - **Read state:** mark individual messages read/unread or mark everything through a message as read.
 - **Media:** inline photos, video, and audio, plus a fullscreen photo/video viewer.
+- **Link previews:** hover an outside link to see its title, summary and picture; click or tap to read the page in a viewer without leaving the reader, with Open in new tab and Close at the top. Sites that refuse to be shown inside others get a summary card instead. Ctrl/⌘-click still opens a new tab.
 - **Global appearance:** Settings offers Vercel, Editorial, Cobalt Index, Liquid Opal, and Liquid Glass, each with distinct surfaces, typography accents, and button treatments. A first visit uses Vercel for system dark mode or Liquid Opal for system light mode. Your choice applies to every view and overlay and survives reloads; signed-in account appearance also syncs.
 - **Page controls:** font family/size, line height, paragraph spacing, 40–120ch width, warm ivory or sepia reading paper, and named appearance presets.
 - **Exact resume:** autosaves the post, paragraph, fraction within the paragraph, and scroll offset. Resume preserves the same passage through theme and width changes.

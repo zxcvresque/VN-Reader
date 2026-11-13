@@ -18,9 +18,12 @@ RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN corepack pnpm install --frozen-lockfile --prod
 COPY server/accounts.mjs server/accountService.mjs server/adminStore.mjs server/notifications.mjs server/operatorEvents.json \
-     server/formLogic.mjs server/indiaDistricts.mjs server/formsStore.mjs server/formsRoutes.mjs server/formsBackup.mjs server/formsSeed.mjs ./server/
-RUN chmod 755 /app /app/server \
- && chmod 644 /app/package.json /app/server/* \
+     server/formLogic.mjs server/indiaDistricts.mjs server/formsStore.mjs server/formsRoutes.mjs server/formsBackup.mjs server/formsSeed.mjs \
+     server/linkPreview.mjs server/seo.mjs ./server/
+# The page shell, so form links can carry their own title, description and picture.
+COPY --from=build /app/dist/index.html ./web/index.html
+RUN chmod 755 /app /app/server /app/web \
+ && chmod 644 /app/package.json /app/server/* /app/web/index.html \
  && mkdir -p /data && chown node:node /data
 USER node
 ENV VN_ACCOUNT_DATABASE_PATH=/data/accounts.sqlite3 VN_ACCOUNT_HOST=0.0.0.0 VN_ACCOUNT_PORT=3005
