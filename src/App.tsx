@@ -45,6 +45,7 @@ import {
   replaceAllMessages, replaceAllThreads, saveManifest, saveDirectoryHandle,
 } from "./lib/idb";
 import { revokeAllMediaObjectUrls } from "./lib/media";
+import { indexQuotingPosts, linkedPassage, parseReaderLink, readerLink } from "./lib/readerLinks";
 import { matchesMessageSearch } from "./lib/messageSearch";
 import type {
   AppSnapshot,
@@ -115,6 +116,20 @@ function bookmarkId(targetType: "message" | "thread", targetKey: string): string
 export default function App() {
   const [snapshot, setSnapshot] = useState<AppSnapshot>(EMPTY_SNAPSHOT);
   const [entered, setEntered] = useState(false);
+  const [sharedLink, setSharedLink] = useState(() => parseReaderLink(window.location));
+  const openedLink = useRef<typeof sharedLink>(null);
+  const [archiveChecked, setArchiveChecked] = useState(false);
+  useEffect(() => {
+    const readLocation = () => setSharedLink(parseReaderLink(window.location));
+    window.addEventListener("hashchange", readLocation);
+    return () => window.removeEventListener("hashchange", readLocation);
+  }, []);
+  function leaveSharedLink() {
+    if (!sharedLink) return;
+    window.history.replaceState(window.history.state, "", "/");
+    openedLink.current = null;
+    setSharedLink(null);
+  }
   const [localLoaded, setLocalLoaded] = useState(false);
   const [archiveLoading, setArchiveLoading] = useState(false);
   const [archiveError, setArchiveError] = useState("");
@@ -226,7 +241,7 @@ export default function App() {
     if(positionTimerRef.current){window.clearTimeout(positionTimerRef.current);positionTimerRef.current=null;}
     personalRef.current=data.readingState;setPersonal(data.readingState);setPreferences(data.preferences);
     setSnapshot(s=>({...s,bookmarks:data.bookmarks,readOverrides:data.readOverrides,readCursor:data.readCursor}));
-    if(initial||restorePosition){
+    if((initial||restorePosition) && !parseReaderLink(window.location)){
       lastPositionRef.current=null;
       const latest=Object.entries(data.readingState.positions).sort((a,b)=>b[1].updatedAt.localeCompare(a[1].updatedAt))[0];
       pendingPositionRef.current=latest?{...latest[1],messageKey:latest[0]}:null;
@@ -292,7 +307,7 @@ export default function App() {
         catch{if(!stopped)setNotice("Posts are available, but this browser could not cache the archive for offline use.");}
         if(!stopped)archiveETagRef.current=data.etag;
       }catch(e){if(!stopped)setArchiveError(e instanceof Error?e.message:"The archive could not be reached.");}
-      finally{running=false;if(!stopped)setArchiveLoading(false);}
+      finally{running=false;if(!stopped){setArchiveLoading(false);setArchiveChecked(true);}}
     };
     void update();const timer=window.setInterval(()=>{if(document.visibilityState==="visible")void update();},60000);
     return()=>{stopped=true;window.clearInterval(timer);};
@@ -481,6 +496,7 @@ export default function App() {
     return { threads, messagesByThreadKey: threadMap };
   }, [snapshot.messages]);
 
+  const quotingPosts = useMemo(() => indexQuotingPosts(snapshot.messages), [snapshot.messages]);
   const derivedThreads = quoteThreads.threads;
 
   const threadMessagesMap = useMemo(() => {
@@ -787,6 +803,7 @@ export default function App() {
       position};
   }
   function recordNavigation(): void {
+    leaveSharedLink();
     setNavStack(stack => [...stack.slice(-49), captureEntry()]);
     setForwardStack([]);
   }
@@ -794,6 +811,7 @@ export default function App() {
     const target = messageByKey.get(messageKey);
     if (!target) {setError(`Message ${messageKey} not in archive.`);return;}
     if (!options?.skipTrail) recordNavigation();
+    setQuoteHighlight(null);
     setSession(null);setSessionReached(false);
     setSearchQuery(""); setReaderSearchMode("results");setReaderSearchOpen(false);setLibraryOpen(false);setSourcePeek(null);searchReturnRef.current=null;
     fullFeedNavigationRef.current=true;
@@ -804,6 +822,33 @@ export default function App() {
     setThreadRailOpen(Boolean(options?.openRail && (threadMessagesMap.get(target.thread_key)?.length ?? 0)>1));
     setPaletteOpen(false);
   };
+  useEffect(() => {
+    if (!entered || !sharedLink || openedLink.current === sharedLink || !snapshot.messages.length) return;
+    const target = messageByKey.get(sharedLink.messageKey);
+    if (!target) {
+      if (account.configReady && (archiveChecked || !account.config?.archiveEnabled)) {
+        openedLink.current = sharedLink;
+        setError(`Shared post #${sharedLink.postId} is unavailable in this archive.`);
+      }
+      return;
+    }
+    openedLink.current = sharedLink;
+    basicTourStarted.current = true;
+    focusMessage(target.message_key, { skipTrail: true });
+    const range = linkedPassage(target.text, sharedLink.range);
+    if (range) setQuoteHighlight({ messageKey: target.message_key, ...range, fallbackText: null });
+    else if (sharedLink.hasPassage) setNotice("Opened the post. The shared passage could not be matched.");
+  }, [entered, sharedLink, messageByKey, archiveChecked, account.configReady, account.config?.archiveEnabled, snapshot.messages.length]);
+
+  async function copyReaderLink(message: MessageRecord, range?: { offset: number; length: number }) {
+    const url = readerLink(window.location.origin, message, range);
+    try {
+      await navigator.clipboard.writeText(url);
+      setNotice(range ? "Passage link copied." : "Reader link copied.");
+    } catch {
+      window.prompt("Copy this reader link", url);
+    }
+  }
   const focusThread = (threadKey:string) => {
     if (!threadByKey.has(threadKey)) {setError("Thread not found.");return;}
     recordNavigation();setView("threads");setSelectedThreadKey(threadKey);setSearchQuery("");setPaletteOpen(false);
@@ -885,6 +930,9 @@ export default function App() {
   }
   function cardExtras(message:MessageRecord) {
     return {
+      quotingPosts: quotingPosts.get(message.message_key),
+      onOpenQuotingPost: focusMessage,
+      onCopyReaderLink: copyReaderLink,
       collections:personal.collections.map(collection=>({id:collection.id,title:collection.title,added:collection.items.some(item=>item.messageKey===message.message_key&&!item.passageId)})),
       onAddToCollection:(m:MessageRecord,collectionId:string)=>{const current=personalRef.current;const collection=current.collections.find(item=>item.id===collectionId);if(!collection||collection.items.some(item=>item.messageKey===m.message_key&&!item.passageId))return;commitPersonal({...current,collections:current.collections.map(item=>item.id===collectionId?{...item,items:[...item.items,{id:crypto.randomUUID(),messageKey:m.message_key}]}:item)});setNotice(`Added to “${collection.title}”.`);},
       onOpenCollections:()=>{setLibraryInitialTab("collections");setLibraryOpen(true);},
@@ -1047,10 +1095,10 @@ export default function App() {
   }, [guideStep]);
   const guideDialog = guideOpen ? <ReaderGuide topic={guideTopic} hasArchive={snapshot.messages.length > 0} onSelectTopic={topic => { setGuideTopic(topic); }} onClose={closeGuide} onStepChange={prepareTourStep} onLearnMore={()=>{closeGuide();setFeaturesOpen(true);}} /> : null;
   useEffect(()=>{
-    if(!entered||!snapshot.messages.length||!tourInvitation||basicTourStarted.current||accountOpen)return;
+    if(!entered||sharedLink||!snapshot.messages.length||!tourInvitation||basicTourStarted.current||accountOpen)return;
     basicTourStarted.current=true;
     openGuide();setGuideTopic("basic");
-  },[entered,snapshot.messages.length,tourInvitation,accountOpen]);
+  },[entered,sharedLink,snapshot.messages.length,tourInvitation,accountOpen]);
   const settingsDialog = settingsOpen || (guideOpen && guideReturnRef.current?.settings) ? <div hidden={guideOpen && guideTopic !== "appearance"}><ReaderSettings preferences={preferences} onChange={changePreferences} onClose={() => setSettingsOpen(false)} onOpenGuide={openGuide} tourActive={guideOpen} onExportBackup={() => void exportBackup()} onImportBackup={importBackup} backupBusy={backupBusy} /></div> : null;
 
 
@@ -1117,7 +1165,7 @@ export default function App() {
           <h1>{loading?"Opening Vidurneeti…":"The archive couldn’t be opened."}</h1>
           <p>{loading?"Preparing the posts and your saved reading place.":problem}</p>
           {loading?<div className="welcome-loading-lines" aria-hidden="true"><span/><span/><span/></div>:<button type="button" className="btn-primary" onClick={()=>{setArchiveAttempt(v=>v+1);account.refreshConfig();}}>Try again</button>}
-          <button type="button" className="btn-ghost" onClick={()=>setEntered(false)}>Back to welcome</button>
+          <button type="button" className="btn-ghost" onClick={()=>{leaveSharedLink();setEntered(false);}}>Back to welcome</button>
         </div>
         {accountDialog}
       </div>
@@ -1157,7 +1205,7 @@ export default function App() {
         onOpenGuide={openGuide}
         onOpenLibrary={()=>{setReaderSearchOpen(false);setSourcePeek(null);setLibraryOpen(true);}}
         onOpenAccount={()=>openAccount()}
-        onHome={()=>{setAccountOpen(false);setEntered(false);window.scrollTo({top:0});}}
+        onHome={()=>{leaveSharedLink();setAccountOpen(false);setEntered(false);window.scrollTo({top:0});}}
         accountLabel={account.user?"Your account":"Sign in or create account"}
         paletteOpen={paletteOpen}
         settingsOpen={settingsOpen}

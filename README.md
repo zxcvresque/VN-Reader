@@ -21,6 +21,8 @@ Telegram extraction scripts remain available for server-side archive preparation
 - **Bookmarks:** saved messages and threads; message bookmarks support free-form tags.
 - **Progress:** seen/unseen counts, reading status, unread streaks, and bookmark tags.
 - **Quote navigation:** jump to a quoted source, highlight the quoted passage, and return using the back button.
+- **Share:** Open More → Copy reader link on a post, or select text and choose Copy passage link. Recipients can enter as guests. A passage link highlights the selected occurrence. If the passage has changed, the post still opens.
+- **Quoted by:** Expand Quoted by on a source post to see the posts that quote it directly, read their excerpts, and open a reply in context.
 - **Reading paths:** start at the beginning, resume the saved anchor, jump to first unread or latest, or open a random message.
 - **Direct navigation:** jump by message ID, thread root ID, or date.
 - **Read state:** mark individual messages read/unread or mark everything through a message as read.

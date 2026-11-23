@@ -15,6 +15,7 @@ const compile = (path, dependencies = {}) => {
 };
 const customSelect = compile('../src/components/CustomSelect.tsx', { 'react-dom': { createPortal: content => content } });
 const preferences = compile('../src/lib/preferences.ts');
+const readerLinks = compile('../src/lib/readerLinks.ts');
 const messageSearch = compile('../src/lib/messageSearch.ts');
 const touchLayout = compile('../src/lib/useTouchLayout.ts');
 const entry = compile('../src/lib/entry.ts');
@@ -28,7 +29,7 @@ function environment() {
   const original = Object.fromEntries(['window', 'document', 'localStorage', 'CustomEvent'].map(key => [key, globalThis[key]]));
   const storage = new Map(), keys = new Map(),intervals=new Map();let nextInterval=0;
   globalThis.localStorage = { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) };
-  globalThis.window = { localStorage, matchMedia: () => ({ matches: false }), addEventListener() {}, removeEventListener() {}, dispatchEvent() {}, setTimeout: () => 1, clearTimeout() {}, setInterval: fn=>{intervals.set(++nextInterval,fn);return nextInterval;}, clearInterval:id=>intervals.delete(id), requestAnimationFrame: () => 1, cancelAnimationFrame() {}, scrollTo() {} };
+  globalThis.window = { location: new URL('https://reader.test/'), localStorage, matchMedia: () => ({ matches: false }), addEventListener() {}, removeEventListener() {}, dispatchEvent() {}, setTimeout: () => 1, clearTimeout() {}, setInterval: fn=>{intervals.set(++nextInterval,fn);return nextInterval;}, clearInterval:id=>intervals.delete(id), requestAnimationFrame: () => 1, cancelAnimationFrame() {}, scrollTo() {} };
   globalThis.document = { body: { style: { overflow: '' } }, activeElement: null, visibilityState: 'visible', documentElement: { dataset: {}, style: { setProperty() {} } }, addEventListener: (key, fn) => keys.set(key, fn), removeEventListener: key => keys.delete(key), querySelector: () => null, querySelectorAll: () => [] };
   globalThis.CustomEvent = class {};
   return { storage, keys, intervals, restore() { for (const [key, value] of Object.entries(original)) if (value === undefined) delete globalThis[key]; else globalThis[key] = value; } };
@@ -83,7 +84,7 @@ test('guest entry persists separately from authentication and tolerates blocked 
   } finally { env.restore(); }
 });
 
-async function appFixture({ cached = false, cacheFails = false, archiveFails = false, savedPosition = false, archiveFetcher, skipTour=false } = {}) {
+async function appFixture({ cached = false, cacheFails = false, archiveFails = false, savedPosition = false, archiveFetcher, skipTour=false, sharedUrl } = {}) {
   const env = environment();
   if(skipTour)entry.rememberTourInvitation();
   const demo = compile('../src/lib/demo.ts', { './idb': {} });
@@ -111,6 +112,8 @@ async function appFixture({ cached = false, cacheFails = false, archiveFails = f
     return React.createElement('div', { 'data-component': 'VirtualizedMessageList' });
   }) };
   deps['./lib/messageSearch'] = messageSearch;
+  deps['./lib/readerLinks'] = readerLinks;
+  if (sharedUrl) window.location = new URL(sharedUrl);
   const { default: App } = compile('../src/App.tsx', deps);
   const restoreTarget={};
   let root;
@@ -246,4 +249,34 @@ test('welcome shows remaining email slots; a full allowance blocks new signup bu
     assert.notEqual(findButton(root,'Read as guest').props.disabled,true);
     assert.ok(!JSON.stringify(root.toJSON()).includes('Brevo'));
   } finally {if(root)act(()=>root.unmount());env.restore();}
+});
+
+test('shared posts take precedence over a saved position after guest entry', async () => {
+  const f = await appFixture({ savedPosition: true, sharedUrl: 'https://reader.test/read/-90001/7' });
+  try {
+    await f.guest();
+    assert.deepEqual(f.jumps.at(-1), { index: 6, align: 'start' });
+    assert.equal(f.root.root.findAllByProps({ 'data-component': 'ReaderGuide' }).length, 0);
+  } finally { f.close(); }
+});
+
+test('passage links address the chosen UTF-16 occurrence and reject changed content', () => {
+  const message = { chat_id: 4, message_id: 7, text: '😀 echo\n\necho' };
+  const range = { offset: message.text.lastIndexOf('echo'), length: 4 };
+  const url = new URL(readerLinks.readerLink('https://reader.test', message, range));
+  const link = readerLinks.parseReaderLink(url);
+  assert.equal(link.messageKey, '4:7');
+  assert.deepEqual(readerLinks.linkedPassage(message.text, link.range), range);
+  assert.equal(readerLinks.linkedPassage(message.text.replace(/echo$/, 'edit'), link.range), null);
+});
+
+test('backlinks list direct quotes in the same channel only', () => {
+  const quoted = { chat_id: 123, message_id: 2, reply_to_msg_id: 1, is_quote_reply: true };
+  const nested = { ...quoted, message_id: 3, reply_to_msg_id: 2 };
+  const peer = { ...quoted, message_id: 4, reply_to_peer_id: { channel_id: 123 } };
+  const index = readerLinks.indexQuotingPosts([quoted, nested, peer,
+    { ...quoted, message_id: 5, is_quote_reply: false },
+    { ...quoted, message_id: 6, reply_to_peer_id: { channel_id: 456 } }]);
+  assert.deepEqual(index.get('123:1'), [quoted, peer]);
+  assert.deepEqual(index.get('123:2'), [nested]);
 });

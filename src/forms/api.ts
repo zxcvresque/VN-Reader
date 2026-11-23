@@ -87,9 +87,24 @@ export const receipts = {
     writeBook(slug, { active: receipt, list });
   }
 };
+interface FormDraft {
+  answers: Answers;
+  startedAt: number;
+  stepKey?: string;
+  stepPath?: string;
+}
+
 export const drafts = {
-  get(slug: string): { answers: Answers; startedAt: number } | null { try { const value = JSON.parse(store.get(`vn-form-draft:${slug}`) ?? "null"); return value && typeof value.answers === "object" ? value : null; } catch { return null; } },
-  set(slug: string, value: { answers: Answers; startedAt: number } | null) { store.set(`vn-form-draft:${slug}`, value ? JSON.stringify(value) : null); }
+  get(slug: string): FormDraft | null {
+    try {
+      const value = JSON.parse(store.get(`vn-form-draft:${slug}`) ?? "null");
+      if (!value?.answers || typeof value.answers !== "object" || Array.isArray(value.answers)) return null;
+      return value;
+    } catch { return null; }
+  },
+  set(slug: string, value: FormDraft | null) {
+    store.set(`vn-form-draft:${slug}`, value ? JSON.stringify(value) : null);
+  }
 };
 
 /** Telegram opens web apps with signed launch data in the URL fragment. Keep it for this tab. */

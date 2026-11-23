@@ -89,13 +89,12 @@ export default function FormRunner({ form, prefill = {}, via = "", preview = fal
   const [telegramBusy, setTelegramBusy] = useState(false);
   const [telegramPending, setTelegramPending] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [stepIndex, setStepIndex] = useState(0);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState("");
   const [trap, setTrap] = useState("");
   const startedAt = useRef<number>(saved?.startedAt ?? 0);
   const top = useRef<HTMLDivElement>(null);
-  const restored = useRef(!!saved && Object.keys(saved.answers).length > 0);
+  const [restored, setRestored] = useState(!!saved);
 
   const pages = useMemo(() => pagePath(schema, answers), [schema, answers]);
   const steps: Step[] = useMemo(() => {
@@ -103,10 +102,32 @@ export default function FormRunner({ form, prefill = {}, via = "", preview = fal
     if (theme.layout === "focus") return pages.flatMap(page => page.fields.filter(field => shown.has(field.id)).map(field => ({ key: field.id, title: page.title, fields: [field] })));
     return pages.map(page => ({ key: page.id, title: page.title, description: page.description, fields: page.fields.filter(field => shown.has(field.id)) }));
   }, [schema, answers, pages, theme.layout]);
-  const index = Math.min(stepIndex, Math.max(0, steps.length - 1)), step = steps[index], last = index >= steps.length - 1;
+  const path = JSON.stringify(steps.map(item => item.key));
+  const firstIncomplete = () => {
+    const invalid = validateAnswers(schema, answers).errors;
+    return steps.findIndex(item => item.fields.some(field => invalid[field.id]));
+  };
+  const [cursor, setCursor] = useState<{ key?: string; path: string }>(() => {
+    let index = 0;
+    if (saved) {
+      const previous = steps.findIndex(item => item.key === saved.stepKey);
+      const incomplete = firstIncomplete();
+      const pathChanged = previous < 0 || saved.stepPath !== path;
+      if (incomplete >= 0 && (pathChanged || incomplete < previous)) index = incomplete;
+      else index = previous >= 0 ? previous : Math.max(0, steps.length - 1);
+    }
+    return { key: steps[index]?.key, path };
+  });
+  const located = steps.findIndex(item => item.key === cursor.key);
+  const index = !cursor.key ? 0 : located >= 0 ? located : Math.max(0, firstIncomplete());
+  const step = steps[index], last = index >= steps.length - 1;
+  const setStepIndex = (target: number) => setCursor({ key: steps[target]?.key, path });
 
   useEffect(() => { if (preview) return; const key = `vn-form-viewed:${form.slug}`; try { if (sessionStorage.getItem(key)) return; sessionStorage.setItem(key, "1"); } catch { /* count anyway */ } void call(`/forms/${form.slug}/events`, { body: { kind: "view", via } }).catch(() => {}); }, [form.slug, preview, via]);
-  useEffect(() => { if (preview || !startedAt.current) return; const timer = window.setTimeout(() => drafts.set(form.slug, { answers, startedAt: startedAt.current }), 400); return () => window.clearTimeout(timer); }, [answers, form.slug, preview]);
+  useEffect(() => {
+    if (preview || !startedAt.current) return;
+    drafts.set(form.slug, { answers, startedAt: startedAt.current, stepKey: cursor.key ?? step?.key, stepPath: cursor.key ? cursor.path : path });
+  }, [answers, cursor, form.slug, path, preview, step?.key]);
 
   const rememberTelegramKey = (key: string) => {
     setTelegramKey(key);
@@ -157,8 +178,14 @@ export default function FormRunner({ form, prefill = {}, via = "", preview = fal
     } finally { setTelegramBusy(false); }
   }
 
+  const start = () => {
+    if (startedAt.current) return;
+    startedAt.current = Date.now();
+    if (!preview) void call(`/forms/${form.slug}/events`, { body: { kind: "start", via } }).catch(() => {});
+  };
   const change = (field: FormField, value: AnswerValue | undefined) => {
-    if (!startedAt.current) { startedAt.current = Date.now(); if (!preview) void call(`/forms/${form.slug}/events`, { body: { kind: "start", via } }).catch(() => {}); }
+    start();
+    setRestored(false);
     const dependentFields = fields.filter(candidate => candidate.type === "district" && candidate.stateField === field.id);
     setAnswers(current => {
       const next = { ...current };
@@ -181,7 +208,7 @@ export default function FormRunner({ form, prefill = {}, via = "", preview = fal
     setErrors(here); if (Object.keys(here).length) focusFirstError(here);
     return Object.keys(here).length === 0;
   };
-  const goTo = (target: number) => { setStepIndex(target); setProblem(""); scrollTop(); };
+  const goTo = (target: number) => { start(); setRestored(false); setStepIndex(target); setProblem(""); scrollTop(); };
   async function submit() {
     const result = validateAnswers(schema, answers);
     if (!result.ok) { const firstBad = steps.findIndex(candidate => candidate.fields.some(field => result.errors[field.id])); setErrors(result.errors); if (firstBad >= 0 && firstBad !== index) setStepIndex(firstBad); focusFirstError(result.errors); return; }
@@ -189,6 +216,7 @@ export default function FormRunner({ form, prefill = {}, via = "", preview = fal
     setBusy(true); setProblem("");
     try {
       const done = await call<{ receipt: string; outcome: Outcome }>(`/forms/${form.slug}/responses`, { body: { answers: result.clean, via, startedAt: startedAt.current || undefined, device: deviceKind(), initData: telegramInitData(), telegramLink: telegram && telegramKey ? telegramKey : undefined, website: trap } });
+      startedAt.current = 0;
       drafts.set(form.slug, null);
       rememberTelegramKey("");
       onDone?.(done.outcome, done.receipt);
@@ -203,6 +231,17 @@ export default function FormRunner({ form, prefill = {}, via = "", preview = fal
     } finally { setBusy(false); }
   }
   const next = () => { if (!checkStep()) return; if (last) void submit(); else goTo(index + 1); };
+
+  function startOver() {
+    drafts.set(form.slug, null);
+    startedAt.current = 0;
+    setRestored(false);
+    setCursor({ path: "" });
+    setAnswers({ ...prefill });
+    setErrors({});
+    setProblem("");
+    scrollTop();
+  }
 
   const required = visibleFields(schema, answers, pages).filter(field => field.required);
   const percent = theme.layout === "focus" ? Math.round((index / Math.max(1, steps.length)) * 100) : required.length ? Math.round((required.filter(field => !isEmpty(answers[field.id])).length / required.length) * 100) : 0;
@@ -234,7 +273,7 @@ export default function FormRunner({ form, prefill = {}, via = "", preview = fal
   return <form noValidate onSubmit={event => { event.preventDefault(); next(); }} onKeyDown={event => { if (event.key === "Enter" && theme.layout === "focus" && event.target instanceof HTMLInputElement) { event.preventDefault(); next(); } }}>
     <div ref={top} style={{ scrollMarginTop: 12 }} />
     {form.settings.showProgress && <div className="vf-progress vg-glass" role="status"><div className="vf-progress-track" aria-hidden="true"><i style={{ width: `${percent}%` }} /></div><span className="vg-num">{theme.layout === "focus" ? `${index + 1} of ${steps.length}` : steps.length > 1 ? `Page ${index + 1} of ${steps.length}` : `${percent}% done`}</span></div>}
-    {restored.current && index === 0 && <p className="vg-alert" data-tone="info" style={{ marginBottom: 12 }}>We restored the answers you'd already typed on this device. <button type="button" className="vg-btn is-quiet is-small" onClick={() => { drafts.set(form.slug, null); restored.current = false; startedAt.current = 0; setAnswers({ ...prefill }); setErrors({}); }}>Start over</button></p>}
+    {restored && <p className="vg-alert" data-tone="info" style={{ marginBottom: 12 }}>Your draft was restored on this device. <button type="button" className="vg-btn is-quiet is-small" onClick={startOver}>Start over</button></p>}
     <div key={step.key} className={`vf-step-enter ${theme.layout === "focus" ? "vf-focus-step" : ""}`}>
       {(step.title || step.description) && <div className="vf-page-head">{step.title && <h2>{step.title}</h2>}{step.description && <p>{step.description}</p>}</div>}
       <div className="vf-fields">{step.fields.map(renderField)}</div>

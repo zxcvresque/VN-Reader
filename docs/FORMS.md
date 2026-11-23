@@ -71,6 +71,8 @@ Every form link (`/f/<form>` and custom `/go/<code>` links) carries its own titl
 
 Requires the updated `deploy/Caddyfile`, which sends `/f/*`, `/go/*` and `/sitemap.xml` to the accounts service.
 
+Ground Work and other public forms save answers and the active page or question on this device. Returning applicants resume that step. If the path has changed, or an earlier applicable step needs an answer, the form reopens at the first incomplete step. Start over clears the draft.
+
 ## Several responses from one device
 
 The confirmation page always offers "Submit another response" (unless the form is limited to one per reader account). Every response sent from a browser is remembered there, and a switcher at the top of the status page moves between them.

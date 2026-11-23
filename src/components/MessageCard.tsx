@@ -5,9 +5,12 @@ import {BookmarkIcon,BookmarkFilledIcon,CheckIcon,DotsHorizontalIcon,ExternalLin
 import { getMediaObjectUrl } from "../lib/media";
 import type { BookmarkRecord, MessageRecord } from "../types";
 import TelegramRichText, { extractMessageEntities } from "./TelegramRichText";
-import { resolveQuoteRange } from "../lib/quoteHighlight";
+import { resolveQuoteRange, selectedPassageRange } from "../lib/quoteHighlight";
 
 interface MessageCardProps {
+  onCopyReaderLink?: (message: MessageRecord, range?: { offset: number; length: number }) => void;
+  quotingPosts?: MessageRecord[];
+  onOpenQuotingPost?: (key: string) => void;
   collections?: Array<{ id: string; title: string; added: boolean }>;
   onAddToCollection?: (message: MessageRecord, collectionId: string) => void;
   onOpenCollections?: () => void;
@@ -383,7 +386,7 @@ export default function MessageCard({
   readingStatus = null, onSetReadingStatus, queued = false, onToggleQueue,
   note = "", onSaveNote, savedPassages = [], onSavePassage, onRemovePassage,
   mediaMode = "compact", mediaPlayback, onSaveMediaPlayback, searchHighlight, onReadAround,
-  collections = [], onAddToCollection, onOpenCollections,
+  collections = [], onAddToCollection, onOpenCollections, onCopyReaderLink, quotingPosts, onOpenQuotingPost,
   bookmark,
   directoryHandle,
   hasManualReadOverride,
@@ -450,20 +453,26 @@ export default function MessageCard({
     };
   }, [actionsOpen]);
   const [noteDraft, setNoteDraft] = useState(note);
-  const [selectedPassage, setSelectedPassage] = useState("");
+  const [selectedPassage, setSelectedPassage] = useState<ReturnType<typeof selectedPassageRange>>(null);
+  const [quotesOpen, setQuotesOpen] = useState(false);
   const bodyRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => { setNoteDraft(note); }, [note, message.message_key]);
   const captureSelection = () => {
-    const selection = window.getSelection();
-    const body = bodyRef.current;
-    const text = selection?.toString().trim() ?? "";
-    if (!selection || !body || !selection.anchorNode || !selection.focusNode || !body.contains(selection.anchorNode) || !body.contains(selection.focusNode)
-      || text.length < 3 || text.length > 20000 || !message.text.replace(/\s+/g, " ").includes(text.replace(/\s+/g, " "))) {
-      setSelectedPassage("");
-      return;
-    }
-    setSelectedPassage(text);
+    setSelectedPassage(bodyRef.current ? selectedPassageRange(bodyRef.current, window.getSelection(), message.text) : null);
   };
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (!body) return;
+    // Touch selection handles can move after the original touchend event.
+    const trackSelection = () => {
+      const selection = window.getSelection();
+      if (!selection?.isCollapsed && body.contains(selection?.anchorNode ?? null)) {
+        setSelectedPassage(selectedPassageRange(body, selection, message.text));
+      }
+    };
+    document.addEventListener("selectionchange", trackSelection);
+    return () => document.removeEventListener("selectionchange", trackSelection);
+  }, [message.text]);
   const messageEntities = useMemo(() => extractMessageEntities(message.raw), [message.raw]);
   const allSources = useMemo(() => {
     const explicit = Array.isArray(message.external_urls) ? message.external_urls : [];
@@ -544,6 +553,16 @@ export default function MessageCard({
         ) : null}
       </div> : null}
 
+      {!!quotingPosts?.length && onOpenQuotingPost && <details className="reader-backlinks" onToggle={event => setQuotesOpen(event.currentTarget.open)}>
+        <summary>Quoted by {quotingPosts.length} {quotingPosts.length === 1 ? "post" : "posts"}</summary>
+        {quotesOpen && <ul>{quotingPosts.map(reply => <li key={reply.message_key}>
+          <button type="button" onClick={() => onOpenQuotingPost(reply.message_key)}>
+            <strong>Post #{reply.message_id}</strong>
+            {reply.quote_text && <span>{reply.quote_text}</span>}
+          </button>
+        </li>)}</ul>}
+      </details>}
+
       {message.quote_text ? (
         <blockquote
           className={`reader-quote ${
@@ -590,10 +609,10 @@ export default function MessageCard({
         )}
       </div>
 
-      {selectedPassage && onSavePassage ? <div className="reader-selection-bar" role="status">
-        <span>Save this passage to your library</span>
-        <button type="button" onClick={() => { onSavePassage(message, selectedPassage); setSelectedPassage(""); window.getSelection()?.removeAllRanges(); }}>Save passage</button>
-        <button type="button" className="reader-text-button" onClick={() => setSelectedPassage("")}>Dismiss</button>
+      {selectedPassage && (onSavePassage || onCopyReaderLink) ? <div className="reader-selection-bar" role="status">
+        {onSavePassage && selectedPassage.length >= 3 && selectedPassage.length <= 20000 && <button type="button" onClick={() => { onSavePassage(message, selectedPassage.text); setSelectedPassage(null); window.getSelection()?.removeAllRanges(); }}>Save passage</button>}
+        {onCopyReaderLink && <button type="button" onClick={() => onCopyReaderLink(message, selectedPassage)}>Copy passage link</button>}
+        <button type="button" className="reader-text-button" onClick={() => setSelectedPassage(null)}>Dismiss</button>
       </div> : null}
 
       <MediaPreview
@@ -613,6 +632,7 @@ export default function MessageCard({
             <details ref={actionsRef} className="post-more-actions" onToggle={event=>setActionsOpen(event.currentTarget.open)}><summary aria-label={`More actions for post ${message.message_id}`} aria-expanded={actionsOpen} aria-controls={`post-actions-${message.message_key}`} title="More actions"><DotsHorizontalIcon aria-hidden/><span>More</span></summary>
               {actionsOpen && createPortal(<div ref={panelRef} id={`post-actions-${message.message_key}`} className="post-more-panel post-more-portal" style={panelPosition} role="group" aria-label={`Additional actions for post ${message.message_id}`}>
                 {onSetReadingStatus&&<label className="reader-status-control">Reading state<CustomSelect aria-label={`Reading state for post ${message.message_id}`} value={readingStatus??""} onChange={e=>onSetReadingStatus(message,e.target.value?e.target.value as "in-progress"|"finished"|"revisit":null)}><option value="">Not started</option><option value="in-progress">In progress</option><option value="finished">Finished</option><option value="revisit">Revisit</option></CustomSelect></label>}
+                {onCopyReaderLink && <button type="button" onClick={() => { onCopyReaderLink(message); closeActions(); }}>Copy reader link</button>}
                 {onToggleQueue&&<button type="button" onClick={()=>{onToggleQueue(message);closeActions();}}>{queued?"Remove from queue":"Read later"}</button>}
                 {onAddToCollection && <button type="button" onClick={()=>{setCollectionOpen(true);closeActions();}}>Add to collection</button>}
                 {onSaveNote?<button type="button" onClick={()=>{setNoteOpen(o=>!o);closeActions();}}>{note?"Edit note":"Add note"}</button>:null}

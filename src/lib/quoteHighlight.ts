@@ -30,3 +30,36 @@ export function resolveQuoteRange(text: string, quote: QuoteRangeRequest | null 
   }
   return null;
 }
+
+/** Resolve DOM endpoints against the original Telegram text, including the
+ * blank-line separators that are represented by separate HTML paragraphs. */
+export function selectedPassageRange(body: HTMLElement, selection: Selection | null, text: string) {
+  if (!selection?.rangeCount || selection.isCollapsed) return null;
+  const range = selection.getRangeAt(0);
+  if (!body.contains(range.commonAncestorContainer)) return null;
+
+  function sourceOffset(node: Node, offset: number): number | null {
+    const element = node instanceof Element ? node : node.parentElement;
+    const paragraph = element?.closest<HTMLElement>("[data-paragraph-offset]");
+    if (paragraph && body.contains(paragraph)) {
+      const prefix = document.createRange();
+      prefix.selectNodeContents(paragraph);
+      prefix.setEnd(node, offset);
+      return Number(paragraph.dataset.paragraphOffset) + prefix.toString().length;
+    }
+    // Select-all and dragging outside a paragraph can end on its container.
+    const next = node.childNodes[offset];
+    if (!next) return text.length;
+    const nextElement = next instanceof Element ? next : null;
+    const first = nextElement?.matches("[data-paragraph-offset]") ? nextElement : nextElement?.querySelector("[data-paragraph-offset]");
+    return first ? Number(first.getAttribute("data-paragraph-offset")) : null;
+  }
+
+  const start = sourceOffset(range.startContainer, range.startOffset);
+  const end = sourceOffset(range.endContainer, range.endOffset);
+  if (start === null || end === null) return null;
+  const raw = text.slice(start, end);
+  const selected = raw.trim();
+  if (!selected) return null;
+  return { offset: start + raw.length - raw.trimStart().length, length: selected.length, text: selected };
+}

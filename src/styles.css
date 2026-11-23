@@ -3496,3 +3496,31 @@ button.top-bar-home:hover .top-bar-mark { filter: brightness(1.12); }
 @keyframes link-spin { to { transform: rotate(360deg); } }
 @keyframes link-shimmer { to { background-position: -200% 0; } }
 @media (prefers-reduced-motion: reduce) { .link-hovercard, .link-viewer-overlay, .link-viewer { animation: none; } }
+
+.reader-backlinks {
+  margin: .65rem 0;
+  font-size: .9em;
+}
+.reader-backlinks summary { cursor: pointer; width: fit-content; padding-block: .4rem; }
+.reader-backlinks ul { list-style: none; padding: 0; margin: .2rem 0; }
+.reader-backlinks button {
+  display: grid;
+  gap: .2rem;
+  width: 100%;
+  padding: .65rem .75rem;
+  text-align: start;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: .4rem;
+  cursor: pointer;
+}
+.reader-backlinks li + li { margin-top: .35rem; }
+.reader-backlinks button span {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
