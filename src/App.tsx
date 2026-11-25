@@ -21,6 +21,7 @@ import { createBackup, parseBackup } from "./lib/backup";
 import CommandPalette, { type ViewName } from "./components/CommandPalette";
 import MediaLightbox, { type LightboxMedia } from "./components/MediaLightbox";
 import MessageCard from "./components/MessageCard";
+import { albumCaptionOffset, groupAlbumMessages, indexReaderPosts, postMembers } from "./lib/readerPosts";
 import QuotedSourcePanel from "./components/QuotedSourcePanel";
 import ThreadRail from "./components/ThreadRail";
 import TopBar from "./components/TopBar";
@@ -114,7 +115,10 @@ function bookmarkId(targetType: "message" | "thread", targetKey: string): string
 }
 
 export default function App() {
-  const [snapshot, setSnapshot] = useState<AppSnapshot>(EMPTY_SNAPSHOT);
+  const [archiveSnapshot, setSnapshot] = useState<AppSnapshot>(EMPTY_SNAPSHOT);
+  const posts = useMemo(() => groupAlbumMessages(archiveSnapshot.messages), [archiveSnapshot.messages]);
+  const postByMemberKey = useMemo(() => indexReaderPosts(posts), [posts]);
+  const snapshot = useMemo(() => ({ ...archiveSnapshot, messages: posts }), [archiveSnapshot, posts]);
   const [entered, setEntered] = useState(false);
   const [sharedLink, setSharedLink] = useState(() => parseReaderLink(window.location));
   const openedLink = useRef<typeof sharedLink>(null);
@@ -156,7 +160,7 @@ export default function App() {
   const accountActiveRef = useRef(false);
   const guestBackupRef = useRef<ReadingBackup | null>(null);
   const preferencesRef = useRef(preferences); preferencesRef.current = preferences;
-  const snapshotRef = useRef(snapshot); snapshotRef.current = snapshot;
+  const snapshotRef = useRef(archiveSnapshot); snapshotRef.current = archiveSnapshot;
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [libraryInitialTab, setLibraryInitialTab] = useState<"queue" | "collections" | "work">("queue");
@@ -341,7 +345,7 @@ export default function App() {
     try {
       const next = loadReadingState(chatId);
       personalRef.current = next; setPersonal(next);
-      const saved = Object.entries(next.positions).filter(([key]) => snapshot.messages.some(m => m.message_key === key))
+      const saved = Object.entries(next.positions).filter(([key]) => postByMemberKey.has(key))
         .sort((a,b) => b[1].updatedAt.localeCompare(a[1].updatedAt))[0];
       if (saved) { pendingPositionRef.current = {...saved[1],messageKey:saved[0]}; setHighlightedMessageKey(saved[0]); }
       else if (snapshot.readCursor) { setHighlightedMessageKey(snapshot.readCursor.message_key); }
@@ -401,9 +405,9 @@ export default function App() {
       new Map(
         snapshot.bookmarks
           .filter((b) => b.target_type === "message" && b.message_key)
-          .map((b) => [b.message_key!, b])
+          .map((b) => [postByMemberKey.get(b.message_key!)?.message_key ?? b.message_key!, b])
       ),
-    [snapshot.bookmarks]
+    [snapshot.bookmarks, postByMemberKey]
   );
 
   const threadBookmarkByKey = useMemo(
@@ -417,22 +421,23 @@ export default function App() {
   );
 
   const readOverrideMap = useMemo(
-    () => new Map(snapshot.readOverrides.map((o) => [o.message_key, o.status])),
-    [snapshot.readOverrides]
+    () => new Map([...snapshot.readOverrides].sort((a, b) => a.updated_at_utc.localeCompare(b.updated_at_utc))
+      .map(o => [postByMemberKey.get(o.message_key)?.message_key ?? o.message_key, o.status])),
+    [snapshot.readOverrides, postByMemberKey]
   );
 
   // Re-derive threads using quote-replies only. Plain `is_reply` (without
   // a quote) doesn't form a logical thread in this channel.
   const quoteThreads = useMemo(() => {
     const messageById = new Map<number, MessageRecord>();
-    for (const m of snapshot.messages) messageById.set(m.message_id, m);
+    for (const m of snapshot.messages) for (const member of postMembers(m)) messageById.set(member.message_id, m);
 
     // Build a parent map: child message_id -> parent message_id (only for
     // quote-replies, where the parent is the quoted target).
     const parentOf = new Map<number, number>();
     for (const m of snapshot.messages) {
       if (m.is_quote_reply && m.reply_to_msg_id != null) {
-        parentOf.set(m.message_id, m.reply_to_msg_id);
+        parentOf.set(m.message_id, messageById.get(m.reply_to_msg_id)?.message_id ?? m.reply_to_msg_id);
       }
     }
 
@@ -496,7 +501,14 @@ export default function App() {
     return { threads, messagesByThreadKey: threadMap };
   }, [snapshot.messages]);
 
-  const quotingPosts = useMemo(() => indexQuotingPosts(snapshot.messages), [snapshot.messages]);
+  const quotingPosts = useMemo(() => {
+    const index = new Map<string, MessageRecord[]>();
+    for (const [key, replies] of indexQuotingPosts(snapshot.messages)) {
+      const sourceKey = postByMemberKey.get(key)?.message_key ?? key;
+      index.set(sourceKey, [...(index.get(sourceKey) ?? []), ...replies]);
+    }
+    return index;
+  }, [snapshot.messages, postByMemberKey]);
   const derivedThreads = quoteThreads.threads;
 
   const threadMessagesMap = useMemo(() => {
@@ -519,10 +531,7 @@ export default function App() {
     [derivedThreads]
   );
 
-  const messageByKey = useMemo(
-    () => new Map(snapshot.messages.map((m) => [m.message_key, m])),
-    [snapshot.messages]
-  );
+  const messageByKey = postByMemberKey;
 
   const isMessageRead = useCallback(
     (message: MessageRecord): boolean => {
@@ -573,15 +582,22 @@ export default function App() {
     // Wait for the full feed before consuming an explicit navigation request.
     if(fullFeedNavigationRef.current&&(deferredSearch||session||filteredMessages.length!==snapshot.messages.length))return;
     const pending = pendingPositionRef.current;
-    const targetKey = pending?.messageKey ?? highlightedMessageKey;
+    const originalKey = pending?.messageKey ?? highlightedMessageKey;
+    const targetKey = originalKey ? messageByKey.get(originalKey)?.message_key ?? originalKey : null;
     if (!targetKey) {appliedNavigationRef.current = navigationVersion;return;}
     const index = filteredMessages.findIndex(m=>m.message_key===targetKey);
     if(index<0)return; // Deferred filters may still be clearing; wait for the target.
-    if (pending) {timelineRef.current.restorePosition(pending);pendingPositionRef.current=null;}
+    if (pending) {
+      const post = messageByKey.get(targetKey);
+      const captionOffset = post ? albumCaptionOffset(post, pending.messageKey) : 0;
+      timelineRef.current.restorePosition({ ...pending, messageKey: targetKey,
+        ...(pending.paragraphOffset === undefined ? {} : { paragraphOffset: pending.paragraphOffset + captionOffset }) });
+      pendingPositionRef.current=null;
+    }
     else timelineRef.current.scrollToIndex(index,"start");
     appliedNavigationRef.current=navigationVersion;
     fullFeedNavigationRef.current=false;
-  }, [view, navigationVersion, filteredMessages, highlightedMessageKey, entered,deferredSearch,session,snapshot.messages.length]);
+  }, [view, navigationVersion, filteredMessages, highlightedMessageKey, entered,deferredSearch,session,snapshot.messages.length,messageByKey]);
 
   // Stats
   const stats = useMemo(() => {
@@ -638,7 +654,7 @@ export default function App() {
   const resumeNextMessage = useMemo(() => {
     if (!snapshot.readCursor) return null;
     const idx = snapshot.messages.findIndex(
-      (m) => m.message_key === snapshot.readCursor?.message_key
+      (m) => postMembers(m).some(member => member.message_key === snapshot.readCursor?.message_key)
     );
     if (idx < 0) return null;
     return snapshot.messages[idx + 1] ?? null;
@@ -647,11 +663,11 @@ export default function App() {
   const activeAnchorMessage = useMemo(() => {
     if(visibleMessageKey){const visible=messageByKey.get(visibleMessageKey);if(visible)return visible;}
     if (highlightedMessageKey) {
-      return snapshot.messages.find((m) => m.message_key === highlightedMessageKey) ?? null;
+      return messageByKey.get(highlightedMessageKey) ?? null;
     }
     if (snapshot.readCursor) {
       return (
-        snapshot.messages.find((m) => m.message_key === snapshot.readCursor?.message_key) ?? null
+        messageByKey.get(snapshot.readCursor.message_key) ?? null
       );
     }
     return snapshot.messages[0] ?? null;
@@ -717,10 +733,12 @@ export default function App() {
   }
 
   async function handleClearReadOverride(messageKey: string): Promise<void> {
-    if (!accountActiveRef.current) await deleteReadOverride(messageKey);
+    const post = messageByKey.get(messageKey);
+    const keys = new Set(post ? postMembers(post).map(member => member.message_key) : [messageKey]);
+    if (!accountActiveRef.current) await Promise.all([...keys].map(key => deleteReadOverride(key)));
     setSnapshot((c) => ({
       ...c,
-      readOverrides: c.readOverrides.filter((o) => o.message_key !== messageKey)
+      readOverrides: c.readOverrides.filter((o) => !keys.has(o.message_key))
     }));
   }
 
@@ -835,7 +853,9 @@ export default function App() {
     openedLink.current = sharedLink;
     basicTourStarted.current = true;
     focusMessage(target.message_key, { skipTrail: true });
-    const range = linkedPassage(target.text, sharedLink.range);
+    const original = archiveSnapshot.messages.find(m => m.message_key === sharedLink.messageKey);
+    const sourceRange = linkedPassage(sharedLink.messageKey === target.message_key ? target.text : original?.text ?? target.text, sharedLink.range);
+    const range = sourceRange ? { ...sourceRange, offset: sourceRange.offset + albumCaptionOffset(target, sharedLink.messageKey) } : null;
     if (range) setQuoteHighlight({ messageKey: target.message_key, ...range, fallbackText: null });
     else if (sharedLink.hasPassage) setNotice("Opened the post. The shared passage could not be matched.");
   }, [entered, sharedLink, messageByKey, archiveChecked, account.configReady, account.config?.archiveEnabled, snapshot.messages.length]);
@@ -889,7 +909,7 @@ export default function App() {
 
   const handleJumpToMessageId = useCallback(
     (id: number) => {
-      const target = snapshot.messages.find((m) => m.message_id === id);
+      const target = snapshot.manifest ? messageByKey.get(`${snapshot.manifest.source.chat_id}:${id}`) : null;
       if (!target) {
         setError(`Message #${id} not in archive.`);
         return;
@@ -900,9 +920,12 @@ export default function App() {
   );
 
   const handleOpenQuoteSource = (currentMessage: MessageRecord, replyToMsgId:number) => {
-    const target = snapshot.messages.find(m=>m.message_id===replyToMsgId);
+    const target = messageByKey.get(`${currentMessage.chat_id}:${replyToMsgId}`);
     if(!target){setError(`Quoted post #${replyToMsgId} is not in this archive.`);return;}
-    setLibraryOpen(false);setReaderSearchOpen(false);setSourcePeek({message:target,origin:currentMessage});
+    const offset = currentMessage.quote_offset_utf16;
+    const origin = offset == null ? currentMessage : { ...currentMessage,
+      quote_offset_utf16: offset + albumCaptionOffset(target, `${currentMessage.chat_id}:${replyToMsgId}`) };
+    setLibraryOpen(false);setReaderSearchOpen(false);setSourcePeek({message:target,origin});
   };
   function restoreEntry(target: NavEntry):void {
     fullFeedNavigationRef.current=target.view==="read";setVisibleMessageKey(target.messageKey);
@@ -929,28 +952,32 @@ export default function App() {
     },250);
   }
   function cardExtras(message:MessageRecord) {
+    const keys = postMembers(message).map(member => member.message_key);
+    const belongsToPost = (key: string) => keys.includes(key);
     return {
       quotingPosts: quotingPosts.get(message.message_key),
       onOpenQuotingPost: focusMessage,
       onCopyReaderLink: copyReaderLink,
-      collections:personal.collections.map(collection=>({id:collection.id,title:collection.title,added:collection.items.some(item=>item.messageKey===message.message_key&&!item.passageId)})),
+      collections:personal.collections.map(collection=>({id:collection.id,title:collection.title,added:collection.items.some(item=>belongsToPost(item.messageKey)&&!item.passageId)})),
       onAddToCollection:(m:MessageRecord,collectionId:string)=>{const current=personalRef.current;const collection=current.collections.find(item=>item.id===collectionId);if(!collection||collection.items.some(item=>item.messageKey===m.message_key&&!item.passageId))return;commitPersonal({...current,collections:current.collections.map(item=>item.id===collectionId?{...item,items:[...item.items,{id:crypto.randomUUID(),messageKey:m.message_key}]}:item)});setNotice(`Added to “${collection.title}”.`);},
       onOpenCollections:()=>{setLibraryInitialTab("collections");setLibraryOpen(true);},
-      readingStatus:personal.statuses[message.message_key] ?? null,
+      readingStatus:keys.map(key => personal.statuses[key]).find(Boolean) ?? null,
       onSetReadingStatus:(m:MessageRecord,status:"in-progress"|"finished"|"revisit"|null)=>{
         const current=personalRef.current;const statuses={...current.statuses};
-        if(status)statuses[m.message_key]=status;else delete statuses[m.message_key];
-        commitPersonal({...current,statuses,queue:status==="finished"?current.queue.filter(k=>k!==m.message_key):current.queue});
+        for (const key of keys) delete statuses[key];
+        if(status)statuses[m.message_key]=status;
+        commitPersonal({...current,statuses,queue:status==="finished"?current.queue.filter(k=>!belongsToPost(k)):current.queue});
       },
-      queued:personal.queue.includes(message.message_key),
-      onToggleQueue:(m:MessageRecord)=>{const c=personalRef.current;commitPersonal({...c,queue:c.queue.includes(m.message_key)?c.queue.filter(k=>k!==m.message_key):[...c.queue,m.message_key]});},
-      note:personal.notes[message.message_key]??"",
-      onSaveNote:(m:MessageRecord,note:string)=>{const c=personalRef.current;const notes={...c.notes};if(note.trim())notes[m.message_key]=note;else delete notes[m.message_key];commitPersonal({...c,notes});setNotice("Note saved.");},
-      savedPassages:personal.passages.filter(p=>p.messageKey===message.message_key),
+      queued:personal.queue.some(belongsToPost),
+      onToggleQueue:(m:MessageRecord)=>{const c=personalRef.current;commitPersonal({...c,queue:c.queue.some(belongsToPost)?c.queue.filter(k=>!belongsToPost(k)):[...c.queue,m.message_key]});},
+      note:keys.map(key=>personal.notes[key]).filter(Boolean).join("\n\n"),
+      onSaveNote:(m:MessageRecord,note:string)=>{const c=personalRef.current;const notes={...c.notes};for(const key of keys)delete notes[key];if(note.trim())notes[m.message_key]=note;commitPersonal({...c,notes});setNotice("Note saved.");},
+      savedPassages:personal.passages.filter(p=>belongsToPost(p.messageKey)),
       onSavePassage:(m:MessageRecord,text:string)=>{const c=personalRef.current;if(c.passages.some(p=>p.messageKey===m.message_key&&p.text===text))return;commitPersonal({...c,passages:[...c.passages,{id:crypto.randomUUID(),messageKey:m.message_key,text,note:"",createdAt:nowIso()}]});setNotice("Passage saved to My work.");},
       onRemovePassage:(id:string)=>{const c=personalRef.current;commitPersonal({...c,passages:c.passages.filter(p=>p.id!==id),collections:c.collections.map(col=>({...col,items:col.items.filter(i=>i.passageId!==id)}))});},
       mediaMode:preferences.mediaMode,
       mediaPlayback:personal.media[message.message_key]??null,
+      mediaPlaybackByKey:personal.media,
       onSaveMediaPlayback:(m:MessageRecord,playback:{time:number;rate:number})=>{const c=personalRef.current;commitPersonal({...c,media:{...c.media,[m.message_key]:playback}});},
       searchHighlight:readerSearchOpen?readerSearch:"",
       onReadAround:(m:MessageRecord)=>readAround(m.message_key)
@@ -995,7 +1022,7 @@ export default function App() {
     if(positionTimerRef.current){window.clearTimeout(positionTimerRef.current);positionTimerRef.current=null;}
     try{
       if(file.size>20_000_000)throw new Error("Backup exceeds the 20 MB limit.");
-      const data=parseBackup(JSON.parse(await file.text()),snapshot);
+      const data=parseBackup(JSON.parse(await file.text()),archiveSnapshot);
       // Preflight browser storage before committing the IndexedDB transaction.
       const previous=personalRef.current;const previousPrefs=preferences;
       try {if(!accountActiveRef.current){saveReadingState(data.readingState);savePreferences(data.preferences);await restoreLegacyReadingState(data.bookmarks,data.readOverrides,data.readCursor);}}

@@ -84,6 +84,8 @@ export interface ArchiveMessage {
 }
 
 export interface MessageRecord extends ArchiveMessage {
+  /** Original Telegram messages belonging to this displayed album; never replaces archive rows. */
+  album_members?: MessageRecord[];
   thread_root_id: number;
   thread_key: string;
   reply_parent_key: string | null;

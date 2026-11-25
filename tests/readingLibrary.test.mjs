@@ -9,7 +9,23 @@ const require=createRequire(import.meta.url);
 const source=readFileSync(new URL('../src/components/ReadingLibrary.tsx',import.meta.url),'utf8');
 const js=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX}}).outputText;
 const mod={exports:{}};
-new Function('require','module','exports',js)(name=>name==='./CustomSelect'?{default:props=>React.createElement('select',props,props.children)}:name==='../lib/readingState'?{moveItem:()=>{throw Error('Not used');}}:require(name),mod,mod.exports);
+const postsModule={exports:{}};
+const postsJs=ts.transpileModule(readFileSync(new URL('../src/lib/readerPosts.ts',import.meta.url),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
+new Function('require','module','exports',postsJs)(require,postsModule,postsModule.exports);
+new Function('require','module','exports',js)(name=>name==='../lib/readerPosts'?postsModule.exports:name==='./CustomSelect'?{default:props=>React.createElement('select',props,props.children)}:name==='../lib/readingState'?{moveItem:()=>{throw Error('Not used');}}:require(name),mod,mod.exports);
+
+test('saved work on an album’s second photo still opens the complete post',()=>{
+ const state={queue:['chat:2'],statuses:{},notes:{},passages:[],collections:[]};
+ const opened=[];let tree;
+ const messages=[{message_key:'chat:1',message_id:1,text:'Album caption',album_members:[{message_key:'chat:1'},{message_key:'chat:2'}]}];
+ try{
+  act(()=>{tree=Renderer.create(React.createElement(mod.exports.default,{state,messages,onChange(){},onOpenMessage:key=>opened.push(key),onReadAround(){}}));});
+  const open=tree.root.findAllByType('button').find(button=>button.children.join('')==='Open post');
+  assert.equal(open.props.disabled,false);
+  act(()=>open.props.onClick());assert.deepEqual(opened,['chat:2']);
+  assert.ok(JSON.stringify(tree.toJSON()).includes('Album caption'));
+ }finally{if(tree)act(()=>tree.unmount());}
+});
 
 test('collection chooser immediately includes newly saved posts and keeps passages distinct',()=>{
  let state={queue:[],statuses:{},notes:{},passages:[{id:'highlight',messageKey:'chat:1',text:'Selected words',note:''}],collections:[{id:'collection',title:'Ideas',introduction:'',items:[]}]};

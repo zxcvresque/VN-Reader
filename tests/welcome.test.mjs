@@ -16,6 +16,7 @@ const compile = (path, dependencies = {}) => {
 const customSelect = compile('../src/components/CustomSelect.tsx', { 'react-dom': { createPortal: content => content } });
 const preferences = compile('../src/lib/preferences.ts');
 const readerLinks = compile('../src/lib/readerLinks.ts');
+const readerPosts = compile('../src/lib/readerPosts.ts');
 const messageSearch = compile('../src/lib/messageSearch.ts');
 const touchLayout = compile('../src/lib/useTouchLayout.ts');
 const entry = compile('../src/lib/entry.ts');
@@ -84,11 +85,11 @@ test('guest entry persists separately from authentication and tolerates blocked 
   } finally { env.restore(); }
 });
 
-async function appFixture({ cached = false, cacheFails = false, archiveFails = false, savedPosition = false, archiveFetcher, skipTour=false, sharedUrl } = {}) {
+async function appFixture({ cached = false, cacheFails = false, archiveFails = false, savedPosition = false, archiveFetcher, skipTour=false, sharedUrl, album=false } = {}) {
   const env = environment();
   if(skipTour)entry.rememberTourInvitation();
   const demo = compile('../src/lib/demo.ts', { './idb': {} });
-  const messages = demo.DEMO_MESSAGES;
+  const messages = demo.DEMO_MESSAGES.map((message,index) => album && [1,2].includes(index) ? {...message,grouped_id:77} : message);
   const manifest = { source: { chat_id: messages[0].chat_id }, range: {}, counts: {} };
   const snapshot = { manifest: cached ? manifest : null, messages: cached ? messages : [], threads: [], bookmarks: [], readOverrides: [], readCursor: null, importSessions: [], directoryHandle: null };
   let cacheWrites=0;
@@ -113,6 +114,7 @@ async function appFixture({ cached = false, cacheFails = false, archiveFails = f
   }) };
   deps['./lib/messageSearch'] = messageSearch;
   deps['./lib/readerLinks'] = readerLinks;
+  deps['./lib/readerPosts'] = readerPosts;
   if (sharedUrl) window.location = new URL(sharedUrl);
   const { default: App } = compile('../src/App.tsx', deps);
   const restoreTarget={};
@@ -258,6 +260,20 @@ test('shared posts take precedence over a saved position after guest entry', asy
     assert.deepEqual(f.jumps.at(-1), { index: 6, align: 'start' });
     assert.equal(f.root.root.findAllByProps({ 'data-component': 'ReaderGuide' }).length, 0);
   } finally { f.close(); }
+});
+
+test('album members display once and old saved positions and ID jumps resolve to their post', async () => {
+ const f=await appFixture({album:true,savedPosition:true,skipTour:true});
+ try {
+  await f.guest();
+  const virtual=()=>f.root.root.findAll(node=>typeof node.props.renderMessage==='function')[0];
+  assert.equal(virtual().props.messages.length,f.messages.length-1);
+  assert.equal(virtual().props.messages[1].album_members.length,2);
+  assert.equal(f.positions.at(-1).messageKey,f.messages[1].message_key);
+  const palette=f.root.root.findAll(node=>typeof node.props.onJumpToMessageId==='function')[0];
+  await act(async()=>palette.props.onJumpToMessageId(f.messages[2].message_id));
+  assert.deepEqual(f.jumps.at(-1),{index:1,align:'start'});
+ } finally { f.close(); }
 });
 
 test('passage links address the chosen UTF-16 occurrence and reject changed content', () => {

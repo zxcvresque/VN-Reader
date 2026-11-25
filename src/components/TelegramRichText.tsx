@@ -78,8 +78,6 @@ function applyEntityStyles(
         );
       case "MessageEntitySpoiler":
         return <span key={key} className="tg-spoiler">{current}</span>;
-      case "MessageEntityBlockquote":
-        return <span key={key} className="tg-inline-quote">{current}</span>;
       case "MessageEntitySearchHighlight":
         return <mark key={key} className="tg-search-highlight">{current}</mark>;
       case "MessageEntityPassageHighlight":
@@ -173,13 +171,38 @@ export default function TelegramRichText({
     return nodes;
   }
 
-  const paragraphs: ReactNode[] = [];
-  let cursor = 0;
-  for (const separator of normalizedText.matchAll(/\n[ \t]*\n+/g)) {
-    const end = separator.index ?? 0;
+  function renderParagraphs(start: number, end: number): ReactNode[] {
+    const paragraphs: ReactNode[] = [];
+    // Block boundaries may fall after a single newline rather than a blank line.
+    while (start < end && normalizedText[start] === "\n") start++;
+    while (end > start && normalizedText[end - 1] === "\n") end--;
+    if (start === end) return paragraphs;
+    let cursor = start;
+    for (const separator of normalizedText.slice(start, end).matchAll(/\n[ \t]*\n+/g)) {
+      const boundary = start + (separator.index ?? 0);
+      paragraphs.push(<p className="reader-text-paragraph" data-paragraph-offset={cursor} key={cursor}>{renderRange(cursor, boundary)}</p>);
+      cursor = boundary + separator[0].length;
+    }
     paragraphs.push(<p className="reader-text-paragraph" data-paragraph-offset={cursor} key={cursor}>{renderRange(cursor, end)}</p>);
-    cursor = end + separator[0].length;
+    return paragraphs;
   }
-  paragraphs.push(<p className="reader-text-paragraph" data-paragraph-offset={cursor} key={cursor}>{renderRange(cursor, normalizedText.length)}</p>);
-  return <div className={["telegram-rich-text", className].filter(Boolean).join(" ")}>{paragraphs}</div>;
+
+  const quotes: Array<{ start: number; end: number }> = [];
+  for (const entity of normalizedEntities.filter(entity => entity._ === "MessageEntityBlockquote").sort((a, b) => a.offset - b.offset)) {
+    const start = Math.max(0, entity.offset);
+    const end = Math.min(normalizedText.length, entity.offset + entity.length);
+    if (end <= start) continue;
+    const previous = quotes.at(-1);
+    if (previous && start < previous.end) previous.end = Math.max(previous.end, end);
+    else quotes.push({ start, end });
+  }
+  const blocks: ReactNode[] = [];
+  let cursor = 0;
+  for (const quote of quotes) {
+    blocks.push(...renderParagraphs(cursor, quote.start));
+    blocks.push(<blockquote className="tg-post-quote" key={`quote-${quote.start}`}>{renderParagraphs(quote.start, quote.end)}</blockquote>);
+    cursor = quote.end;
+  }
+  blocks.push(...renderParagraphs(cursor, normalizedText.length));
+  return <div className={["telegram-rich-text", className].filter(Boolean).join(" ")}>{blocks}</div>;
 }

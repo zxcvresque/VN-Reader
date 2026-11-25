@@ -804,6 +804,37 @@ a:hover {
   color: var(--accent);
 }
 
+/* Quotes inside a post are content, separate from the linked reply-source preview. */
+.telegram-rich-text > .tg-post-quote {
+  margin: .6em 0 var(--reader-paragraph-spacing);
+  padding: .65em .9em;
+  border-inline-start: 3px solid var(--unread);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--unread) 12%, transparent);
+  color: inherit;
+  font: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.telegram-rich-text > .tg-post-quote:last-child { margin-bottom: 0; }
+.telegram-rich-text > .tg-post-quote > .reader-text-paragraph:last-child { margin-bottom: 0; }
+
+.reader-album {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin: .6rem 0 1rem;
+  align-items: start;
+}
+.reader-album > .reader-media { min-width: 0; margin: 0; }
+.reader-album > .reader-media:last-child:nth-child(odd) { grid-column: 1 / -1; }
+.reader-album .reader-media-visual { object-fit: contain; }
+.reader-album .reader-media-image-button:focus-visible { outline-offset: -3px; }
+@media (max-width: 480px) {
+  .reader-album { gap: 4px; }
+  .reader-album > .reader-media-collapsed { grid-column: 1 / -1; }
+}
+
 .reader-empty-copy {
   margin: 0;
   color: var(--text-dim);

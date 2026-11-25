@@ -25,6 +25,7 @@ interface MessageCardProps {
   onRemovePassage?: (id: string) => void;
   mediaMode?: "compact" | "full" | "collapsed";
   mediaPlayback?: { time: number; rate: number } | null;
+  mediaPlaybackByKey?: Record<string, { time: number; rate: number }>;
   onSaveMediaPlayback?: (message: MessageRecord, playback: { time: number; rate: number }) => void;
   searchHighlight?: string;
   onReadAround?: (message: MessageRecord) => void;
@@ -385,7 +386,7 @@ function MediaPreview({
 export default function MessageCard({
   readingStatus = null, onSetReadingStatus, queued = false, onToggleQueue,
   note = "", onSaveNote, savedPassages = [], onSavePassage, onRemovePassage,
-  mediaMode = "compact", mediaPlayback, onSaveMediaPlayback, searchHighlight, onReadAround,
+  mediaMode = "compact", mediaPlayback, mediaPlaybackByKey, onSaveMediaPlayback, searchHighlight, onReadAround,
   collections = [], onAddToCollection, onOpenCollections, onCopyReaderLink, quotingPosts, onOpenQuotingPost,
   bookmark,
   directoryHandle,
@@ -594,6 +595,13 @@ export default function MessageCard({
         </blockquote>
       ) : null}
 
+      {message.album_members ? <div className="reader-album" role="group" aria-label={`Media album with ${message.album_members.length} items`}>
+        {message.album_members.map(member => <MediaPreview key={member.message_key}
+          directoryHandle={directoryHandle} message={member} onOpenMedia={onOpenMedia}
+          mediaMode={mediaMode} mediaPlayback={mediaPlaybackByKey?.[member.message_key]}
+          onSaveMediaPlayback={onSaveMediaPlayback} />)}
+      </div> : null}
+
       <div className="reader-message-body" data-tour="passages" ref={bodyRef} onMouseUp={captureSelection} onKeyUp={captureSelection} onTouchEnd={captureSelection}>
         {message.text ? (
           <TelegramRichText
@@ -604,9 +612,9 @@ export default function MessageCard({
             searchHighlight={searchHighlight}
             savedPassageTexts={savedPassages.map((passage) => passage.text)}
           />
-        ) : (
+        ) : !message.album_members ? (
           <p className="reader-empty-copy">No text content</p>
-        )}
+        ) : null}
       </div>
 
       {selectedPassage && (onSavePassage || onCopyReaderLink) ? <div className="reader-selection-bar" role="status">
@@ -615,14 +623,14 @@ export default function MessageCard({
         <button type="button" className="reader-text-button" onClick={() => setSelectedPassage(null)}>Dismiss</button>
       </div> : null}
 
-      <MediaPreview
+      {!message.album_members && <MediaPreview
         directoryHandle={directoryHandle}
         message={message}
         onOpenMedia={onOpenMedia}
         mediaMode={mediaMode}
         mediaPlayback={mediaPlayback}
         onSaveMediaPlayback={onSaveMediaPlayback}
-      />
+      />}
 
       <footer className="reader-message-footer">
         <div className="reader-study-controls reader-compact-controls" data-tour="reading-state">

@@ -1,6 +1,7 @@
 import CustomSelect from "./CustomSelect";
 import { useMemo, useState, type FormEvent } from "react";
 import type { MessageRecord } from "../types";
+import { indexReaderPosts } from "../lib/readerPosts";
 import { moveItem, type ReadingCollection, type ReadingState, type ReadingStatus } from "../lib/readingState";
 
 interface ReadingLibraryProps {
@@ -43,7 +44,7 @@ export default function ReadingLibrary({ idPrefix = "", savedPostKeys = [], init
   const [postKey, setPostKey] = useState("");
   const [savedItem, setSavedItem] = useState("");
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
-  const messageMap = useMemo(() => new Map(messages.map((message) => [message.message_key, message])), [messages]);
+  const messageMap = useMemo(() => indexReaderPosts(messages), [messages]);
   const passageMap = useMemo(() => new Map(state.passages.map((passage) => [passage.id, passage])), [state.passages]);
   const collection = state.collections.find((item) => item.id === selectedCollection) ?? state.collections[0];
   const normalized = query.trim().toLocaleLowerCase();
