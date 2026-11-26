@@ -97,7 +97,7 @@ def record(message, source):
         "media_origin": "link-preview" if poll_media and poll_media.__class__.__name__ == "MessageMediaWebPage" else "attachment" if file else None,
         "media_preview_url": getattr(getattr(poll_media,"webpage",None),"url",None) if poll_media and poll_media.__class__.__name__ == "MessageMediaWebPage" else None,
         "media_preview": preview_metadata(getattr(poll_media,"webpage",None)) if poll_media and poll_media.__class__.__name__ == "MessageMediaWebPage" else None,
-        "media_download_error": None, "external_urls": list(dict.fromkeys(re.findall(r'https?://[^\s<>]+', text) + [e.url for e in (getattr(message, "entities", None) or []) if getattr(e, "url", None)])), "media_raw": {"mime_type": getattr(file, "mime_type", None), "name": getattr(file, "name", None), "size": getattr(file, "size", None)} if file else poll_snapshot,
+        "media_download_error": None, "external_urls": list(dict.fromkeys(re.findall(r'https?://[^\s<>]+', text) + [e.url for e in (getattr(message, "entities", None) or []) if getattr(e, "url", None)])), "media_raw": {"mime_type": getattr(file, "mime_type", None), "name": getattr(file, "name", None), "size": getattr(file, "size", None), "width": getattr(file, "width", None), "height": getattr(file, "height", None)} if file else poll_snapshot,
         "reply_parent_id": parent, "reply_to_msg_id": parent, "reply_to_top_id": getattr(reply, "reply_to_top_id", None),
         "reply_to_peer_id": serialized(getattr(reply, "reply_to_peer_id", None)), "is_reply": parent is not None, "is_quote_reply": bool(quote_text),
         "quote_text": quote_text, "quote_text_length": len(quote_text or ""),

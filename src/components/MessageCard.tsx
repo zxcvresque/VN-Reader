@@ -1,3 +1,4 @@
+import { mediaDimensions } from "../lib/mediaDimensions";
 import CustomSelect from "./CustomSelect";
 import { useEffect, useMemo, useRef, useState, type SyntheticEvent } from "react";
 import { createPortal } from "react-dom";
@@ -127,6 +128,7 @@ function articleLinkTitle(url: string | null): string {
 function MediaPreview({
   directoryHandle,
   message,
+  inAlbum = false,
   onOpenMedia,
   mediaMode = "compact",
   mediaPlayback,
@@ -134,11 +136,14 @@ function MediaPreview({
 }: {
   directoryHandle: FileSystemDirectoryHandle | null;
   message: MessageRecord;
+  inAlbum?: boolean;
   mediaMode?: "compact" | "full" | "collapsed";
   mediaPlayback?: { time: number; rate: number } | null;
   onSaveMediaPlayback?: (message: MessageRecord, playback: { time: number; rate: number }) => void;
   onOpenMedia?: (url: string, kind: string | null, caption?: string) => void;
 }) {
+  const [loadedSource, setLoadedSource] = useState<string | null>(null);
+  const dimensions = mediaDimensions(message.media_raw);
   const [expanded, setExpanded] = useState(false);
   const mediaRef = useRef<HTMLMediaElement | null>(null);
   const lastSavedTime = useRef(-1);
@@ -347,20 +352,29 @@ function MediaPreview({
     );
   }
 
+  const loaded = loadedSource === objectUrl;
+  const stageClass = `reader-media-stage${loaded ? "" : " is-loading"}${dimensions ? " has-dimensions" : ""}`;
+  const dimensionStyle = dimensions && !inAlbum ? { width: `min(100%, ${mediaMode === "full" ? dimensions.width : Math.min(dimensions.width, 260 * dimensions.width / dimensions.height)}px)` } : undefined;
+  const sizeProps = dimensions ? { width: dimensions.width, height: dimensions.height } : {};
+  const loadingLabel = !loaded && !dimensions ? <span className="reader-media-loading-label" role="status">Loading media…</span> : null;
   const caption = `#${message.message_id} · ${message.media_path ?? ""}`;
 
   if (message.media_kind === "photo" || message.media_kind === "sticker") {
-    return <figure className={mediaClass}>
-      {onOpenMedia ? <button type="button" className="reader-media-image-button" aria-label={`Expand ${message.media_kind}`} onClick={() => onOpenMedia(objectUrl, message.media_kind, caption)}>
-        <img className="reader-media-visual" src={objectUrl} alt={`Attached ${message.media_kind}`} loading="lazy" onError={failedMedia}/>
-      </button> : <img className="reader-media-visual" src={objectUrl} alt={`Attached ${message.media_kind}`} loading="lazy" onError={failedMedia}/>}
+    const image = <img className="reader-media-visual" src={objectUrl} alt={`Attached ${message.media_kind}`} {...sizeProps} loading="lazy" onLoad={() => setLoadedSource(objectUrl)} onError={failedMedia}/>;
+    return <figure className={mediaClass} style={dimensionStyle}>
+      <div className={stageClass} style={dimensions && !inAlbum ? { aspectRatio: `${dimensions.width} / ${dimensions.height}` } : undefined} aria-busy={!loaded}>{loadingLabel}
+        {onOpenMedia ? <button type="button" className="reader-media-image-button" aria-label={`Expand ${message.media_kind}`} onClick={() => onOpenMedia(objectUrl, message.media_kind, caption)}>{image}</button> : image}
+      </div>
     </figure>;
   }
 
   if (message.media_kind === "video" || message.media_kind === "animation") {
-    return <figure className={mediaClass}>
-      <video ref={mediaRef as React.RefObject<HTMLVideoElement>} className="reader-media-visual" src={objectUrl} controls preload="metadata" onError={failedMedia}
-        onLoadedMetadata={restorePlayback} onTimeUpdate={savePlayback} onPause={(event) => savePlayback(event, true)} onSeeked={(event) => savePlayback(event, true)} onRateChange={(event) => { setPlaybackRate(event.currentTarget.playbackRate); savePlayback(event, true); }} />
+    return <figure className={mediaClass} style={dimensionStyle}>
+      <div className={stageClass} style={dimensions && !inAlbum ? { aspectRatio: `${dimensions.width} / ${dimensions.height}` } : undefined} aria-busy={!loaded}>{loadingLabel}
+      <video ref={mediaRef as React.RefObject<HTMLVideoElement>} className="reader-media-visual" src={objectUrl} {...sizeProps} controls preload="metadata" onError={failedMedia}
+        onLoadedData={() => setLoadedSource(objectUrl)}
+        onLoadedMetadata={event => { restorePlayback(event); setLoadedSource(objectUrl); }} onTimeUpdate={savePlayback} onPause={(event) => savePlayback(event, true)} onSeeked={(event) => savePlayback(event, true)} onRateChange={(event) => { setPlaybackRate(event.currentTarget.playbackRate); savePlayback(event, true); }} />
+      </div>
       {speedControl}
       {onOpenMedia ? <button type="button" className="reader-inline-button" onClick={() => onOpenMedia(objectUrl, message.media_kind, caption)}>Expand video</button> : null}
     </figure>;
@@ -595,9 +609,9 @@ export default function MessageCard({
         </blockquote>
       ) : null}
 
-      {message.album_members ? <div className="reader-album" role="group" aria-label={`Media album with ${message.album_members.length} items`}>
+      {message.album_members ? <div className="reader-album" data-count={message.album_members.length} data-media-mode={mediaMode} role="group" aria-label={`Media album with ${message.album_members.length} items`}>
         {message.album_members.map(member => <MediaPreview key={member.message_key}
-          directoryHandle={directoryHandle} message={member} onOpenMedia={onOpenMedia}
+          directoryHandle={directoryHandle} message={member} inAlbum onOpenMedia={onOpenMedia}
           mediaMode={mediaMode} mediaPlayback={mediaPlaybackByKey?.[member.message_key]}
           onSaveMediaPlayback={onSaveMediaPlayback} />)}
       </div> : null}

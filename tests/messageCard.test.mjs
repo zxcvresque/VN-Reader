@@ -14,7 +14,11 @@ const quoteSource = readFileSync(new URL('../src/lib/quoteHighlight.ts', import.
 const quoteJs = ts.transpileModule(quoteSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText;
 const quoteModule = { exports: {} };
 new Function('require', 'module', 'exports', quoteJs)(require, quoteModule, quoteModule.exports);
+const dimensionsSource = readFileSync(new URL('../src/lib/mediaDimensions.ts', import.meta.url), 'utf8');
+const dimensionsModule = { exports: {} };
+new Function('require', 'module', 'exports', ts.transpileModule(dimensionsSource, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText)(require, dimensionsModule, dimensionsModule.exports);
 const dependencies = {
+  '../lib/mediaDimensions': dimensionsModule.exports,
   '../lib/quoteHighlight': quoteModule.exports,
   './CustomSelect': { default: () => null },
   '../lib/media': { getMediaObjectUrl: async () => '' },

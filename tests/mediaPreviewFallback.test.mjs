@@ -10,7 +10,11 @@ const require = createRequire(import.meta.url);
 const source = `${readFileSync(new URL('../src/components/MessageCard.tsx', import.meta.url), 'utf8')}\nexport { MediaPreview };`;
 const js = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } }).outputText;
 const module = { exports: {} };
+const dimensionsSource = readFileSync(new URL('../src/lib/mediaDimensions.ts', import.meta.url), 'utf8');
+const dimensionsModule = { exports: {} };
+new Function('require', 'module', 'exports', ts.transpileModule(dimensionsSource, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText)(require, dimensionsModule, dimensionsModule.exports);
 const dependencies = {
+  '../lib/mediaDimensions': dimensionsModule.exports,
   './CustomSelect': { default: () => null },
   '../lib/media': { getMediaObjectUrl: async () => 'blob:local-photo' },
   '../lib/quoteHighlight': {},
@@ -228,4 +232,25 @@ test('a text-only Telegram preview renders its saved article details without req
     assert.equal(f.tree.root.findByType('a').props.href, 'https://example.org/article');
     assert.doesNotMatch(text(f.tree), /Retry media|unavailable/);
   } finally { f.dispose(); }
+});
+
+
+test('photo loading reserves recorded proportions and completes only when its source loads', () => {
+  const f = fixture(async () => response(200), {media_raw:{width:800,height:1200}});
+  try {
+    const image = f.tree.root.findByType('img');
+    assert.equal(image.props.width, 800);
+    assert.equal(image.props.height, 1200);
+    assert.equal(f.tree.root.findByProps({'aria-busy':true}).props.className, 'reader-media-stage is-loading has-dimensions');
+    act(() => image.props.onLoad());
+    assert.equal(f.tree.root.findByProps({'aria-busy':false}).props.className, 'reader-media-stage has-dimensions');
+  } finally { f.dispose(); }
+});
+
+test('legacy Telegram photo sizes choose the largest real dimensions; missing data invents none', () => {
+  const {mediaDimensions} = dimensionsModule.exports;
+  assert.deepEqual(mediaDimensions({photo:{sizes:[{w:80,h:120},{w:800,h:1200}]}}),{width:800,height:1200});
+  assert.deepEqual(mediaDimensions({document:{attributes:[{w:1920,h:1080}]}}),{width:1920,height:1080});
+  assert.equal(mediaDimensions({width:0,height:100}),null);
+  assert.equal(mediaDimensions(null),null);
 });
