@@ -3482,6 +3482,8 @@ button.top-bar-home:hover .top-bar-mark { filter: brightness(1.12); }
 :root[data-theme="glass"] :is(.top-bar, .reader-message, .stat-panel, .library-card, .launchpad-tile, .reader-settings, .account-dialog, .command-palette, .reader-tools-menu > div, .welcome-path, .welcome-theme-options, .welcome-walkthrough) { -webkit-backdrop-filter: blur(22px) saturate(170%); backdrop-filter: blur(22px) saturate(170%); border-color: var(--border-strong); }
 :root[data-theme="glass"] :is(.reader-settings, .account-dialog, .command-palette, .welcome-theme-options, .welcome-walkthrough, .top-bar-utility-panel, .post-more-panel) { background-color: var(--bg-elevated); }
 :root[data-theme="glass"] :is(select, option) { background-color: var(--bg-0); color: var(--text); }
+:root[data-theme="glass"] .reader-source-peek { background: var(--bg-elevated); -webkit-backdrop-filter: blur(22px) saturate(170%); backdrop-filter: blur(22px) saturate(170%); }
+:root[data-theme="glass"] .reader-source-peek > header { background: var(--bg-0); }
 :root[data-theme="glass"] .post-more-panel {
   -webkit-backdrop-filter: blur(24px) saturate(170%);
   backdrop-filter: blur(24px) saturate(170%);
@@ -3581,7 +3583,7 @@ button.top-bar-home:hover .top-bar-mark { filter: brightness(1.12); }
 .reader-media-stage { position: relative; overflow: hidden; }
 .reader-media-stage .reader-media-visual { height: auto; }
 .reader-media-stage.has-dimensions .reader-media-visual { width: 100%; height: 100%; }
-.reader-media-stage.is-loading::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: var(--bg-2); animation: mediaSkeleton 1.5s ease-in-out infinite alternate; }
+.reader-media-stage.is-loading::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(105deg, transparent 35%, color-mix(in srgb, var(--text) 14%, transparent) 50%, transparent 65%), var(--bg-2); background-size: 240% 100%; animation: mediaSkeleton 1.8s ease-in-out infinite; }
 .reader-media-stage.is-loading .reader-media-visual { opacity: 0; }
 .reader-media-stage.is-loading:not(.has-dimensions) .reader-media-visual { position: absolute; }
 .reader-media-loading-label { display: block; padding: .7rem; font-size: .8rem; color: var(--text-muted); }
@@ -3590,5 +3592,5 @@ button.top-bar-home:hover .top-bar-mark { filter: brightness(1.12); }
 .reader-album .reader-media-stage .reader-media-visual { width: 100%; height: 100%; }
 .reader-album .reader-media-stage.is-loading:not(.has-dimensions)::after { display: block; }
 .reader-album .reader-media-loading-label { position: absolute; z-index: 1; }
-@keyframes mediaSkeleton { from { background-color: var(--bg-2); } to { background-color: var(--bg-3); } }
-@media (prefers-reduced-motion: reduce) { .reader-media-stage.is-loading::after { animation: none; } }
+@keyframes mediaSkeleton { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+@media (prefers-reduced-motion: reduce) { .reader-media-stage.is-loading::after { animation: none; background: var(--bg-2); } }
