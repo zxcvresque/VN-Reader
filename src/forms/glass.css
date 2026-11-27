@@ -287,6 +287,15 @@ html:has(.vg[data-mode="light"]), html:has(.vg[data-mode="light"]) body { backgr
 .vg[data-mode] :is(.va-drawer, .va-modal, .va-toast).vg-glass { background: var(--vg-bg); backdrop-filter: none; -webkit-backdrop-filter: none; }
 .va-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .va-stack { display: grid; gap: 14px; }
+.va-iv-progress { width: 100%; height: 8px; border: 0; border-radius: 4px; overflow: hidden; background: var(--vg-hairline); accent-color: var(--vg-series-1); }
+.va-iv-progress::-webkit-progress-bar { background: var(--vg-hairline); }
+.va-iv-progress::-webkit-progress-value { background: var(--vg-series-1); }
+.va-iv-progress::-moz-progress-bar { background: var(--vg-series-1); }
+.va-iv-stats { display: flex; flex-wrap: wrap; gap: 16px 32px; margin: 0; }
+.va-iv-stats dt { color: var(--vg-muted); font-size: .85rem; }
+.va-iv-stats dd { margin: 3px 0 0; font-size: 1.15rem; font-weight: 600; }
+.va-iv-recent { max-height: 380px; overflow: auto; margin-top: 12px; }
+.va-iv-error { display: block; color: var(--vg-muted); font-size: .8rem; }
 .va-fieldgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .va-note { color: var(--vg-muted); font-size: 0.86rem; }
 .va-code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.84rem; padding: 2px 7px; border-radius: 7px; background: var(--vg-field); overflow-wrap: anywhere; }

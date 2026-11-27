@@ -1,5 +1,6 @@
 """Startup rate limits pause the existing clients instead of restarting them."""
 import io
+import asyncio
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -60,6 +61,38 @@ class MirrorStartupTests(unittest.IsolatedAsyncioTestCase):
             await progress.wait(6)
         self.assertIn("startup paused safely", output.getvalue())
         self.assertEqual([call.args[0] for call in sleep.await_args_list], [5, 1])
+
+    async def test_watch_runs_iv_work_after_copying_with_the_existing_reader(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = SimpleNamespace(broadcast=True, username="VidurNeeti", title="VN", noforwards=False)
+            destination = SimpleNamespace(megagroup=True, username=None, forum=False)
+            reader = SimpleNamespace(connect=AsyncMock(), is_user_authorized=AsyncMock(return_value=True),
+                get_entity=AsyncMock(return_value=source), disconnect=AsyncMock(), catch_up=AsyncMock(),
+                add_event_handler=Mock(), get_messages=AsyncMock(return_value=SimpleNamespace(total=0)))
+            bot = SimpleNamespace(start=AsyncMock(), get_me=AsyncMock(return_value=SimpleNamespace(bot=True)),
+                get_entity=AsyncMock(side_effect=[source, destination]),
+                get_input_entity=AsyncMock(return_value="private-peer"), disconnect=AsyncMock())
+            config = {"reader_session": str(Path(directory)/"reader"), "api_id": 123,
+                      "api_hash": "fake-hash", "bot_token": "123:fake-token", "source": "@VidurNeeti",
+                      "destination": -100999, "database": str(Path(directory)/"mirror.sqlite"), "topic_id": 42}
+            copied = AsyncMock(return_value=True)
+            fake_worker = SimpleNamespace(cooldown=Mock(return_value=0), step=AsyncMock(side_effect=[True, asyncio.CancelledError()]))
+            with patch.object(mirror, "configuration", return_value=config), \
+                 patch("telethon.TelegramClient", side_effect=[reader, bot]) as clients, \
+                 patch("telethon.utils.get_peer_id", return_value=-100123), \
+                 patch.object(mirror, "Mirror", return_value=SimpleNamespace(backfill=copied, apply_edits=AsyncMock())), \
+                 patch("server.instant_view.InstantViewWorker", return_value=fake_worker) as worker, \
+                 patch.dict("os.environ", {"VN_IV_ENABLED": "true"}), \
+                 patch.object(mirror, "notify", new_callable=AsyncMock), \
+                 patch("sys.stdout", new=io.StringIO()):
+                with self.assertRaises(asyncio.CancelledError):
+                    await mirror.run("watch")
+                self.assertIs(worker.call_args.args[0], reader)
+                self.assertEqual(clients.call_count, 2)
+                copied.assert_awaited_once()
+                self.assertEqual(fake_worker.step.await_count, 2)
+            reader.disconnect.assert_awaited_once()
+            bot.disconnect.assert_awaited_once()
 
 
 if __name__ == "__main__": unittest.main()

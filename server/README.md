@@ -134,6 +134,62 @@ This follows the MTProto streaming pattern studied in
 [TG-FileStreamBot](https://github.com/EverythingSuckz/TG-FileStreamBot) and
 [FileToLink](https://github.com/Tamilupdates/FileToLink); their code was not copied.
 
+## Automatic Instant View cache
+
+The existing `mirror watch` process automatically discovers article URLs in the
+archive on startup and queues links from each newly copied or edited post. It
+fetches one Instant View at a time through its existing **user** client while
+archive copying is idle. No extra user session or desktop scheduler is needed.
+The queue, successful article blocks, unavailable results, hashes, refresh times
+and Telegram cooldowns persist in `tg_iv_pages` / `tg_meta` in the archive SQLite
+database, inside the existing `telegram-data` volume. Cloudflare D1 is not used.
+
+In **Admin → Reader activity**, the Instant View section sits alongside R2.
+It shows cached/waiting/unavailable/error counts, processing progress, saved
+article size, recent results, worker heartbeat and Telegram cooldown. Status
+refreshes every 15 seconds while the page is visible. Admins with `site.read`
+can view it; `settings.manage` is required to pause/resume fetching, discover
+archive links, retry errors, recheck unavailable pages or refresh saved articles.
+These controls preserve existing cached content and cannot clear FloodWait.
+Pause state persists across worker/VPS restarts. The browser never receives the
+internal bearer token; the account service verifies the session and CSRF before
+proxying requests to the private archive service.
+
+Defaults: `VN_IV_ENABLED=true`, `VN_IV_INTERVAL_SECONDS=2`, and
+`VN_IV_REFRESH_DAYS=30`. Both available and unavailable pages are checked again
+after 30 days. Transient failures use increasing retry delays; FloodWait pauses
+the reader for Telegram's complete interval plus one second, including after a
+restart. Successful content is kept if a later refresh fails. Original paths and
+query strings are retained; fragments and repeated URLs share one queue entry.
+Telegram, common social/video sites and direct file links are excluded.
+
+`GET /api/instant-view?url=...` only reads saved content and supports ETags. It
+never enqueues a visitor-supplied URL or calls Telegram. The link viewer uses
+cached articles when available and retains the existing preview/original-link
+fallback otherwise. Telegram rich text, headings, lists, tables, quotations and
+collapsible sections are rendered as native reader content; images, audio, video
+and third-party embeds link to the original page rather than being downloaded or
+executed on the reader origin. Telegram's partial pages are not served as full
+articles. Article JSON has a 4 MiB per-page cap.
+
+Inspect or retry the queue without opening a Telegram connection:
+
+```sh
+docker compose exec mirror python -m server.mirror iv-status
+docker compose exec mirror python -m server.mirror iv-retry
+```
+
+`iv-retry` makes unavailable/error entries eligible for the running worker again;
+it does not clear a Telegram cooldown. Optional `cache-iv` processes currently
+due work explicitly and exits when the remaining retry is over a minute away.
+It uses the same exclusive reader-session lock as `watch`: stop the mirror before
+running this command, and restart it afterward. Normal deployments need only
+`watch`, which resumes its queue automatically after container/VPS restarts.
+
+For the public archive inspected on 27 November 2026, discovery queues **1,440**
+candidate URLs across 4,527 posts. This is a count of checks, not confirmed IV
+availability. No live Telegram user session was started during local validation.
+
 ## Oracle A1 deployment
 
 Run the full stack on Oracle A1 through a Cloudflare Tunnel at `vidurneeti.xyz`.

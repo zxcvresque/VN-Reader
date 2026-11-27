@@ -17,6 +17,9 @@
     header Cache-Control "public, no-cache"
     reverse_proxy archive:8000
   }
+  handle /api/instant-view {
+    reverse_proxy archive:8000
+  }
   @telegram path /api/media/* /api/archive-health
   handle @telegram {
     header Cache-Control "no-store"

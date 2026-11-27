@@ -175,6 +175,19 @@ The account/archive services have health checks. The web service starts after th
 
 The mirror should report **Caught up · listening for new posts**. `Ctrl+C` exits the log viewer; it does not stop the detached containers. You can close SSH and your local terminal. Docker restarts services after a VPS reboot. Keep the Mac mirror stopped once the VPS mirror is active.
 
+### Automatic Instant View articles
+
+The mirror also fills a shared SQLite cache of Instant View articles while it is
+idle. After deploying the IV update, rebuild/recreate `archive`, `mirror`,
+`accounts` and `web` with `dc up -d --build archive mirror accounts web`.
+Existing archive volumes upgrade automatically, and the running mirror discovers
+old links and queues new ones. No extra cron service or local Telegram client
+is required. The default is enabled with two seconds between fetches and a
+30-day refresh period (`VN_IV_ENABLED`, `VN_IV_INTERVAL_SECONDS`,
+`VN_IV_REFRESH_DAYS`). Pause/resume, progress and retries are available beside R2
+in **Admin → Reader activity**. Use `dc exec mirror python -m server.mirror iv-status`
+for a local queue summary. This content is stored on the VPS, not in D1 or R2.
+
 ## 8. Verify the deployed site
 
 ```sh

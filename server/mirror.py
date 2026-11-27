@@ -168,6 +168,8 @@ class MirrorStore:
         self.db.execute("INSERT OR IGNORE INTO tg_archive_state VALUES(1,?,0)", (secrets.token_hex(16),))
         self.db.commit()
         self._archive_payload_cache = None
+        from .instant_view import InstantViewCache
+        self.instant_views = InstantViewCache(self.db)
 
     def close(self): self.db.close()
     def meta(self, key, default=None):
@@ -234,6 +236,7 @@ class MirrorStore:
                     if self.db.execute("SELECT 1 FROM tg_media_copies WHERE source_id=?",(message.id,)).fetchone():
                         body.update(media_present=True,media_path=f"/api/media/{message.id}",media_kind=old.get("media_kind") or body.get("media_kind"),media_raw=old.get("media_raw") or body.get("media_raw"))
                 self.db.execute("UPDATE tg_messages SET destination_id=?,record=?,status='copied',error=NULL WHERE source_id=?", (dest_id, json.dumps(body), message.id))
+                self.instant_views.enqueue(body)
             if advance:
                 checkpoint = max(self.meta("checkpoint", 0), max(m.id for m in messages))
                 self.db.execute("INSERT INTO tg_meta VALUES ('checkpoint',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (json.dumps(checkpoint),))
@@ -1002,6 +1005,17 @@ async def _run(command, state):
     from telethon import TelegramClient, events, utils, functions, types
     config = configuration()
     if not config: raise RuntimeError("Configure Telegram variables before running the mirror")
+    # These maintenance commands never authorize a client or make Telegram RPCs.
+    if command in {"iv-status", "iv-retry"}:
+        with_store = MirrorStore(config["database"])
+        try:
+            with_store.instant_views.discover()
+            if command == "iv-retry":
+                with_store.instant_views.retry_unavailable()
+            print(json.dumps(with_store.instant_views.stats(), sort_keys=True), flush=True)
+        finally:
+            with_store.close()
+        return
     Path(config["reader_session"]).parent.mkdir(parents=True, exist_ok=True)
     reader = TelegramClient(config["reader_session"], config["api_id"], config["api_hash"], flood_sleep_threshold=0)
     # Login happens only in this explicit, interactive operator command.
@@ -1043,6 +1057,28 @@ async def _run(command, state):
         source = {"chat_id": utils.get_peer_id(entity), "chat_title": entity.title, "chat_username": entity.username}
         store = MirrorStore(config["database"])
         store.bind(source, config["destination"])
+        instant_views = None
+        if command in {"watch", "cache-iv"} and os.getenv("VN_IV_ENABLED", "true").lower() in {"true", "1", "yes"}:
+            from .instant_view import InstantViewWorker
+            store.instant_views.discover()
+            instant_views = InstantViewWorker(reader, store.instant_views,
+                interval=float(os.getenv("VN_IV_INTERVAL_SECONDS", "2")),
+                refresh_seconds=int(os.getenv("VN_IV_REFRESH_DAYS", "30")) * 86400)
+            log.info("Instant View background cache: %s", store.instant_views.stats())
+        if command == "cache-iv":
+            if instant_views is None:
+                raise RuntimeError("Instant View caching is disabled")
+            state["started"] = True
+            while True:
+                if instant_views.cooldown():
+                    await progress.wait(instant_views.cooldown())
+                if await instant_views.step():
+                    continue
+                delay = instant_views.delay()
+                if delay is None or delay > 60:
+                    print(json.dumps(store.instant_views.stats(), sort_keys=True), flush=True)
+                    return
+                await asyncio.sleep(max(0.1, delay))
         progress.store = store
         topic_id = config["topic_id"] if config["topic_id"] is not None else store.meta("archive_topic_id")
         if command=="repair-media" and getattr(destination,"forum",False) and topic_id is None:
@@ -1088,6 +1124,9 @@ async def _run(command, state):
         state["started"] = True
         while True:
             try:
+                wake.clear()
+                if instant_views and instant_views.cooldown():
+                    await progress.wait(instant_views.cooldown())
                 if time.monotonic() - last_total_refresh >= 60:
                     history = await reader.get_messages(entity, limit=0)
                     progress.total = history.total
@@ -1106,9 +1145,22 @@ async def _run(command, state):
                 progress(("Backfill complete" if command=="backfill" else "Caught up · listening for new posts") if complete else "Waiting for the latest album to finish arriving", complete=complete)
                 if command == "backfill": return
                 # Catch-up polling repairs missed events/restarts. Edits received by Telethon are durable.
-                wake.clear()
-                try: await asyncio.wait_for(wake.wait(), timeout=15)
-                except asyncio.TimeoutError: pass
+                # Fill the cache while the mirror is idle. New source updates
+                # interrupt this window; all RPCs still use this one user client.
+                idle_until = time.monotonic() + 15
+                while not wake.is_set() and time.monotonic() < idle_until:
+                    delay = None
+                    if instant_views and complete:
+                        if await instant_views.step():
+                            if instant_views.cooldown():
+                                break
+                            continue
+                        delay = instant_views.delay()
+                    remaining = max(0.01, idle_until - time.monotonic())
+                    if delay is not None:
+                        remaining = min(remaining, max(0.1, delay))
+                    try: await asyncio.wait_for(wake.wait(), timeout=remaining)
+                    except asyncio.TimeoutError: pass
                 # Album members arrive as separate updates: give the group a brief settling interval.
                 await asyncio.sleep(2)
             except Exception as exc:
@@ -1134,7 +1186,7 @@ async def _run(command, state):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["login", "backfill", "watch", "repair-media"])
+    parser.add_argument("command", choices=["login", "backfill", "watch", "repair-media", "cache-iv", "iv-status", "iv-retry"])
     parser.add_argument("--env-file", default="server/.env", help="Operator configuration (never committed)")
     args = parser.parse_args()
     from dotenv import load_dotenv
@@ -1149,7 +1201,8 @@ if __name__ == "__main__":
     lock_path.parent.mkdir(parents=True,exist_ok=True)
     lock=lock_path.open("a")
     try:
-        fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        if args.command not in {"iv-status", "iv-retry"}:
+            fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
     except BlockingIOError:
         parser.exit(1,"Another mirror is already running with this reader session. Stop that terminal first.\n")
     try:

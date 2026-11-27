@@ -1,13 +1,14 @@
 """Public archive API and bounded HTTP media relay from the private Telegram group."""
 from __future__ import annotations
 import asyncio
+import json
 import logging
 import math
 import os
 import re
 import time
 from fastapi import APIRouter, HTTPException, Request
-from starlette.responses import Response, StreamingResponse, RedirectResponse
+from starlette.responses import Response, StreamingResponse, RedirectResponse, JSONResponse
 from .mirror import MirrorStore, configuration, error_label
 from .notifications import notify, configure_topic, FIELD_SCHEMA
 from .streaming import parse_range, media_headers, telegram_chunks, RangeNotSatisfiable, media_file_info
@@ -605,6 +606,59 @@ async def r2_analytics(request: Request):
         "flags": _r2_flags(db),
         "thresholds": {"warn90": _r2.WARN_90_PCT, "warn95": _r2.WARN_95_PCT, "autoStop98": _r2.AUTO_STOP_PCT},
     }
+
+
+def _require_iv_admin(request):
+    import secrets
+    token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    if not token or not secrets.compare_digest(request.headers.get("authorization", ""), f"Bearer {token}"):
+        raise HTTPException(401, "Admin session required")
+    if not _store:
+        raise HTTPException(503, "The archive is not configured yet")
+
+
+def _iv_admin_status():
+    enabled = os.getenv("VN_IV_ENABLED", "true").lower() in {"true", "1", "yes"}
+    return _store.instant_views.admin_status(enabled=enabled)
+
+
+@router.get("/api/iv-stats")
+async def instant_view_stats(request: Request):
+    _require_iv_admin(request)
+    return JSONResponse(_iv_admin_status(), headers={"Cache-Control": "no-store"})
+
+
+@router.post("/api/iv-control")
+async def instant_view_control(request: Request):
+    _require_iv_admin(request)
+    try:
+        body = await request.json()
+        if not isinstance(body, dict) or not isinstance(body.get("action"), str):
+            raise ValueError()
+        added = _store.instant_views.control(body["action"])
+    except (ValueError, TypeError):
+        raise HTTPException(422, "Choose a valid Instant View action")
+    return JSONResponse({"ok": True, "added": added, **_iv_admin_status()}, headers={"Cache-Control": "no-store"})
+
+
+@router.get("/api/instant-view")
+async def instant_view(url: str, request: Request):
+    """Read an existing article; visitors never enqueue work or call Telegram."""
+    from .instant_view import normalize_url
+    if not normalize_url(url):
+        raise HTTPException(422, "A valid public web address is required")
+    if not _store:
+        raise HTTPException(503, "The hosted archive is not configured yet")
+    cached = _store.instant_views.read(url)
+    if cached is None:
+        return JSONResponse({"status": "missing", "article": None}, headers={"Cache-Control": "public, max-age=60"})
+    body = json.dumps(cached, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    import hashlib
+    etag = 'W/"iv-' + hashlib.sha256(body).hexdigest()[:24] + '"'
+    headers = {"ETag": etag, "Cache-Control": "public, max-age=3600" if cached["article"] else "public, max-age=60"}
+    if any(value.strip().removeprefix("W/") == etag.removeprefix("W/") for value in request.headers.get("if-none-match", "").split(",")):
+        return Response(status_code=304, headers=headers)
+    return Response(body, media_type="application/json", headers=headers)
 
 
 @router.get("/api/archive")

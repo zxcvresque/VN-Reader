@@ -1,17 +1,42 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Cross2Icon, ExternalLinkIcon, CopyIcon, CheckIcon, GlobeIcon } from "@radix-ui/react-icons";
+import InstantViewArticle, { type InstantViewDocument } from "./InstantViewArticle";
 
 /** What the server learned about a link: its card details and whether it can be shown in a frame. */
 export interface LinkPreview { url: string; finalUrl: string; host: string; title: string; description: string; image: string; siteName: string; icon: string; embed: string | null; ok: boolean }
 
 const cache = new Map<string, Promise<LinkPreview>>();
+const articleCache = new Map<string, { expires: number; job: Promise<InstantViewDocument | null> }>();
+/** Reads only the server's prefilled cache; opening a link never requests a Telegram fetch. */
+export function loadInstantView(url: string): Promise<InstantViewDocument | null> {
+  const cached = articleCache.get(url);
+  if (cached && cached.expires > Date.now()) return cached.job;
+  const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), 1500);
+  const entry = { expires: Date.now() + 60000, job: Promise.resolve<InstantViewDocument | null>(null) };
+  entry.job = fetch(`/api/instant-view?url=${encodeURIComponent(url)}`, { credentials: "omit", signal: controller.signal })
+    .then(async response => {
+      if (!response.ok) return null;
+      const value = await response.json();
+      if (value.status === "ready" && value.article && Array.isArray(value.article.blocks) && typeof value.article.url === "string") {
+        entry.expires = Date.now() + 3600000;
+        return value.article as InstantViewDocument;
+      }
+      return null;
+    }).catch(() => null).finally(() => clearTimeout(timeout));
+  articleCache.set(url, entry);
+  if (articleCache.size > 300) articleCache.delete(articleCache.keys().next().value!);
+  return entry.job;
+}
 const fallback = (url: string): LinkPreview => { const host = (() => { try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; } })(); return { url, finalUrl: url, host, title: host, description: "", image: "", siteName: "", icon: "", embed: null, ok: false }; };
 /** One request per link per session; hovering again or opening it reuses the answer. */
 export function loadPreview(url: string): Promise<LinkPreview> {
   let job = cache.get(url);
   if (!job) {
-    job = fetch(`/api/link-preview?url=${encodeURIComponent(url)}`, { credentials: "omit" }).then(response => (response.ok ? response.json() as Promise<LinkPreview> : fallback(url))).catch(() => fallback(url));
+    job = loadInstantView(url).then(article => article
+      ? { ...fallback(url), finalUrl: article.url, title: article.title || fallback(url).title, siteName: article.siteName || "", ok: true }
+      : fetch(`/api/link-preview?url=${encodeURIComponent(url)}`, { credentials: "omit" }).then(response => (response.ok ? response.json() as Promise<LinkPreview> : fallback(url))))
+      .catch(() => fallback(url));
     cache.set(url, job);
     if (cache.size > 300) cache.delete(cache.keys().next().value!);
   }
@@ -49,9 +74,17 @@ function HoverCard({ preview, rect, onEnter, onLeave, onOpen }: { preview: LinkP
 }
 
 function Viewer({ url, onClose }: { url: string; onClose: () => void }) {
+  const [article, setArticle] = useState<InstantViewDocument | null>(null), [articleChecked, setArticleChecked] = useState(false);
   const [preview, setPreview] = useState<LinkPreview | null>(null), [loaded, setLoaded] = useState(false), [slow, setSlow] = useState(false), [copied, setCopied] = useState(false);
   const panel = useRef<HTMLDivElement>(null), closeRef = useRef(onClose); closeRef.current = onClose;
   useEffect(() => { let live = true; setPreview(null); setLoaded(false); setSlow(false); void loadPreview(url).then(value => { if (live) setPreview(value); }); const timer = window.setTimeout(() => setSlow(true), 7000); return () => { live = false; window.clearTimeout(timer); }; }, [url]);
+  useEffect(() => {
+    let live = true; setArticle(null); setArticleChecked(false);
+    void loadInstantView(url).then(value => { if (live) { setArticle(value); setArticleChecked(true); } });
+    // A slow cache response must not prevent opening the existing preview.
+    const timer = window.setTimeout(() => { if (live) setArticleChecked(true); }, 1500);
+    return () => { live = false; window.clearTimeout(timer); };
+  }, [url]);
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null, overflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -66,20 +99,21 @@ function Viewer({ url, onClose }: { url: string; onClose: () => void }) {
     document.addEventListener("keydown", key);
     return () => { document.body.style.overflow = overflow; document.removeEventListener("keydown", key); if (previous?.isConnected) previous.focus({ preventScroll: true }); };
   }, []);
-  const target = preview?.finalUrl ?? url;
+  const target = article?.url ?? preview?.finalUrl ?? url;
   const copy = async () => { try { await navigator.clipboard.writeText(target); setCopied(true); window.setTimeout(() => setCopied(false), 2000); } catch { /* clipboard blocked */ } };
   return <div className="link-viewer-overlay" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
-    <div className="link-viewer" ref={panel} role="dialog" aria-modal="true" aria-label={preview ? `Preview: ${preview.title}` : "Link preview"}>
+    <div className="link-viewer" ref={panel} role="dialog" aria-modal="true" aria-label={article?.title ?? (preview ? `Preview: ${preview.title}` : "Link preview")}>
       <header className="link-viewer-bar">
-        <div className="link-viewer-title">{preview ? <Favicon preview={preview} /> : <GlobeIcon className="link-favicon" aria-hidden="true" />}<div><strong>{preview?.title ?? "Opening…"}</strong><span>{preview?.host ?? (() => { try { return new URL(url).hostname; } catch { return url; } })()}</span></div></div>
+        <div className="link-viewer-title">{preview ? <Favicon preview={preview} /> : <GlobeIcon className="link-favicon" aria-hidden="true" />}<div><strong>{article?.title ?? preview?.title ?? "Opening…"}</strong><span>{preview?.host ?? (() => { try { return new URL(url).hostname; } catch { return url; } })()}</span></div></div>
         <div className="link-viewer-actions">
           <button type="button" className="link-viewer-btn is-icon" onClick={() => void copy()} aria-label="Copy link" title="Copy link">{copied ? <CheckIcon aria-hidden="true" /> : <CopyIcon aria-hidden="true" />}</button>
           <a className="link-viewer-btn" href={target} target="_blank" rel="noopener noreferrer" onClick={() => onClose()}><ExternalLinkIcon aria-hidden="true" /><span>Open in new tab</span></a>
           <button type="button" className="link-viewer-btn is-icon link-viewer-close" onClick={onClose} aria-label="Close preview" title="Close (Esc)"><Cross2Icon aria-hidden="true" /></button>
         </div>
       </header>
-      <div className="link-viewer-body">
-        {!preview ? <div className="link-viewer-wait" role="status"><span className="link-viewer-spinner" aria-hidden="true" />Loading the page…</div>
+      <div className={`link-viewer-body${article ? " has-instant-view" : ""}`}>
+        {article ? <InstantViewArticle article={article} />
+          : !preview || !articleChecked ? <div className="link-viewer-wait" role="status"><span className="link-viewer-spinner" aria-hidden="true" />Loading the page…</div>
           : preview.embed ? <>
             {!loaded && <div className="link-viewer-wait" role="status"><span className="link-viewer-spinner" aria-hidden="true" />Loading {preview.host}…</div>}
             <iframe key={preview.embed} src={preview.embed} title={preview.title} className={loaded ? "is-loaded" : ""} onLoad={() => setLoaded(true)}

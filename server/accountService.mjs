@@ -46,7 +46,7 @@ export async function createAccountApp(settings=accountSettings(),sendEmail) {
       try {res.json(accounts.admin.dashboard(day,Number(page)));}catch {res.status(422).json({detail:"Invalid day or page. Use YYYY-MM-DD and a positive page number."});}
     }catch {res.status(401).json({detail:"Your session has expired. Sign in again."});}
   });
-  async function proxyR2Admin(req,res,upstreamPath,method="GET"){
+  async function proxyArchiveAdmin(req,res,upstreamPath,method="GET"){
     let session;
     try {
       session=accounts.enabled?await accounts.auth.api.getSession({headers:fromNodeHeaders(req.headers)}):null;
@@ -64,9 +64,11 @@ export async function createAccountApp(settings=accountSettings(),sendEmail) {
       res.status(r.status).json(await r.json());
     } catch {res.status(502).json({detail:"The archive storage service is unavailable. Please retry."});}
   }
-  app.get("/api/admin/r2-stats",(req,res)=>proxyR2Admin(req,res,"/api/r2-stats"));
-  app.get("/api/admin/r2-analytics",(req,res)=>proxyR2Admin(req,res,"/api/r2-analytics"));
-  app.post("/api/admin/r2-control",(req,res)=>proxyR2Admin(req,res,"/api/r2-control","POST"));
+  app.get("/api/admin/r2-stats",(req,res)=>proxyArchiveAdmin(req,res,"/api/r2-stats"));
+  app.get("/api/admin/r2-analytics",(req,res)=>proxyArchiveAdmin(req,res,"/api/r2-analytics"));
+  app.post("/api/admin/r2-control",(req,res)=>proxyArchiveAdmin(req,res,"/api/r2-control","POST"));
+  app.get("/api/admin/iv-stats",(req,res)=>proxyArchiveAdmin(req,res,"/api/iv-stats"));
+  app.post("/api/admin/iv-control",(req,res)=>proxyArchiveAdmin(req,res,"/api/iv-control","POST"));
   forms.mount(app);
   createLinkPreviews({origin:new URL(settings.baseURL).origin}).mount(app);
   createSeo({store:forms.store,origin:new URL(settings.baseURL).origin,indexPath:settings.webIndex}).mount(app);

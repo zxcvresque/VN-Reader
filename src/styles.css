@@ -3524,6 +3524,32 @@ button.top-bar-home:hover .top-bar-mark { filter: brightness(1.12); }
 .link-viewer .link-viewer-btn.is-icon { width: 38px; padding: 0; }
 .link-viewer .link-viewer-btn.is-primary { background: var(--accent); color: var(--on-accent, #fff); border-color: transparent; min-height: 44px; padding: 0 20px; }
 .link-viewer-body { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--bg-0); }
+.link-viewer-body.has-instant-view { display: block; overflow: auto; overscroll-behavior: contain; scroll-behavior: smooth; }
+.instant-view-article { box-sizing: border-box; width: min(100%, 74ch); margin: 0 auto; padding: clamp(24px, 5vw, 64px) clamp(20px, 4vw, 48px); color: var(--text); font: 400 var(--reader-font-size, 17px)/1.75 var(--reader-font, var(--sans)); overflow-wrap: anywhere; }
+.instant-view-article h1 { margin: 0 0 24px; font-size: clamp(28px, 4vw, 40px); line-height: 1.18; text-wrap: balance; }
+.instant-view-article h2 { margin: 32px 0 12px; font-size: 1.45em; line-height: 1.3; text-wrap: balance; }
+.instant-view-article h3 { margin: 28px 0 10px; font-size: 1.15em; line-height: 1.4; }
+.instant-view-article p { margin: 0 0 18px; }
+.instant-view-article a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.instant-view-article a:focus-visible, .instant-view-article summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.instant-view-article blockquote { margin: 24px 0; padding: 18px 22px; background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius); }
+.instant-view-article blockquote p:last-child { margin-bottom: 0; }
+.instant-view-article figure { margin: 24px 0; padding: 16px 0; border-block: 1px solid var(--border); }
+.instant-view-article figcaption, .instant-view-article .iv-credit, .instant-view-article blockquote footer { color: var(--text-muted); font-size: max(14px, .85em); }
+.instant-view-article figcaption small { display: block; font-size: inherit; }
+.instant-view-article pre { overflow: auto; padding: 16px; background: var(--bg-2); border-radius: var(--radius); white-space: pre; }
+.instant-view-article code { font-family: var(--mono); font-size: .9em; }
+.instant-view-article ul, .instant-view-article ol { padding-inline-start: 26px; margin: 0 0 22px; }
+.instant-view-article li { margin: 8px 0; }
+.instant-view-article hr { margin: 32px 0; border: 0; border-top: 1px solid var(--border-strong); }
+.instant-view-article details { margin: 22px 0; }
+.instant-view-article summary { cursor: pointer; font-weight: 600; margin-bottom: 14px; }
+.instant-view-article .iv-table { overflow-x: auto; margin: 24px 0; }
+.instant-view-article table { border-collapse: collapse; width: 100%; font-size: .9em; }
+.instant-view-article th, .instant-view-article td { padding: 10px 12px; border: 1px solid var(--border-strong); text-align: start; }
+.instant-view-article .iv-subtitle { font-size: 1.15em; color: var(--text-muted); }
+.instant-view-article .iv-source { margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border); font-size: max(14px, .85em); }
+@media (prefers-reduced-motion: reduce) { .link-viewer-body.has-instant-view { scroll-behavior: auto; } }
 .link-viewer-body iframe { flex: 1; width: 100%; border: 0; background: #fff; opacity: 0; transition: opacity 200ms ease; }
 .link-viewer-body iframe.is-loaded { opacity: 1; }
 .link-viewer-wait { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 12px; color: var(--text-muted); font-size: 14px; }

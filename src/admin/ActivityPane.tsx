@@ -4,6 +4,7 @@ import type { AdminDashboardData } from "../lib/admin";
 import { fetchR2Stats, postR2Control, type R2StatsResponse } from "../lib/r2Admin";
 import { Card } from "./charts";
 import { Failure, Loading, formatDate, number, useAction, useLoad } from "./ui";
+import InstantViewPanel from "./InstantViewPanel";
 
 const size = (bytes?: number) => (bytes === undefined ? "—" : bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(2)} GB` : `${(bytes / 1024 ** 2).toFixed(1)} MB`);
 
@@ -38,5 +39,6 @@ export default function ActivityPane({ canControl }: { canControl: boolean }) {
             {flags?.autoStopped && <button type="button" className="vg-btn is-small" disabled={!!control} onClick={() => void act("r2_clear_auto_stop", "Automatic stop cleared.")}>Clear automatic stop</button>}
           </div>}</div>}
     </Card>
+    <InstantViewPanel canControl={canControl} />
   </>;
 }
