@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 export interface InstantViewDocument {
   title: string | null;
@@ -6,12 +6,36 @@ export interface InstantViewDocument {
   url: string;
   rtl: boolean;
   blocks: unknown[];
+  photos?: Record<string, { url: string; width?: number; height?: number }>;
 }
 
 type TL = Record<string, unknown>;
 const object = (value: unknown): TL => value && typeof value === "object" ? value as TL : {};
 const string = (value: unknown): string => typeof value === "string" ? value : "";
 const array = (value: unknown): unknown[] => Array.isArray(value) ? value : [];
+const photoDimension = (value: unknown): number | undefined => typeof value === "number" && Number.isInteger(value) && value > 0 && value <= 32768 ? value : undefined;
+
+function captionText(value: unknown, depth = 0): string {
+  if (depth > 20) return "";
+  if (typeof value === "string") return value;
+  const item = object(value);
+  return item._ === "TextConcat" ? array(item.texts).map(part => captionText(part, depth + 1)).join("") : captionText(item.text, depth + 1);
+}
+
+function CachedArticlePhoto({ photo, alt, fallback, inline = false, width, height }: {
+  photo: unknown; alt: string; fallback: ReactNode; inline?: boolean; width?: unknown; height?: unknown;
+}) {
+  const [failedSource, setFailedSource] = useState<string | null>(null);
+  const item = object(photo), src = string(item.url);
+  // Only files already fetched and indexed by the IV worker may render here.
+  // Publisher URLs, data URLs and URL-shaped paths are never image sources.
+  if (!/^\/api\/instant-view-media\/[a-f0-9]{64}$/.test(src) || failedSource === src) {
+    return <span className="iv-photo-unavailable">{fallback}</span>;
+  }
+  return <img className={inline ? "iv-inline-photo" : "iv-photo"} src={src} alt={alt}
+    width={photoDimension(width) ?? photoDimension(item.width)} height={photoDimension(height) ?? photoDimension(item.height)}
+    loading="lazy" decoding="async" onError={() => setFailedSource(src)} />;
+}
 
 /** Content links are data, never executable markup or embedded scripts. */
 function safeHref(value: unknown, base: string): string | undefined {
@@ -26,6 +50,11 @@ export default function InstantViewArticle({ article }: { article: InstantViewDo
   const original = safeHref(article.url, article.url);
   const link = (href: string | undefined, children: ReactNode): ReactNode => href
     ? <a href={href} target="_blank" rel="noopener noreferrer">{children}</a> : children;
+  const photoFor = (id: unknown) => {
+    if (typeof id === "number" && !Number.isSafeInteger(id)) return null;
+    const key = typeof id === "string" || typeof id === "number" ? String(id) : "";
+    return /^-?\d+$/.test(key) && Object.prototype.hasOwnProperty.call(article.photos ?? {}, key) ? article.photos?.[key] : null;
+  };
 
   function text(value: unknown, depth = 0): ReactNode {
     if (depth > 40) return null;
@@ -47,7 +76,7 @@ export default function InstantViewArticle({ article }: { article: InstantViewDo
       case "TextEmail": return child();
       case "TextPhone": return child();
       case "TextAnchor": return <span id={string(item.name)}>{child()}</span>;
-      case "TextImage": return link(original, "View image on original page");
+      case "TextImage": return <CachedArticlePhoto inline photo={photoFor(item.photo_id ?? item.document_id)} alt="Article image" width={item.w} height={item.h} fallback={link(original, "View image on original page")} />;
       default: return typeof item.text === "string" ? item.text : null;
     }
   }
@@ -93,11 +122,15 @@ export default function InstantViewArticle({ article }: { article: InstantViewDo
       case "PageBlockCollage":
       case "PageBlockSlideshow": return <section>{blocks(item.items, depth)}{caption(item.caption)}</section>;
       case "PageBlockEmbedPost": return <section>{blocks(item.blocks, depth)}{caption(item.caption)}</section>;
-      case "PageBlockPhoto":
+      case "PageBlockPhoto": return <figure className="iv-photo-figure">
+        <CachedArticlePhoto photo={photoFor(item.photo_id)} alt={captionText(object(item.caption).text).trim().slice(0, 500) || "Article image"}
+          fallback={link(safeHref(item.url, article.url) ?? original, "View image on original page")} />
+        {caption(item.caption)}
+      </figure>;
       case "PageBlockVideo":
       case "PageBlockAudio":
       case "PageBlockEmbed":
-      case "PageBlockMap": return <figure>{link(safeHref(item.url, article.url) ?? original, item._ === "PageBlockPhoto" ? "View image on original page" : item._ === "PageBlockVideo" ? "Watch video on original page" : item._ === "PageBlockAudio" ? "Listen on original page" : "Open content on original page")}{caption(item.caption)}</figure>;
+      case "PageBlockMap": return <figure>{link(safeHref(item.url, article.url) ?? original, item._ === "PageBlockVideo" ? "Watch video on original page" : item._ === "PageBlockAudio" ? "Listen on original page" : "Open content on original page")}{caption(item.caption)}</figure>;
       case "PageBlockRelatedArticles": return <section><h2>{text(item.title)}</h2><ul>{array(item.articles).map((entry, index) => {
         const related = object(entry);
         return <li key={index}>{link(safeHref(related.url, article.url), string(related.title) || string(related.url))}</li>;

@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from starlette.responses import JSONResponse
 from . import telegram
+from .reader_version import router as reader_version_router
 
 @asynccontextmanager
 async def lifespan(app):
@@ -14,6 +15,7 @@ async def lifespan(app):
 
 app = FastAPI(title="VN Reader archive", lifespan=lifespan, docs_url=None, redoc_url=None)
 app.include_router(telegram.router)
+app.include_router(reader_version_router)
 
 @app.get("/api/archive-health")
 async def health():

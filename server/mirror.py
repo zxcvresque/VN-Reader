@@ -170,6 +170,8 @@ class MirrorStore:
         self._archive_payload_cache = None
         from .instant_view import InstantViewCache
         self.instant_views = InstantViewCache(self.db)
+        from .reader_version import ReaderVersionCache
+        self.reader_versions = ReaderVersionCache(self.db)
 
     def close(self): self.db.close()
     def meta(self, key, default=None):
@@ -1058,6 +1060,7 @@ async def _run(command, state):
         store = MirrorStore(config["database"])
         store.bind(source, config["destination"])
         instant_views = None
+        reader_versions = None
         if command in {"watch", "cache-iv"} and os.getenv("VN_IV_ENABLED", "true").lower() in {"true", "1", "yes"}:
             from .instant_view import InstantViewWorker
             store.instant_views.discover()
@@ -1065,6 +1068,9 @@ async def _run(command, state):
                 interval=float(os.getenv("VN_IV_INTERVAL_SECONDS", "2")),
                 refresh_seconds=int(os.getenv("VN_IV_REFRESH_DAYS", "30")) * 86400)
             log.info("Instant View background cache: %s", store.instant_views.stats())
+            if os.getenv("VN_READER_VERSION_ENABLED", "true").lower() in {"true", "1", "yes"}:
+                from .reader_version import ReaderVersionWorker
+                reader_versions = ReaderVersionWorker(store.reader_versions)
         if command == "cache-iv":
             if instant_views is None:
                 raise RuntimeError("Instant View caching is disabled")
@@ -1156,6 +1162,12 @@ async def _run(command, state):
                                 break
                             continue
                         delay = instant_views.delay()
+                    if reader_versions and complete:
+                        if await reader_versions.step():
+                            continue
+                        reader_delay = reader_versions.delay()
+                        if reader_delay is not None:
+                            delay = reader_delay if delay is None else min(delay, reader_delay)
                     remaining = max(0.01, idle_until - time.monotonic())
                     if delay is not None:
                         remaining = min(remaining, max(0.1, delay))

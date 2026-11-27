@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { call } from "../forms/api";
 import { Card } from "./charts";
 import { formatDate, number, useAction, useLoad } from "./ui";
+import InstantViewHistory from "./InstantViewHistory";
 
 export interface InstantViewStatus {
   enabled: boolean; paused: boolean; workerOnline: boolean;
@@ -9,6 +10,8 @@ export interface InstantViewStatus {
   retryAfter: number; heartbeatAt: number | null; lastCheckedAt: number | null;
   counts: { pending: number; ready: number; unavailable: number; error: number };
   total: number; due: number; contentBytes: number; intervalSeconds: number; refreshDays: number;
+  readerVersions?: { pending: number; ready: number; unavailable: number; error: number };
+  images?: { count: number; bytes: number };
   recent: Array<{ url: string; status: string; checkedAt: number; nextAttempt: number; attempts: number; error: string | null }>;
 }
 
@@ -49,6 +52,8 @@ export default function InstantViewPanel({ canControl }: { canControl: boolean }
         {[["Articles cached", data.counts.ready], ["Waiting", data.counts.pending], ["Unavailable", data.counts.unavailable], ["Retrying errors", data.counts.error]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd className="vg-num">{number(Number(value))}</dd></div>)}
         <div><dt>Saved content</dt><dd className="vg-num">{(data.contentBytes / 1024 / 1024).toFixed(1)} MB</dd></div>
       </dl>
+      {data.images && data.images.count > 0 && <p className="va-note">{number(data.images.count)} article images saved · {(data.images.bytes / 1024 / 1024).toFixed(1)} MB</p>}
+      {data.readerVersions && <p className="va-note">Reader versions for links without Telegram IV: <strong>{number(data.readerVersions.ready)} saved</strong>, {number(data.readerVersions.pending)} waiting, {number(data.readerVersions.unavailable)} unavailable{data.readerVersions.error ? `, ${number(data.readerVersions.error)} retrying` : ""}. Prepared automatically, up to 15 checks per minute.</p>}
       {!data.total && <p className="va-note">No article links have been queued yet. Discovery runs when the archive worker starts and whenever a new post is saved.</p>}
       {data.state === "cooldown" && <p className="vg-alert" data-tone="warn">Telegram requested a pause of approximately {data.retryAfter < 60 ? `${data.retryAfter} seconds` : `${Math.ceil(data.retryAfter / 60)} minutes`}. The queue resumes automatically afterward.</p>}
       {data.state === "waiting" && <p className="va-note">The worker hasn't checked in recently. The saved queue will continue when the archive worker is running.</p>}
@@ -62,7 +67,7 @@ export default function InstantViewPanel({ canControl }: { canControl: boolean }
         <button type="button" className="vg-btn is-small" disabled={!!busy || !data.counts.unavailable} onClick={() => void control("recheck-unavailable", "Unavailable links queued for another check.")}>Recheck unavailable</button>
         <button type="button" className="vg-btn is-small" disabled={!!busy || !data.counts.ready} onClick={() => void control("refresh-articles", "Saved articles queued for a refresh. Existing copies remain readable.")}>Refresh saved articles</button>
       </div>}
-      {data.recent.length > 0 && <details><summary>Recent checks</summary><div className="va-tablewrap va-iv-recent" tabIndex={0} aria-label="Recent Instant View checks"><table className="va-table"><thead><tr><th>Article link</th><th>Result</th><th>Checked</th><th>Next check</th></tr></thead><tbody>{data.recent.map(entry => <tr key={entry.url} style={{ cursor: "default" }}><td><a href={entry.url} target="_blank" rel="noopener noreferrer" title={entry.url}>{entry.url}</a></td><td>{entry.status === "ready" ? "Cached" : entry.status === "unavailable" ? "No Instant View" : "Retry scheduled"}{entry.error && entry.error !== "InstantViewUnavailable" && <small className="va-iv-error">{entry.error}</small>}</td><td className="vg-num">{date(entry.checkedAt)}</td><td className="vg-num">{date(entry.nextAttempt)}</td></tr>)}</tbody></table></div></details>}
+      <InstantViewHistory />
     </div>}
   </Card>;
 }

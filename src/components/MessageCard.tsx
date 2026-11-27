@@ -1,8 +1,9 @@
 import { mediaDimensions } from "../lib/mediaDimensions";
 import CustomSelect from "./CustomSelect";
+import ArticleLinkPreview from "./ArticleLinkPreview";
 import { useEffect, useMemo, useRef, useState, type SyntheticEvent } from "react";
 import { createPortal } from "react-dom";
-import {BookmarkIcon,BookmarkFilledIcon,CheckIcon,DotsHorizontalIcon,ExternalLinkIcon} from "@radix-ui/react-icons";
+import {BookmarkIcon,BookmarkFilledIcon,CheckIcon,DotsHorizontalIcon} from "@radix-ui/react-icons";
 import { getMediaObjectUrl } from "../lib/media";
 import type { BookmarkRecord, MessageRecord } from "../types";
 import TelegramRichText, { extractMessageEntities } from "./TelegramRichText";
@@ -113,16 +114,6 @@ function originalArticleUrl(message: MessageRecord): string | null {
     if (url) return url;
   }
   return null;
-}
-
-function articleLinkTitle(url: string | null): string {
-  if (!url) return 'Original article';
-  const parsed = new URL(url);
-  const segment = parsed.pathname.split('/').filter(Boolean).at(-1) ?? '';
-  let slug = segment;
-  try { slug = decodeURIComponent(segment); } catch { /* Keep malformed URL escapes readable. */ }
-  const title = slug.replace(/\.(?:html?|php|aspx?)$/i, '').replace(/[-_]+/g, ' ').trim();
-  return title && /\p{L}/u.test(title) ? title : parsed.hostname.replace(/^www\./, '');
 }
 
 function MediaPreview({
@@ -312,19 +303,7 @@ function MediaPreview({
   if (previewUnavailable || metadataOnlyPreview) {
     const articleUrl = originalArticleUrl(message);
     const preview = articleUrl && safeArticleUrl(message.media_preview?.url) === articleUrl ? message.media_preview : null;
-    const title = preview?.title?.trim();
-    const description = preview?.description?.trim();
-    const hostname = articleUrl ? new URL(articleUrl).hostname.replace(/^www\./, '') : null;
-    const siteName = preview?.site_name?.trim() || hostname;
-    return <aside className="reader-media reader-media-file reader-link-preview" aria-label="Article preview">
-      <div className="reader-link-preview-content">
-        <p className="reader-link-preview-site">{siteName ?? 'Article preview'}</p>
-        <strong className="reader-link-preview-title">{title || articleLinkTitle(articleUrl)}</strong>
-        {description ? <p className="reader-link-preview-description">{description}</p> : null}
-        {!title ? <p className="reader-link-preview-caption">{articleUrl ? 'From the article link' : 'Find the original link in this post.'}</p> : null}
-      </div>
-      {articleUrl ? <a className="reader-inline-button reader-link-preview-open" href={articleUrl} target="_blank" rel="noopener noreferrer">Open article<ExternalLinkIcon aria-hidden="true" /></a> : null}
-    </aside>;
+    return <ArticleLinkPreview key={message.message_key + ":" + articleUrl} message={message} url={articleUrl} preview={preview} />;
   }
 
   if ((!directoryHandle && !message.media_path?.startsWith("/api/media/")) || !message.media_path || error) {

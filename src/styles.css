@@ -3425,6 +3425,10 @@ body { isolation: isolate; background-attachment: fixed; }
   border:1px solid var(--border-strong); border-radius:12px; cursor:default;
 }
 :root .reader-link-preview-content { display:flex; flex-direction:column; gap:8px; min-width:0; width:100%; }
+:root .reader-link-preview-body { display:flex; flex-direction:column; align-items:flex-start; gap:16px; min-width:0; flex:1; }
+:root .reader-link-preview-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+:root .reader-link-preview.has-thumbnail { display:grid; grid-template-columns:160px minmax(0,1fr); align-items:start; }
+:root .reader-link-preview .reader-link-preview-image { display:block; width:160px; height:auto; aspect-ratio:4/3; object-fit:cover; border-radius:7px; background:var(--bg-2); }
 :root .reader-link-preview p { margin:0; }
 :root .reader-link-preview-site { color:var(--accent); font-size:11px; font-weight:600; line-height:1.5; overflow-wrap:anywhere; }
 :root .reader-link-preview-title { color:var(--text); font-size:15px; line-height:1.5; overflow-wrap:anywhere; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:3; overflow:hidden; }
@@ -3434,6 +3438,7 @@ body { isolation: isolate; background-attachment: fixed; }
 :root .reader-link-preview-open svg { width:16px; height:16px; flex-shrink:0; }
 :root .reader-link-preview-open:hover { background:var(--accent-soft); }
 @media(max-width:479px) { :root .reader-link-preview { padding:16px; gap:12px; } }
+@media(max-width:599px) { :root .reader-link-preview.has-thumbnail { grid-template-columns:minmax(0,1fr); } :root .reader-link-preview .reader-link-preview-image { width:100%; max-height:220px; aspect-ratio:16/9; } }
 
 /* ---- Logo is the way home ---- */
 button.top-bar-home { background: transparent; border: 0; padding: 0; box-shadow: none; cursor: pointer; border-radius: 50%; min-height: 0; width: auto; }
@@ -3535,6 +3540,11 @@ button.top-bar-home:hover .top-bar-mark { filter: brightness(1.12); }
 .instant-view-article blockquote { margin: 24px 0; padding: 18px 22px; background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius); }
 .instant-view-article blockquote p:last-child { margin-bottom: 0; }
 .instant-view-article figure { margin: 24px 0; padding: 16px 0; border-block: 1px solid var(--border); }
+.instant-view-article .iv-photo-figure { padding: 0; border: 0; }
+.instant-view-article .iv-photo { display: block; max-width: 100%; width: auto; height: auto; margin: 0 auto; border-radius: var(--radius); }
+.instant-view-article .iv-photo-figure figcaption { margin-top: 10px; line-height: 1.5; }
+.instant-view-article .iv-inline-photo { display: inline-block; max-width: 100%; width: auto; height: 1.25em; vertical-align: text-bottom; object-fit: contain; }
+.instant-view-article .iv-photo-unavailable { display: inline-block; padding-block: 8px; font-size: max(14px, .85em); }
 .instant-view-article figcaption, .instant-view-article .iv-credit, .instant-view-article blockquote footer { color: var(--text-muted); font-size: max(14px, .85em); }
 .instant-view-article figcaption small { display: block; font-size: inherit; }
 .instant-view-article pre { overflow: auto; padding: 16px; background: var(--bg-2); border-radius: var(--radius); white-space: pre; }
@@ -3556,6 +3566,7 @@ button.top-bar-home:hover .top-bar-mark { filter: brightness(1.12); }
 .link-viewer-spinner { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--border-strong); border-top-color: var(--accent); animation: link-spin .8s linear infinite; }
 .link-viewer-hint { margin: 0; padding: 8px 16px; border-top: 1px solid var(--border); font-size: 12px; color: var(--text-dim); background: var(--bg-elevated, var(--bg-1)); }
 .link-viewer-hint a { color: var(--accent); }
+.link-viewer-source-note { margin:0; padding:10px 18px; background:var(--bg-1); color:var(--text-muted); border-bottom:1px solid var(--border); font-size:13px; line-height:1.5; }
 .link-viewer-summary { margin: auto; width: min(640px, 100%); padding: 28px; display: grid; gap: 18px; overflow: auto; }
 .link-viewer-summary > img { width: 100%; aspect-ratio: 1200 / 630; object-fit: cover; border-radius: 14px; border: 1px solid var(--border); background: var(--bg-2); }
 .link-viewer-summary > div { display: grid; gap: 10px; justify-items: start; }

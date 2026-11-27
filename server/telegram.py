@@ -619,13 +619,27 @@ def _require_iv_admin(request):
 
 def _iv_admin_status():
     enabled = os.getenv("VN_IV_ENABLED", "true").lower() in {"true", "1", "yes"}
-    return _store.instant_views.admin_status(enabled=enabled)
+    status = _store.instant_views.admin_status(enabled=enabled)
+    status["readerVersions"] = _store.reader_versions.stats()
+    media = _store.db.execute("SELECT count(*),coalesce(sum(bytes),0) FROM tg_iv_media").fetchone()
+    status["images"] = {"count": media[0], "bytes": media[1]}
+    return status
 
 
 @router.get("/api/iv-stats")
 async def instant_view_stats(request: Request):
     _require_iv_admin(request)
     return JSONResponse(_iv_admin_status(), headers={"Cache-Control": "no-store"})
+
+
+@router.get("/api/iv-history")
+async def instant_view_history(request: Request, query: str = "", status: str = "all", page: int = 1, pageSize: int = 20):
+    _require_iv_admin(request)
+    try:
+        history = _store.instant_views.history(query=query, status=status, page=page, page_size=pageSize)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    return JSONResponse(history, headers={"Cache-Control": "no-store"})
 
 
 @router.post("/api/iv-control")
@@ -659,6 +673,23 @@ async def instant_view(url: str, request: Request):
     if any(value.strip().removeprefix("W/") == etag.removeprefix("W/") for value in request.headers.get("if-none-match", "").split(",")):
         return Response(status_code=304, headers=headers)
     return Response(body, media_type="application/json", headers=headers)
+
+
+@router.get("/api/instant-view-media/{key}")
+async def instant_view_media(key: str):
+    """Serve only proactively downloaded, indexed raster files. No live fetches."""
+    from starlette.responses import FileResponse
+    if not _store:
+        raise HTTPException(503, "The hosted archive is not configured yet")
+    saved = _store.instant_views.media(key)
+    if not saved:
+        raise HTTPException(404, "Saved article image not found")
+    path, mime = saved
+    return FileResponse(path, media_type=mime, headers={
+        "Cache-Control": "public, max-age=31536000, immutable",
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "default-src 'none'; sandbox",
+    })
 
 
 @router.get("/api/archive")

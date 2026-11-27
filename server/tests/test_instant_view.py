@@ -114,7 +114,8 @@ class InstantViewTests(unittest.IsolatedAsyncioTestCase):
         from telethon.tl import types
         self.client.return_value = SimpleNamespace(webpage=SimpleNamespace(hash=7, cached_page=SimpleNamespace(part=False, rtl=False,
             blocks=[types.PageBlockAuthorDate(types.TextPlain("Author"), datetime(2026, 11, 27, tzinfo=timezone.utc)),
-                    types.PageBlockEmbed(caption=types.PageCaption(types.TextEmpty(), types.TextEmpty()), html="<script>bad()</script>")])) )
+                    types.PageBlockEmbed(caption=types.PageCaption(types.TextEmpty(), types.TextEmpty()), html="<script>bad()</script>"),
+                    types.PageBlockParagraph(types.TextPlain("The body of the article."))])) )
         await self.worker.step()
         article = self.cache.read(URL)["article"]
         self.assertEqual(article["blocks"][0]["published_date"], 1795737600)

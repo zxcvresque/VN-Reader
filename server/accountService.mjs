@@ -68,6 +68,15 @@ export async function createAccountApp(settings=accountSettings(),sendEmail) {
   app.get("/api/admin/r2-analytics",(req,res)=>proxyArchiveAdmin(req,res,"/api/r2-analytics"));
   app.post("/api/admin/r2-control",(req,res)=>proxyArchiveAdmin(req,res,"/api/r2-control","POST"));
   app.get("/api/admin/iv-stats",(req,res)=>proxyArchiveAdmin(req,res,"/api/iv-stats"));
+  app.get("/api/admin/iv-history",(req,res)=>{
+    const query=new URLSearchParams();
+    for(const key of ["query","status","page","pageSize"]){
+      if(req.query[key]===undefined)continue;
+      if(typeof req.query[key]!=="string")return res.status(422).json({detail:"Invalid history search or pagination."});
+      query.set(key,req.query[key]);
+    }
+    return proxyArchiveAdmin(req,res,`/api/iv-history?${query}`);
+  });
   app.post("/api/admin/iv-control",(req,res)=>proxyArchiveAdmin(req,res,"/api/iv-control","POST"));
   forms.mount(app);
   createLinkPreviews({origin:new URL(settings.baseURL).origin}).mount(app);

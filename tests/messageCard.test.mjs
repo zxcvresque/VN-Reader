@@ -17,7 +17,12 @@ new Function('require', 'module', 'exports', quoteJs)(require, quoteModule, quot
 const dimensionsSource = readFileSync(new URL('../src/lib/mediaDimensions.ts', import.meta.url), 'utf8');
 const dimensionsModule = { exports: {} };
 new Function('require', 'module', 'exports', ts.transpileModule(dimensionsSource, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText)(require, dimensionsModule, dimensionsModule.exports);
+const articleSource = readFileSync(new URL('../src/components/ArticleLinkPreview.tsx', import.meta.url), 'utf8');
+const articleModule = { exports: {} };
+new Function('require', 'module', 'exports', ts.transpileModule(articleSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } }).outputText)(
+  name => name === './LinkViewer' ? { loadPreview: async () => ({ ok: false }) } : require(name), articleModule, articleModule.exports);
 const dependencies = {
+  './ArticleLinkPreview': articleModule.exports,
   '../lib/mediaDimensions': dimensionsModule.exports,
   '../lib/quoteHighlight': quoteModule.exports,
   './CustomSelect': { default: () => null },

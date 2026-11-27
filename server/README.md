@@ -155,6 +155,33 @@ Pause state persists across worker/VPS restarts. The browser never receives the
 internal bearer token; the account service verifies the session and CSRF before
 proxying requests to the private archive service.
 
+The **Check history** section searches all recorded attempts by URL, filters by
+result and paginates the full log. New checks are stored as durable events in
+`tg_iv_checks`, including retries and Telegram cooldowns. Upgrading an older
+cache preserves each URL's last known check as a single history entry; earlier
+attempts cannot be reconstructed because they were not recorded. The admin
+history endpoint is `/api/admin/iv-history` with `query`, `status`, `page` and
+`pageSize` parameters. History reads do not fetch articles or change the queue.
+
+Publisher canonical URLs are indexed as aliases for the saved article, so a
+trailing-slash difference does not send readers back to a website preview.
+Only a non-partial Telegram `cached_page` with readable body blocks counts as
+Telegram IV; ordinary title/photo metadata does not. The viewer identifies
+Telegram IV, saved reader versions and website previews separately.
+
+For links confirmed to have no Telegram IV, the same background process
+automatically prepares a separate reader version using the free extraction
+service. No key is required. Requests are globally spaced by at least four
+seconds (at most 15/minute), below its 20/minute unauthenticated limit, with
+persisted upstream cooldowns and per-URL retries. Successful and unavailable
+results are retained for 30 days in `tg_reader_versions`; a failed refresh
+preserves the last readable copy. Set `VN_READER_VERSION_ENABLED=false` to stop
+preparation. The IV pause control also pauses reader-version preparation.
+`GET /api/reader-version?url=...` only reads this shared cache. Opening articles
+does not trigger extraction. The product labels this content **Saved reader
+version**, with no provider branding; it is separate from Telegram IV and may
+differ from the original page in formatting or completeness.
+
 Defaults: `VN_IV_ENABLED=true`, `VN_IV_INTERVAL_SECONDS=2`, and
 `VN_IV_REFRESH_DAYS=30`. Both available and unavailable pages are checked again
 after 30 days. Transient failures use increasing retry delays; FloodWait pauses
@@ -167,9 +194,16 @@ Telegram, common social/video sites and direct file links are excluded.
 never enqueues a visitor-supplied URL or calls Telegram. The link viewer uses
 cached articles when available and retains the existing preview/original-link
 fallback otherwise. Telegram rich text, headings, lists, tables, quotations and
-collapsible sections are rendered as native reader content; images, audio, video
-and third-party embeds link to the original page rather than being downloaded or
-executed on the reader origin. Telegram's partial pages are not served as full
+collapsible sections are rendered as native reader content. Raster photos are
+downloaded by the background worker, deduplicated on disk under
+`/data/iv-media`, indexed in `tg_iv_media`, and served by the cache-only
+`/api/instant-view-media/{key}` route. Existing text caches automatically queue
+once for their photo upgrade. Photo IDs retain their full integer precision.
+`VN_IV_IMAGE_MAX_BYTES` defaults to 8 MiB/photo and
+`VN_IV_MEDIA_BUDGET_BYTES` to 512 MiB total; `VN_IV_MEDIA_DIR` overrides the
+directory. Images are never downloaded by visitor requests. Missing, oversized
+or failed images retain their captions and original-page links. Audio, video
+and third-party embeds still link to the original. Telegram's partial pages are not served as full
 articles. Article JSON has a 4 MiB per-page cap.
 
 Inspect or retry the queue without opening a Telegram connection:

@@ -187,6 +187,14 @@ is required. The default is enabled with two seconds between fetches and a
 `VN_IV_REFRESH_DAYS`). Pause/resume, progress and retries are available beside R2
 in **Admin → Reader activity**. Use `dc exec mirror python -m server.mirror iv-status`
 for a local queue summary. This content is stored on the VPS, not in D1 or R2.
+Check history is searchable and paginated in the same admin section. The upgrade
+retains each cached URL's latest known result and records every subsequent
+attempt; it does not recreate attempts that older releases never saved.
+The worker now also downloads saved IV photos to `/data/iv-media` (8 MiB/file,
+512 MiB total by default) and queues older text-only articles once for images.
+Links without Telegram IV automatically get a separately cached reader version,
+prepared at most 15 times per minute. Both public article APIs and the image
+route serve saved content only. Existing archive volumes retain all these files.
 
 ## 8. Verify the deployed site
 
